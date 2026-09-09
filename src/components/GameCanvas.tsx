@@ -4,6 +4,7 @@ import { TerrainManager } from '../game/terrain';
 import { FoliageManager } from '../game/foliage';
 import { SkyManager, LIGHTING_PRESETS } from '../game/sky';
 import { PlayerManager } from '../game/player';
+import { ObstacleManager } from '../game/obstacles';
 import { AudioManager } from '../game/audio';
 import { PostProcessShader } from '../graphics/shaders';
 import { BiomeType, CosmeticsConfig, GraphicsConfig, LightingMode, PlayerStats, ShaderParams, TrickType } from '../types';
@@ -20,6 +21,10 @@ interface GameCanvasProps {
   isCinematicCam: boolean;
   isUpright?: boolean;
   onNotification: (msg: string) => void;
+  onGameOver?: () => void;
+  restartTrigger?: number;
+  reviveTrigger?: number;
+  shieldTrigger?: number;
 }
 
 export const GameCanvas: React.FC<GameCanvasProps> = ({
@@ -34,6 +39,10 @@ export const GameCanvas: React.FC<GameCanvasProps> = ({
   isCinematicCam,
   isUpright = true,
   onNotification,
+  onGameOver,
+  restartTrigger,
+  reviveTrigger,
+  shieldTrigger,
 }) => {
   const containerRef = useRef<HTMLDivElement>(null);
   const rendererRef = useRef<THREE.WebGLRenderer | null>(null);
@@ -44,6 +53,7 @@ export const GameCanvas: React.FC<GameCanvasProps> = ({
   const foliageMgrRef = useRef<FoliageManager | null>(null);
   const skyMgrRef = useRef<SkyManager | null>(null);
   const playerMgrRef = useRef<PlayerManager | null>(null);
+  const obstacleMgrRef = useRef<ObstacleManager | null>(null);
 
   // Post-processing
   const renderTargetRef = useRef<THREE.WebGLRenderTarget | null>(null);
@@ -96,6 +106,32 @@ export const GameCanvas: React.FC<GameCanvasProps> = ({
       onClearMobileTrick();
     }
   }, [activeMobileTrick, onClearMobileTrick, audioManagerRef]);
+
+  // Handle restart run trigger
+  useEffect(() => {
+    if (restartTrigger && playerMgrRef.current && obstacleMgrRef.current) {
+      playerMgrRef.current.resetRun();
+      obstacleMgrRef.current.reset();
+      onNotification('✨ Journey Begun Anew!');
+    }
+  }, [restartTrigger, onNotification]);
+
+  // Handle revive trigger
+  useEffect(() => {
+    if (reviveTrigger && playerMgrRef.current && obstacleMgrRef.current) {
+      playerMgrRef.current.revive();
+      obstacleMgrRef.current.clearAhead(playerMgrRef.current.position.z, 60);
+      onNotification('🌸 Spirit Revived! Shield Active!');
+    }
+  }, [reviveTrigger, onNotification]);
+
+  // Handle shield trigger from HUD or action button
+  useEffect(() => {
+    if (shieldTrigger && playerMgrRef.current) {
+      playerMgrRef.current.activateHoverboardShield(audioManagerRef.current);
+      onNotification('🛡️ Hoverboard Shield Deployed!');
+    }
+  }, [shieldTrigger, onNotification, audioManagerRef]);
 
   useEffect(() => {
     const container = containerRef.current;
@@ -181,17 +217,46 @@ export const GameCanvas: React.FC<GameCanvasProps> = ({
     playerMgr.setUpright(isUpright);
     playerMgrRef.current = playerMgr;
 
+    const obstacleMgr = new ObstacleManager(scene);
+    obstacleMgrRef.current = obstacleMgr;
+
     // Initial terrain & foliage population
     terrainMgr.update(playerMgr.position.z, playerMgr.position.x, 3);
     foliageMgr.updateFoliage(terrainMgr.chunks, playerMgr.position.z, playerMgr.position.x, graphicsConfig.vegetationDensity);
 
-    // 5. Input Listeners
+    // 5. Input Listeners (Subway Surfers 3-Lane, Jump, Slide & Shield Double-Tap)
+    let lastSpaceTime = 0;
+
     const onKeyDown = (e: KeyboardEvent) => {
       const code = e.code;
-      if (code === 'KeyA' || code === 'ArrowLeft') keysRef.current.left = true;
-      if (code === 'KeyD' || code === 'ArrowRight') keysRef.current.right = true;
-      if (code === 'KeyW' || code === 'ArrowUp') keysRef.current.forward = true;
+      if (code === 'KeyA' || code === 'ArrowLeft') {
+        playerMgr.switchLane(-1, audio);
+        keysRef.current.left = true;
+      }
+      if (code === 'KeyD' || code === 'ArrowRight') {
+        playerMgr.switchLane(1, audio);
+        keysRef.current.right = true;
+      }
+      if (code === 'KeyS' || code === 'ArrowDown') {
+        playerMgr.triggerSlide(audio);
+        e.preventDefault();
+      }
+      if (code === 'KeyW' || code === 'ArrowUp') {
+        if (!keysRef.current.jump && playerMgr.isGrounded) {
+          audio.playJump();
+        }
+        keysRef.current.jump = true;
+        keysRef.current.forward = true;
+        e.preventDefault();
+      }
       if (code === 'Space') {
+        const now = performance.now();
+        if (now - lastSpaceTime < 340) {
+          playerMgr.activateHoverboardShield(audio);
+          onNotification('🛡️ Hoverboard Shield Deployed!');
+        }
+        lastSpaceTime = now;
+
         if (!keysRef.current.jump && playerMgr.isGrounded) {
           audio.playJump();
         }
@@ -214,7 +279,10 @@ export const GameCanvas: React.FC<GameCanvasProps> = ({
       const code = e.code;
       if (code === 'KeyA' || code === 'ArrowLeft') keysRef.current.left = false;
       if (code === 'KeyD' || code === 'ArrowRight') keysRef.current.right = false;
-      if (code === 'KeyW' || code === 'ArrowUp') keysRef.current.forward = false;
+      if (code === 'KeyW' || code === 'ArrowUp') {
+        keysRef.current.forward = false;
+        keysRef.current.jump = false;
+      }
       if (code === 'Space') keysRef.current.jump = false;
       if (code === 'ShiftLeft' || code === 'ShiftRight') keysRef.current.drift = false;
 
@@ -227,41 +295,70 @@ export const GameCanvas: React.FC<GameCanvasProps> = ({
     window.addEventListener('keydown', onKeyDown);
     window.addEventListener('keyup', onKeyUp);
 
-    // Pointer / Touch gestures for mobile
+    // Pointer / Touch gestures for Subway Surfers swipe & double-tap
+    let lastTapTime = 0;
+    const swipeState = {
+      startX: 0,
+      startY: 0,
+      active: false,
+      startTime: 0,
+      swiped: false,
+    };
+
     const onPointerDown = (e: PointerEvent) => {
-      touchStateRef.current.active = true;
-      touchStateRef.current.startX = e.clientX;
-      touchStateRef.current.startY = e.clientY;
+      swipeState.active = true;
+      swipeState.startX = e.clientX;
+      swipeState.startY = e.clientY;
+      swipeState.startTime = performance.now();
+      swipeState.swiped = false;
     };
 
     const onPointerMove = (e: PointerEvent) => {
-      if (!touchStateRef.current.active) return;
-      const dx = e.clientX - touchStateRef.current.startX;
-      const dy = e.clientY - touchStateRef.current.startY;
+      if (!swipeState.active || swipeState.swiped) return;
+      const dx = e.clientX - swipeState.startX;
+      const dy = e.clientY - swipeState.startY;
+      const absDx = Math.abs(dx);
+      const absDy = Math.abs(dy);
 
-      if (dx < -30) {
-        keysRef.current.left = true;
-        keysRef.current.right = false;
-      } else if (dx > 30) {
-        keysRef.current.right = true;
-        keysRef.current.left = false;
-      } else {
-        keysRef.current.left = false;
-        keysRef.current.right = false;
-      }
-
-      if (dy < -40) {
-        keysRef.current.forward = true;
-      } else {
-        keysRef.current.forward = false;
+      if (absDx > 24 || absDy > 24) {
+        swipeState.swiped = true;
+        if (absDx > absDy) {
+          // Horizontal Swipe: 3-Lane Switch
+          if (dx < 0) {
+            playerMgr.switchLane(-1, audio);
+          } else {
+            playerMgr.switchLane(1, audio);
+          }
+        } else {
+          // Vertical Swipe: Jump or Slide
+          if (dy < 0) {
+            // Swipe Up = Jump
+            if (playerMgr.isGrounded) {
+              audio.playJump();
+              keysRef.current.jump = true;
+              setTimeout(() => { keysRef.current.jump = false; }, 160);
+            }
+          } else {
+            // Swipe Down = Slide / Fast fall
+            playerMgr.triggerSlide(audio);
+          }
+        }
       }
     };
 
     const onPointerUp = () => {
-      touchStateRef.current.active = false;
+      if (swipeState.active && !swipeState.swiped) {
+        const now = performance.now();
+        if (now - lastTapTime < 320) {
+          playerMgr.activateHoverboardShield(audio);
+          onNotification('🛡️ Hoverboard Shield Deployed!');
+        }
+        lastTapTime = now;
+      }
+      swipeState.active = false;
+      swipeState.swiped = false;
       keysRef.current.left = false;
       keysRef.current.right = false;
-      keysRef.current.forward = false;
     };
 
     container.addEventListener('pointerdown', onPointerDown);
@@ -317,6 +414,52 @@ export const GameCanvas: React.FC<GameCanvasProps> = ({
 
       // Update Player with terrainManager and audioManager
       playerMgr.update(dt, keysRef.current, timeSeconds, terrainMgr, audio);
+
+      // Subway Surfers Obstacles, Pickups & Collision Loop
+      if (playerMgr.gameState === 'playing') {
+        obstacleMgr.update(playerMgr.position.z, timeSeconds);
+
+        if (playerMgr.activePowerUps.magnetTimer > 0) {
+          obstacleMgr.attractCoinsToPlayer(playerMgr.position, 28.0, dt);
+        }
+
+        const collision = obstacleMgr.checkCollisions(playerMgr.position, playerMgr.isSliding);
+
+        if (collision.collectedCoins > 0) {
+          playerMgr.addCoins(collision.collectedCoins);
+          audio.playOrbChime();
+          onNotification(`+${collision.collectedCoins * 100 * playerMgr.scoreMultiplier} Wind Orbs!`);
+        }
+
+        if (collision.collectedPowerUp) {
+          playerMgr.applyPowerUp(collision.collectedPowerUp, audio);
+          const pNames: Record<PowerUpType, string> = {
+            'magnet': '🧲 Spirit Magnet Active! (12s)',
+            'jetpack': '🚀 Zephyr Jetpack Soaring! (8.5s)',
+            'multiplier2x': '✨ 2x Spirit Multiplier Active! (15s)',
+            'hoverboard-shield': '🛡️ Hoverboard Shield Bubble!',
+          };
+          onNotification(pNames[collision.collectedPowerUp] || 'Power-Up Collected!');
+        }
+
+        if (collision.hasCrashed) {
+          if (playerMgr.activePowerUps.hoverboardShield) {
+            playerMgr.absorbShieldHit();
+            audio.playCarveWhoosh();
+            onNotification('🛡️ Shield Absorbed Collision!');
+            if (collision.crashedObstacle) {
+              obstacleMgr.removeObstacle(collision.crashedObstacle);
+            }
+          } else {
+            playerMgr.crash();
+            audio.playCrashSound();
+            onNotification('💥 Wipeout! Respite needed at the sanctuary.');
+            if (onGameOver) {
+              onGameOver();
+            }
+          }
+        }
+      }
 
       // Biome transition detection & audio
       const currentBiome = playerMgr.stats.currentBiome;
@@ -405,9 +548,10 @@ export const GameCanvas: React.FC<GameCanvasProps> = ({
 
       // Render Scene
       if (graphicsConfig.enablePostProcess && rt && postScene && postCamera && postMaterial) {
-        // High speed radial motion blur factor & anime speed lines
-        const blurFactor = Math.max(0, (playerMgr.stats.speed - 26) / 16);
-        const speedLinesFactor = Math.max(0, (playerMgr.stats.speed - 28) / 12);
+        // High speed radial motion blur factor & anime speed lines (clamped — was unbounded and
+        // produced an extreme, screen-smearing blur at normal cruising speeds of 80-110 km/h)
+        const blurFactor = Math.min(1.0, Math.max(0, (playerMgr.stats.speed - 26) / 60));
+        const speedLinesFactor = Math.min(1.0, Math.max(0, (playerMgr.stats.speed - 28) / 55));
         const heatShimmerFactor = currentBiome === 'dunes' ? 1.0 : 0.0;
 
         postMaterial.uniforms.uTime.value = timeSeconds;
@@ -447,6 +591,7 @@ export const GameCanvas: React.FC<GameCanvasProps> = ({
       terrainMgr.dispose();
       foliageMgr.dispose();
       playerMgr.dispose();
+      obstacleMgr.reset();
       quadGeom.dispose();
       postMaterial.dispose();
       rt.dispose();

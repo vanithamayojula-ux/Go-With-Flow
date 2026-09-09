@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { Volume2, VolumeX, Sliders, Eye, FileCode2, Wind, Sparkles, Palette, Compass, Smartphone, Monitor, Code } from 'lucide-react';
+import { Volume2, VolumeX, Sliders, Eye, FileCode2, Wind, Sparkles, Palette, Compass, Smartphone, Monitor, Code, Shield } from 'lucide-react';
 import { BiomeType, LightingMode, PlayerStats } from '../types';
 
 interface GameHUDProps {
@@ -15,6 +15,7 @@ interface GameHUDProps {
   onToggleCam: () => void;
   isUpright?: boolean;
   onToggleUpright?: () => void;
+  onActivateShield?: () => void;
   onOpenGraphicsDrawer: () => void;
   onOpenDeliverables: () => void;
   onOpenCosmetics: () => void;
@@ -34,6 +35,7 @@ export const GameHUD: React.FC<GameHUDProps> = ({
   onToggleCam,
   isUpright = true,
   onToggleUpright,
+  onActivateShield,
   onOpenGraphicsDrawer,
   onOpenDeliverables,
   onOpenCosmetics,
@@ -99,32 +101,77 @@ export const GameHUD: React.FC<GameHUDProps> = ({
             )}
           </div>
 
-          {/* Clean In-World Metrics Bar (No Dev Readouts) */}
-          <div className="flex items-center space-x-2 pointer-events-auto">
-            {/* Speed Badge */}
-            <div className="px-3.5 py-1.5 rounded-xl bg-[#FFFDF5]/85 backdrop-blur-md border border-[#D97706]/25 text-[#78350F] flex items-center space-x-2 shadow-sm">
-              <span className="text-[11px] text-[#B45309] uppercase font-sans font-semibold">Speed</span>
-              <span className="text-base font-bold text-[#92400E] font-mono">
-                {Math.round(stats.speed * 3.6)}
+          {/* Subway Surfers In-World Metrics Bar */}
+          <div className="flex items-center space-x-2 pointer-events-auto flex-wrap gap-y-1.5">
+            {/* Score & Multiplier Badge */}
+            <div className="px-3.5 py-1.5 rounded-xl bg-[#FFFDF5]/95 backdrop-blur-md border border-[#D97706]/35 text-[#78350F] flex items-center space-x-2 shadow-md">
+              <span className="text-[10px] text-[#B45309] uppercase font-sans font-bold">Score</span>
+              <span className="text-lg font-black text-[#92400E] font-mono tracking-tight">
+                {stats.score.toLocaleString()}
               </span>
-              <span className="text-[10px] text-[#B45309]">km/h</span>
+              {stats.scoreMultiplier > 1 && (
+                <span className="px-1.5 py-0.5 rounded-md bg-[#F59E0B] text-white text-[10px] font-black tracking-wider animate-pulse">
+                  x{stats.scoreMultiplier}
+                </span>
+              )}
             </div>
 
-            {/* Distance Badge */}
-            <div className="px-3.5 py-1.5 rounded-xl bg-[#FFFDF5]/85 backdrop-blur-md border border-[#D97706]/25 text-[#78350F] flex items-center space-x-2 shadow-sm">
-              <span className="text-[11px] text-[#B45309] uppercase font-sans font-semibold">Distance</span>
-              <span className="text-base font-bold text-[#92400E] font-mono">
-                {stats.distance}m
+            {/* High Score Trophy */}
+            <div className="px-3 py-1.5 rounded-xl bg-[#FFFDF5]/90 backdrop-blur-md border border-[#D97706]/25 text-[#78350F] flex items-center space-x-1.5 shadow-sm">
+              <Trophy className="w-3.5 h-3.5 text-amber-500" />
+              <span className="text-xs font-bold text-[#92400E] font-mono">
+                {stats.highScore > 0 ? stats.highScore.toLocaleString() : '0'}
               </span>
             </div>
 
-            {/* Wind Orbs Collected */}
-            <div className="px-3 py-1.5 rounded-xl bg-[#FFFDF5]/85 backdrop-blur-md border border-[#D97706]/25 text-[#78350F] flex items-center space-x-1.5 shadow-sm">
+            {/* Wind Orbs / Coins Collected */}
+            <div className="px-3 py-1.5 rounded-xl bg-[#FFFDF5]/90 backdrop-blur-md border border-[#D97706]/25 text-[#78350F] flex items-center space-x-1.5 shadow-sm">
               <Wind className="w-4 h-4 text-[#D97706]" />
               <span className="text-sm font-bold text-[#78350F] font-mono">
                 {stats.windOrbsCollected}
               </span>
             </div>
+
+            {/* Distance Badge */}
+            <div className="px-3 py-1.5 rounded-xl bg-[#FFFDF5]/85 backdrop-blur-md border border-[#D97706]/20 text-[#78350F] flex items-center space-x-1.5 shadow-sm">
+              <span className="text-xs">🧭</span>
+              <span className="text-xs font-bold text-[#92400E] font-mono">
+                {stats.distance}m
+              </span>
+            </div>
+          </div>
+
+          {/* Active Subway Surfers Power-Ups Strip */}
+          <div className="flex items-center space-x-1.5 pointer-events-auto">
+            {stats.activePowerUps.magnetTimer > 0 && (
+              <div className="px-2.5 py-1 rounded-lg bg-red-500/90 text-white text-[11px] font-bold flex items-center space-x-1 shadow-md animate-pulse">
+                <span>🧲 Magnet</span>
+                <span className="font-mono text-[10px] bg-red-700/80 px-1 rounded">
+                  {Math.ceil(stats.activePowerUps.magnetTimer)}s
+                </span>
+              </div>
+            )}
+            {stats.activePowerUps.jetpackTimer > 0 && (
+              <div className="px-2.5 py-1 rounded-lg bg-cyan-500/90 text-white text-[11px] font-bold flex items-center space-x-1 shadow-md animate-bounce">
+                <span>🚀 Jetpack</span>
+                <span className="font-mono text-[10px] bg-cyan-700/80 px-1 rounded">
+                  {Math.ceil(stats.activePowerUps.jetpackTimer)}s
+                </span>
+              </div>
+            )}
+            {stats.activePowerUps.multiplierTimer > 0 && (
+              <div className="px-2.5 py-1 rounded-lg bg-amber-500/90 text-white text-[11px] font-bold flex items-center space-x-1 shadow-md">
+                <span>✨ 2x Multiplier</span>
+                <span className="font-mono text-[10px] bg-amber-700/80 px-1 rounded">
+                  {Math.ceil(stats.activePowerUps.multiplierTimer)}s
+                </span>
+              </div>
+            )}
+            {stats.activePowerUps.hoverboardShield && (
+              <div className="px-2.5 py-1 rounded-lg bg-emerald-500/90 text-white text-[11px] font-bold flex items-center space-x-1 shadow-md">
+                <span>🛡️ Shield Active</span>
+              </div>
+            )}
           </div>
         </div>
 
@@ -222,6 +269,23 @@ export const GameHUD: React.FC<GameHUDProps> = ({
             >
               <Eye className="w-4 h-4" />
             </button>
+
+            {/* Hoverboard Shield Trigger (Subway Surfers double tap / shield) */}
+            {onActivateShield && (
+              <button
+                id="btn-hud-shield"
+                onClick={onActivateShield}
+                className={`p-2.5 rounded-xl backdrop-blur-md border transition-all shadow-md flex items-center space-x-1 ${
+                  stats.activePowerUps.hoverboardShield
+                    ? 'bg-emerald-100 border-emerald-400 text-emerald-800 animate-pulse'
+                    : 'bg-[#FFFDF5]/90 border-[#D97706]/35 text-[#78350F] hover:bg-[#FEF3C7]'
+                }`}
+                title="Activate Hoverboard Shield (Protects against 1 collision)"
+              >
+                <Shield className="w-4 h-4 text-emerald-600" />
+                <span className="text-xs font-semibold hidden sm:inline">Shield</span>
+              </button>
+            )}
 
             {/* Equipment & Cosmetics Trigger */}
             <button

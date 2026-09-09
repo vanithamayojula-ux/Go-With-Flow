@@ -1,9 +1,9 @@
 import React from 'react';
-import { ArrowLeft, ArrowRight, ArrowUp, Zap, Sparkles, RefreshCw, RotateCcw, Hand, Smile } from 'lucide-react';
+import { ArrowLeft, ArrowRight, ArrowUp, ArrowDown, Zap, Sparkles, RefreshCw, RotateCcw, Hand, Smile, Shield } from 'lucide-react';
 import { TrickType } from '../types';
 
 interface ControlsOverlayProps {
-  onControlAction: (action: 'left' | 'right' | 'jump' | 'forward' | 'drift', pressed: boolean) => void;
+  onControlAction: (action: 'left' | 'right' | 'jump' | 'forward' | 'drift' | 'slide' | 'shield', pressed: boolean) => void;
   onTriggerTrick: (trick: TrickType) => void;
   isAirborne: boolean;
   slowMoActive: boolean;
@@ -115,41 +115,28 @@ export const ControlsOverlay: React.FC<ControlsOverlayProps> = ({
 
         {/* Center: Minimal Keyboard Hints (hidden on small mobile touch) */}
         <div className="hidden md:flex items-center space-x-2 px-3.5 py-1.5 rounded-full bg-black/40 backdrop-blur-md border border-white/10 text-xs text-white/80 font-mono tracking-wide">
-          <span><kbd className="px-1.5 py-0.5 rounded bg-white/20 text-white font-bold">A</kbd> <kbd className="px-1.5 py-0.5 rounded bg-white/20 text-white font-bold">D</kbd> Carve</span>
+          <span><kbd className="px-1.5 py-0.5 rounded bg-white/20 text-white font-bold">A</kbd> <kbd className="px-1.5 py-0.5 rounded bg-white/20 text-white font-bold">D</kbd> Switch Lane</span>
           <span className="text-white/30">•</span>
-          <span><kbd className="px-2 py-0.5 rounded bg-white/20 text-white font-bold">SPACE</kbd> Jump</span>
+          <span><kbd className="px-2 py-0.5 rounded bg-white/20 text-white font-bold">SPACE / W</kbd> Jump</span>
           <span className="text-white/30">•</span>
-          <span><kbd className="px-1.5 py-0.5 rounded bg-white/20 text-white font-bold">W</kbd> Boost</span>
+          <span><kbd className="px-1.5 py-0.5 rounded bg-white/20 text-white font-bold">S / DOWN</kbd> Slide</span>
           <span className="text-white/30">•</span>
-          <span><kbd className="px-1.5 py-0.5 rounded bg-white/20 text-white font-bold">SHIFT</kbd> Drift</span>
-          <span className="text-white/30">•</span>
-          <span><kbd className="px-1.5 py-0.5 rounded bg-white/20 text-white font-bold">J K L I</kbd> Tricks</span>
+          <span><kbd className="px-1.5 py-0.5 rounded bg-white/20 text-white font-bold">DOUBLE SPACE</kbd> Shield</span>
         </div>
 
-        {/* Right Side: Action Buttons (Boost, Jump, Drift) */}
+        {/* Right Side: Action Buttons (Slide, Jump, Boost) */}
         <div className="flex items-center space-x-3 pointer-events-auto">
-          {/* Drift Button */}
+          {/* Slide / Roll Button */}
           <button
-            id="btn-action-drift"
-            className="w-12 h-12 sm:w-14 sm:h-14 rounded-full bg-emerald-950/60 backdrop-blur-md border border-emerald-400/40 text-emerald-200 flex items-center justify-center active:scale-95 active:bg-emerald-500/80 transition-all shadow-lg shadow-black/20"
-            onPointerDown={() => onControlAction('drift', true)}
-            onPointerUp={() => onControlAction('drift', false)}
-            onPointerLeave={() => onControlAction('drift', false)}
-            aria-label="Hard Carve Drift"
+            id="btn-action-slide"
+            className="w-14 h-14 sm:w-16 sm:h-16 rounded-full bg-amber-900/70 backdrop-blur-md border border-amber-400/50 text-white flex flex-col items-center justify-center active:scale-95 active:bg-amber-500 transition-all shadow-lg shadow-amber-900/30"
+            onPointerDown={() => onControlAction('slide', true)}
+            onPointerUp={() => onControlAction('slide', false)}
+            onPointerLeave={() => onControlAction('slide', false)}
+            aria-label="Slide and Duck Under Barriers"
           >
-            <Sparkles className="w-5 h-5" />
-          </button>
-
-          {/* Boost Button */}
-          <button
-            id="btn-action-boost"
-            className="w-14 h-14 sm:w-16 sm:h-16 rounded-full bg-amber-950/60 backdrop-blur-md border border-amber-400/40 text-amber-200 flex items-center justify-center active:scale-95 active:bg-amber-500/80 transition-all shadow-lg shadow-black/20"
-            onPointerDown={() => onControlAction('forward', true)}
-            onPointerUp={() => onControlAction('forward', false)}
-            onPointerLeave={() => onControlAction('forward', false)}
-            aria-label="Speed Boost"
-          >
-            <Zap className="w-6 h-6" />
+            <ArrowDown className="w-5 h-5 text-amber-200" />
+            <span className="text-[10px] uppercase font-bold tracking-widest mt-0.5">Slide</span>
           </button>
 
           {/* Jump Button */}

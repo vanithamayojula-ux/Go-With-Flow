@@ -5,6 +5,7 @@ import { ControlsOverlay } from './components/ControlsOverlay';
 import { GraphicsDrawer } from './components/GraphicsDrawer';
 import { AssetDeliverablesModal } from './components/AssetDeliverablesModal';
 import { CosmeticsModal } from './components/CosmeticsModal';
+import { GameOverModal } from './components/GameOverModal';
 import { AudioManager } from './game/audio';
 import {
   CosmeticsConfig,
@@ -60,11 +61,26 @@ export default function App() {
   const [notification, setNotification] = useState<string | null>(null);
   const [isUprightMode, setIsUprightMode] = useState<boolean>(true);
 
+  // Subway Surfers State
+  const [isGameOver, setIsGameOver] = useState(false);
+  const [restartCount, setRestartCount] = useState(0);
+  const [reviveCount, setReviveCount] = useState(0);
+  const [shieldCount, setShieldCount] = useState(0);
+  const [highScore, setHighScore] = useState<number>(() => {
+    try {
+      const saved = localStorage.getItem('skyflow_high_score');
+      return saved ? parseInt(saved, 10) || 0 : 0;
+    } catch {
+      return 0;
+    }
+  });
+
   const [stats, setStats] = useState<PlayerStats>({
     speed: 18,
     maxSpeed: 42,
     distance: 0,
     score: 0,
+    highScore: 0,
     styleMeter: 15,
     styleTier: 'Chill',
     airTime: 0,
@@ -86,11 +102,18 @@ export default function App() {
   const notifTimeoutRef = useRef<number | null>(null);
 
   const handleStatsUpdate = useCallback((newStats: PlayerStats, currentFps: number, calls: number, instances: number) => {
+    if (newStats.score > highScore) {
+      setHighScore(newStats.score);
+      try {
+        localStorage.setItem('skyflow_high_score', String(newStats.score));
+      } catch {}
+    }
+    newStats.highScore = Math.max(newStats.highScore, highScore, newStats.score);
     setStats({ ...newStats });
     setFps(currentFps);
     setDrawCalls(calls);
     setInstanceCount(instances);
-  }, []);
+  }, [highScore]);
 
   const triggerNotification = useCallback((msg: string) => {
     setNotification(msg);
@@ -141,17 +164,24 @@ export default function App() {
   }, [triggerNotification]);
 
   // Bridge touch overlay buttons to synthetic keyboard events
-  const handleControlAction = useCallback((action: 'left' | 'right' | 'jump' | 'forward' | 'drift', pressed: boolean) => {
-    const keyMap = {
+  const handleControlAction = useCallback((action: 'left' | 'right' | 'jump' | 'forward' | 'drift' | 'slide' | 'shield', pressed: boolean) => {
+    if (action === 'shield') {
+      if (pressed) setShieldCount(c => c + 1);
+      return;
+    }
+    const keyMap: Record<string, string> = {
       left: 'KeyA',
       right: 'KeyD',
       forward: 'KeyW',
       jump: 'Space',
       drift: 'ShiftLeft',
+      slide: 'KeyS',
     };
     const code = keyMap[action];
-    const eventType = pressed ? 'keydown' : 'keyup';
-    window.dispatchEvent(new KeyboardEvent(eventType, { code, bubbles: true }));
+    if (code) {
+      const eventType = pressed ? 'keydown' : 'keyup';
+      window.dispatchEvent(new KeyboardEvent(eventType, { code, bubbles: true }));
+    }
   }, []);
 
   return (
@@ -171,6 +201,10 @@ export default function App() {
           isCinematicCam={isCinematicCam}
           isUpright={isUprightMode}
           onNotification={triggerNotification}
+          onGameOver={() => setIsGameOver(true)}
+          restartTrigger={restartCount}
+          reviveTrigger={reviveCount}
+          shieldTrigger={shieldCount}
         />
 
         {/* Game HUD */}
@@ -193,6 +227,7 @@ export default function App() {
               return next;
             });
           }}
+          onActivateShield={() => setShieldCount(c => c + 1)}
           onOpenGraphicsDrawer={() => setIsGraphicsDrawerOpen(true)}
           onOpenDeliverables={() => setIsDeliverablesOpen(true)}
           onOpenCosmetics={() => setIsCosmeticsOpen(true)}
@@ -236,6 +271,24 @@ export default function App() {
         cosmetics={cosmeticsConfig}
         onUpdateCosmetics={setCosmeticsConfig}
       />
+
+      {/* Game Over / Journey's Respite Modal */}
+      {isGameOver && (
+        <GameOverModal
+          stats={stats}
+          onRestart={() => {
+            setIsGameOver(false);
+            setRestartCount(c => c + 1);
+          }}
+          onRevive={() => {
+            if (stats.windOrbsCollected >= 15) {
+              setStats(prev => ({ ...prev, windOrbsCollected: Math.max(0, prev.windOrbsCollected - 15) }));
+              setIsGameOver(false);
+              setReviveCount(c => c + 1);
+            }
+          }}
+        />
+      )}
     </div>
   );
 }

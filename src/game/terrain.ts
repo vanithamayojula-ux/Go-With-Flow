@@ -321,23 +321,38 @@ export class TerrainManager {
 
       // Lush grassy top plate cap
       const topPlateGeom = new THREE.CylinderGeometry(islandRadius, islandRadius * 0.95, 2.0, 16);
-      const topPlateMat = new THREE.MeshStandardMaterial({
-        color: biome === 'dunes' ? 0xe2c488 : 0x4caf50,
-        roughness: 0.65,
+      topPlateGeom.computeVertexNormals();
+      const topPlateMat = new THREE.MeshLambertMaterial({
+        color: biome === 'dunes' ? 0xe2c488 : 0x5c9e75,
+        side: THREE.DoubleSide,
       });
       const topPlate = new THREE.Mesh(topPlateGeom, topPlateMat);
       islandGroup.add(topPlate);
 
-      // Soft rounded mossy rock underside
-      const rockConeGeom = new THREE.ConeGeometry(islandRadius * 0.92, islandRadius * 1.1, 12);
-      rockConeGeom.rotateX(Math.PI);
-      rockConeGeom.translate(0, -islandRadius * 0.55 - 1.0, 0);
-      const rockMat = new THREE.MeshStandardMaterial({
-        color: 0x4a5a66,
-        roughness: 0.9,
+      // Soft rounded warm rocky underside (tapered cylinder, correct normals, never pure black)
+      const rockConeGeom = new THREE.CylinderGeometry(islandRadius * 0.95, 0.6, islandRadius * 1.2, 16);
+      rockConeGeom.translate(0, -islandRadius * 0.6 - 1.0, 0);
+      rockConeGeom.computeVertexNormals();
+      const rockMat = new THREE.MeshLambertMaterial({
+        color: 0x8b6544, // Warm terracotta earth stone
+        side: THREE.DoubleSide,
       });
       const rockCone = new THREE.Mesh(rockConeGeom, rockMat);
       islandGroup.add(rockCone);
+
+      // Dripping Waterfalls & Translucent Cascade Stream
+      if (biome !== 'dunes') {
+        const wfGeom = new THREE.CylinderGeometry(0.6, 0.2, islandRadius * 1.4, 8, 1, true);
+        wfGeom.translate(0, -islandRadius * 0.7, islandRadius * 0.75);
+        const wfMat = new THREE.MeshBasicMaterial({
+          color: 0x8ef0ff,
+          transparent: true,
+          opacity: 0.82,
+          side: THREE.DoubleSide,
+        });
+        const waterfall = new THREE.Mesh(wfGeom, wfMat);
+        islandGroup.add(waterfall);
+      }
 
       // Hanging Vines & Trailing Greenery
       const vineMat = new THREE.MeshLambertMaterial({ color: 0x388e3c });
@@ -679,9 +694,8 @@ export class TerrainManager {
     const angle = Math.random() * Math.PI * 2;
     group.rotation.y = angle;
 
-    const boneMat = new THREE.MeshStandardMaterial({
+    const boneMat = new THREE.MeshLambertMaterial({
       color: 0xede0c8,
-      roughness: 0.85,
     });
 
     const ribCount = 5 + Math.floor(Math.random() * 2);
@@ -717,9 +731,8 @@ export class TerrainManager {
     group.position.set(x, y - 0.8, z);
     group.rotation.y = Math.random() * Math.PI;
 
-    const stoneMat = new THREE.MeshStandardMaterial({
+    const stoneMat = new THREE.MeshLambertMaterial({
       color: 0xc89e6e,
-      roughness: 0.8,
     });
 
     const height = 10 + Math.random() * 8;
@@ -772,9 +785,8 @@ export class TerrainManager {
     group.position.set(x, y, z);
     group.scale.setScalar(0.95 + Math.random() * 0.2);
 
-    const stoneMat = new THREE.MeshStandardMaterial({
+    const stoneMat = new THREE.MeshLambertMaterial({
       color: 0x8a928d,
-      roughness: 0.9,
     });
     const glowMat = new THREE.MeshBasicMaterial({ color: 0xffd374 });
 
@@ -815,9 +827,8 @@ export class TerrainManager {
     const group = new THREE.Group();
     group.position.set(x, y - 0.2, z);
 
-    const rockMat = new THREE.MeshStandardMaterial({
-      color: 0x4a6b53, // Overgrown mossy rock green
-      roughness: 0.92,
+    const rockMat = new THREE.MeshLambertMaterial({
+      color: 0x5a6872, // Mossy slate rock
     });
 
     const count = 3 + Math.floor(Math.random() * 3);
@@ -843,7 +854,7 @@ export class TerrainManager {
     group.scale.setScalar(1.6 + Math.random() * 0.9);
     group.rotation.y = Math.random() * Math.PI * 2;
 
-    const barkMat = new THREE.MeshStandardMaterial({ color: 0x5c4632, roughness: 0.95 });
+    const barkMat = new THREE.MeshLambertMaterial({ color: 0x5c4632 });
     const canopyMat = new THREE.MeshLambertMaterial({ color: 0x3f7a45 });
     const canopyMat2 = new THREE.MeshLambertMaterial({ color: 0x549b57 });
     const hollowMat = new THREE.MeshBasicMaterial({ color: 0x1a140d });

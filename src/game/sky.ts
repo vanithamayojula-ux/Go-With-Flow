@@ -108,6 +108,9 @@ export class SkyManager {
     this.ambientLight = new THREE.AmbientLight(0x8bbbe8, 0.80);
     this.scene.add(this.ambientLight);
 
+    // Exponential depth fog matching sky horizon color
+    this.scene.fog = new THREE.FogExp2(LIGHTING_PRESETS['golden-hour'].skyHorizon, 0.0038);
+
     this.cloudTexture = createPainterlyCloudTexture();
     this.toweringCloudTexture = createToweringCumulusTexture();
     this.cloudsGroup = new THREE.Group();
@@ -264,6 +267,17 @@ export class SkyManager {
     this.dirLight.color.set(config.sunColor);
     this.dirLight.position.set(...config.sunPosition);
     this.ambientLight.color.set(config.ambientColor);
+
+    // Real scene-level distance fog (THREE.FogExp2) so floating islands, cottages, trees, and the
+    // character blend softly into the horizon at distance instead of popping as flat, disconnected
+    // shapes. The terrain itself has its own hand-tuned fog baked into its shader and is unaffected
+    // by scene.fog (its ShaderMaterial doesn't opt into the built-in fog chunks), so this only
+    // applies to standard-material objects that previously had zero atmospheric falloff.
+    if (!this.scene.fog) {
+      this.scene.fog = new THREE.FogExp2(config.skyHorizon, 0.0035);
+    } else if (this.scene.fog instanceof THREE.FogExp2) {
+      this.scene.fog.color.set(config.skyHorizon);
+    }
   }
 
   update(playerPos: THREE.Vector3, playerVelocityZ: number, time: number) {

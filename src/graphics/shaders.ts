@@ -165,8 +165,8 @@ export const TerrainShader = {
       // Soft Ghibli Volumetric Atmospheric Depth Fog (seamless transition to sky)
       float dist = length(vWorldPosition - uCameraPos);
       float heightFog = exp(-max(vWorldPosition.y + 10.0, 0.0) * 0.035);
-      float distFog = smoothstep(80.0, 520.0, dist);
-      float totalFog = clamp(distFog * 0.65 + heightFog * 0.20, 0.0, 0.85);
+      float distFog = smoothstep(40.0, 240.0, dist);
+      float totalFog = clamp(distFog * 0.75 + heightFog * 0.20, 0.0, 0.90);
 
       vec3 fogColor = mix(uAmbientColor, uSlopeWarmColor, 0.45);
 
@@ -344,7 +344,9 @@ export const PostProcessShader = {
       vec3 sceneCol = vec3(0.0);
       if (uHighSpeedBlur > 0.05) {
         vec2 center = vec2(0.5, 0.45);
-        vec2 toCenter = (center - uv) * uHighSpeedBlur * 0.04;
+        // Clamped to a subtle radial blur — uHighSpeedBlur is expected in [0,1]; this used to be
+        // fed unclamped values up to ~5x from the caller, causing an extreme screen-wide smear.
+        vec2 toCenter = (center - uv) * uHighSpeedBlur * 0.015;
         for (int i = 0; i < 5; i++) {
           sceneCol += texture2D(tDiffuse, uv + toCenter * float(i)).rgb;
         }
@@ -365,15 +367,26 @@ export const PostProcessShader = {
         sceneCol += vec3(1.0, 0.96, 0.88) * linePattern * mask * 0.45;
       }
 
+      // Radiant Multi-Tap Ghibli Bloom Pass for glowing windows, lanterns, sun & trail ribbon
       if (uBloom > 0.01) {
         vec3 bloomAccum = vec3(0.0);
         vec2 texel = 1.0 / uResolution;
-        float r = 2.5 * uBloom;
-        bloomAccum += max(texture2D(tDiffuse, uv + vec2(-r, 0.0) * texel).rgb - 0.62, 0.0);
-        bloomAccum += max(texture2D(tDiffuse, uv + vec2(r, 0.0) * texel).rgb - 0.62, 0.0);
-        bloomAccum += max(texture2D(tDiffuse, uv + vec2(0.0, -r) * texel).rgb - 0.62, 0.0);
-        bloomAccum += max(texture2D(tDiffuse, uv + vec2(0.0, r) * texel).rgb - 0.62, 0.0);
-        sceneCol += bloomAccum * (0.38 * uBloom);
+        float r1 = 3.5 * uBloom;
+        float r2 = 7.0 * uBloom;
+        float r3 = 11.0 * uBloom;
+        float threshold = 0.42;
+
+        bloomAccum += max(texture2D(tDiffuse, uv + vec2(-r1, 0.0) * texel).rgb - threshold, vec3(0.0)) * 0.30;
+        bloomAccum += max(texture2D(tDiffuse, uv + vec2(r1, 0.0) * texel).rgb - threshold, vec3(0.0)) * 0.30;
+        bloomAccum += max(texture2D(tDiffuse, uv + vec2(0.0, -r1) * texel).rgb - threshold, vec3(0.0)) * 0.30;
+        bloomAccum += max(texture2D(tDiffuse, uv + vec2(0.0, r1) * texel).rgb - threshold, vec3(0.0)) * 0.30;
+
+        bloomAccum += max(texture2D(tDiffuse, uv + vec2(-r2, -r2) * texel).rgb - threshold, vec3(0.0)) * 0.20;
+        bloomAccum += max(texture2D(tDiffuse, uv + vec2(r2, r2) * texel).rgb - threshold, vec3(0.0)) * 0.20;
+        bloomAccum += max(texture2D(tDiffuse, uv + vec2(-r3, r3) * texel).rgb - threshold, vec3(0.0)) * 0.15;
+        bloomAccum += max(texture2D(tDiffuse, uv + vec2(r3, -r3) * texel).rgb - threshold, vec3(0.0)) * 0.15;
+
+        sceneCol += bloomAccum * (0.65 * uBloom);
       }
 
       // Nostalgic Ghibli color grading: lifted golden highlights, rich emerald greens, cool shadow depth

@@ -50,11 +50,27 @@ export interface GraphicsConfig {
   lodDistance: number;
 }
 
+export type LaneIndex = -1 | 0 | 1;
+
+export type ObstacleType = 'low-hurdle' | 'high-barrier' | 'spirit-train' | 'spirit-train-ramp';
+
+export type PowerUpType = 'magnet' | 'jetpack' | 'hoverboard-shield' | 'multiplier2x';
+
+export type GameState = 'playing' | 'crashed' | 'game-over';
+
+export interface ActivePowerUps {
+  magnetTimer: number;       // Remaining duration in seconds
+  jetpackTimer: number;
+  hoverboardShield: boolean; // Active until hit
+  multiplierTimer: number;
+}
+
 export interface PlayerStats {
   speed: number;
   maxSpeed: number;
   distance: number;
   score: number;
+  highScore: number;
   styleMeter: number; // 0 to 100
   styleTier: 'Chill' | 'Breeze' | 'Flow' | 'Transcendent';
   airTime: number;
@@ -68,6 +84,14 @@ export interface PlayerStats {
   isOnFloatingIsland: boolean;
   isBiomeTransitioning?: boolean;
   weather?: 'clear' | 'light-rain' | 'pollen-drift';
+
+  // Subway Surfers Additions
+  currentLane: LaneIndex;
+  isSliding: boolean;
+  slideTimer: number;
+  activePowerUps: ActivePowerUps;
+  scoreMultiplier: number;
+  gameState: GameState;
 }
 
 export interface FloatingIslandData {

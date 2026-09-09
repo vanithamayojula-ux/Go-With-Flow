@@ -2,7 +2,8 @@ import * as THREE from 'three';
 import { getTerrainHeight, getTerrainNormal, getBiomeAt, getBiomeFriction, TerrainManager } from './terrain';
 import { BoardTrailShader } from '../graphics/shaders';
 import { createDustParticleTexture, createWindPetalTexture } from '../graphics/textures';
-import { BiomeType, CosmeticsConfig, PlayerStats, TrickType } from '../types';
+import { BiomeType, CosmeticsConfig, PlayerStats, TrickType, LaneIndex, PowerUpType, ActivePowerUps, GameState } from '../types';
+import { getLaneX } from './obstacles';
 import { AudioManager } from './audio';
 
 export class PlayerManager {
@@ -39,7 +40,7 @@ export class PlayerManager {
   carveAngle = 0;
   pitchAngle = 0;
   isGrounded = true;
-  hoverHeight = 1.15;
+  hoverHeight = 0.30;
   jumpVelocity = 0;
   spinAngle = 0;
   flipAngle = 0;
@@ -83,12 +84,33 @@ export class PlayerManager {
     poseId: 'standard',
   };
 
+  // Subway Surfers 3-Lane Navigation & Slide
+  currentLane: LaneIndex = 0;
+  targetLaneX = 0;
+  isSliding = false;
+  slideTimer = 0;
+
+  // Power-Ups & Multipliers
+  activePowerUps: ActivePowerUps = {
+    magnetTimer: 0,
+    jetpackTimer: 0,
+    hoverboardShield: false,
+    multiplierTimer: 0,
+  };
+  scoreMultiplier = 1;
+  highScore = 0;
+  gameState: GameState = 'playing';
+
+  // Shield Visual Bubble
+  shieldMesh!: THREE.Mesh;
+
   // Stats
   stats: PlayerStats = {
     speed: 18,
     maxSpeed: 42,
     distance: 0,
     score: 0,
+    highScore: 0,
     styleMeter: 15,
     styleTier: 'Chill',
     airTime: 0,
@@ -100,6 +122,17 @@ export class PlayerManager {
     activeTrickName: null,
     slowMoActive: false,
     isOnFloatingIsland: false,
+    currentLane: 0,
+    isSliding: false,
+    slideTimer: 0,
+    activePowerUps: {
+      magnetTimer: 0,
+      jetpackTimer: 0,
+      hoverboardShield: false,
+      multiplierTimer: 0,
+    },
+    scoreMultiplier: 1,
+    gameState: 'playing',
   };
 
   constructor(scene: THREE.Scene) {
@@ -216,6 +249,26 @@ export class PlayerManager {
     head.position.set(0, 1.35, 0.05);
     this.characterMesh.add(head);
 
+    // Character Face Details (Expressive dark eyes + Ghibli rosy cheek blush)
+    const eyeMat = new THREE.MeshBasicMaterial({ color: 0x1f2e3d });
+    const blushMat = new THREE.MeshBasicMaterial({ color: 0xef5350, transparent: true, opacity: 0.75 });
+
+    const cLeftEye = new THREE.Mesh(new THREE.SphereGeometry(0.035, 6, 6), eyeMat);
+    cLeftEye.position.set(-0.08, 1.37, 0.26);
+    this.characterMesh.add(cLeftEye);
+
+    const cRightEye = new THREE.Mesh(new THREE.SphereGeometry(0.035, 6, 6), eyeMat);
+    cRightEye.position.set(0.08, 1.37, 0.26);
+    this.characterMesh.add(cRightEye);
+
+    const cLeftBlush = new THREE.Mesh(new THREE.SphereGeometry(0.045, 6, 6), blushMat);
+    cLeftBlush.position.set(-0.12, 1.32, 0.24);
+    this.characterMesh.add(cLeftBlush);
+
+    const cRightBlush = new THREE.Mesh(new THREE.SphereGeometry(0.045, 6, 6), blushMat);
+    cRightBlush.position.set(0.12, 1.32, 0.24);
+    this.characterMesh.add(cRightBlush);
+
     // Wide brim straw hat (#F59E0B)
     const hatGeom = new THREE.ConeGeometry(0.65, 0.22, 12);
     const hatMat = new THREE.MeshLambertMaterial({ color: 0xf59e0b });
@@ -299,8 +352,21 @@ export class PlayerManager {
     rightPupil.position.set(0.11, 0.04, 0.29);
     this.sootSpriteMesh.add(rightPupil);
 
-    this.sootSpriteMesh.visible = true; // Always visible as companion
+    this.sootSpriteMesh.visible = false;
     this.group.add(this.sootSpriteMesh);
+
+    // 2.5 Hoverboard Shield Bubble (Subway Surfers Invulnerability)
+    const shieldGeom = new THREE.SphereGeometry(1.5, 16, 16);
+    const shieldMat = new THREE.MeshBasicMaterial({
+      color: 0x64e8ff,
+      transparent: true,
+      opacity: 0.38,
+      wireframe: true,
+    });
+    this.shieldMesh = new THREE.Mesh(shieldGeom, shieldMat);
+    this.shieldMesh.position.set(0, 1.0, 0);
+    this.shieldMesh.visible = false;
+    this.group.add(this.shieldMesh);
 
     // 3. GPU Board Ribbon Trail
     const totalVerts = this.maxTrailPoints * 2;
@@ -464,7 +530,7 @@ export class PlayerManager {
       (this.torsoMesh.material as THREE.MeshLambertMaterial).color.set(torsoColor);
     }
     if (this.sootSpriteMesh) {
-      this.sootSpriteMesh.visible = true;
+      this.sootSpriteMesh.visible = isForestWanderer || config.boardId === 'forest-spirit';
     }
 
     this.updateTrailColors();
@@ -472,6 +538,102 @@ export class PlayerManager {
 
   setUpright(upright: boolean) {
     this.isUpright = upright;
+  }
+
+  // --- Subway Surfers Core Control Actions ---
+
+  switchLane(direction: -1 | 1, audioManager?: AudioManager | null) {
+    const nextLane = (this.currentLane + direction) as LaneIndex;
+    if (nextLane >= -1 && nextLane <= 1) {
+      this.currentLane = nextLane;
+      this.targetLaneX = getLaneX(this.currentLane);
+      if (audioManager) audioManager.playCarveWhoosh();
+    }
+  }
+
+  triggerSlide(audioManager?: AudioManager | null) {
+    if (!this.isGrounded && this.jumpVelocity > -10) {
+      // Fast fall / dive ground pound down to earth!
+      this.jumpVelocity = -22.0;
+    }
+    this.isSliding = true;
+    this.slideTimer = 0.65;
+    this.emitJumpDust(this.position, 4);
+  }
+
+  activateHoverboardShield(audioManager?: AudioManager | null) {
+    this.activePowerUps.hoverboardShield = true;
+    this.stats.activePowerUps.hoverboardShield = true;
+    if (this.shieldMesh) this.shieldMesh.visible = true;
+    if (audioManager) audioManager.playGoalCompleteSound();
+  }
+
+  absorbShieldHit() {
+    this.activePowerUps.hoverboardShield = false;
+    this.stats.activePowerUps.hoverboardShield = false;
+    if (this.shieldMesh) this.shieldMesh.visible = false;
+    this.emitJumpDust(this.position, 12);
+    this.emitWindPetals(this.position, 8);
+  }
+
+  applyPowerUp(type: PowerUpType, audioManager?: AudioManager | null) {
+    if (type === 'magnet') {
+      this.activePowerUps.magnetTimer = 12.0;
+    } else if (type === 'jetpack') {
+      this.activePowerUps.jetpackTimer = 8.5;
+      this.jumpVelocity = 14.0;
+      this.isGrounded = false;
+    } else if (type === 'multiplier2x') {
+      this.activePowerUps.multiplierTimer = 15.0;
+    } else if (type === 'hoverboard-shield') {
+      this.activateHoverboardShield(audioManager);
+    }
+    if (audioManager) audioManager.playOrbChime();
+  }
+
+  resetRun() {
+    const h = getTerrainHeight(0, 0);
+    this.currentLane = 0;
+    this.targetLaneX = 0;
+    this.position.set(0, h + this.hoverHeight, 0);
+    this.velocity.set(0, 0, 18);
+    this.jumpVelocity = 0;
+    this.isGrounded = true;
+    this.isSliding = false;
+    this.slideTimer = 0;
+    this.activePowerUps = { magnetTimer: 0, jetpackTimer: 0, hoverboardShield: false, multiplierTimer: 0 };
+    if (this.shieldMesh) this.shieldMesh.visible = false;
+    this.stats.score = 0;
+    this.stats.distance = 0;
+    this.stats.windOrbsCollected = 0;
+    this.stats.gameState = 'playing';
+    this.stats.combo = 0;
+    this.group.position.copy(this.position);
+  }
+
+  crash() {
+    this.gameState = 'gameover';
+    this.stats.gameState = 'gameover';
+    this.velocity.set(0, 0, 0);
+    this.jumpVelocity = 0;
+  }
+
+  revive() {
+    this.gameState = 'playing';
+    this.stats.gameState = 'playing';
+    this.velocity.set(0, 0, 20);
+    this.jumpVelocity = 0;
+    this.isGrounded = true;
+    this.isSliding = false;
+    this.slideTimer = 0;
+    this.activateHoverboardShield();
+  }
+
+  addCoins(amount: number) {
+    this.stats.windOrbsCollected += amount;
+    this.stats.score += amount * 100 * this.scoreMultiplier;
+    this.stats.styleMeter = Math.min(100, this.stats.styleMeter + amount * 3);
+    this.stats.highScore = Math.max(this.stats.highScore, this.stats.score);
   }
 
   triggerTrick(trick: TrickType, audioManager?: AudioManager | null): boolean {
@@ -514,6 +676,9 @@ export class PlayerManager {
       forward: boolean;
       jump: boolean;
       drift: boolean;
+      slide?: boolean;
+      laneLeft?: boolean;
+      laneRight?: boolean;
       trickSpin?: boolean;
       trickFlip?: boolean;
       trickGrab?: boolean;
@@ -535,13 +700,51 @@ export class PlayerManager {
       this.stats.slowMoActive = false;
     }
 
+    // 1. Subway Surfers Lane Switching
+    if (input.laneLeft) {
+      this.switchLane(-1, audioManager);
+    } else if (input.laneRight) {
+      this.switchLane(1, audioManager);
+    }
+
+    // 2. Subway Surfers Slide / Roll
+    if (input.slide) {
+      this.triggerSlide(audioManager);
+    }
+
+    const effectiveDt = Math.min(dt, 0.05) * (this.stats.slowMoActive ? 0.7 : 1.0);
+
+    if (this.slideTimer > 0) {
+      this.slideTimer -= effectiveDt;
+      if (this.slideTimer <= 0) {
+        this.isSliding = false;
+      }
+    }
+
+    // 3. Power-Up Timers
+    if (this.activePowerUps.magnetTimer > 0) {
+      this.activePowerUps.magnetTimer -= effectiveDt;
+    }
+    if (this.activePowerUps.multiplierTimer > 0) {
+      this.activePowerUps.multiplierTimer -= effectiveDt;
+      this.scoreMultiplier = 2;
+    } else {
+      this.scoreMultiplier = 1;
+    }
+
+    // Shield mesh spinning
+    if (this.shieldMesh && this.shieldMesh.visible) {
+      this.shieldMesh.rotation.y += effectiveDt * 2.5;
+      this.shieldMesh.rotation.x += effectiveDt * 1.2;
+    }
+
     if (input.trickSpin) this.triggerTrick('spin', audioManager);
     else if (input.trickFlip) this.triggerTrick('flip', audioManager);
     else if (input.trickGrab) this.triggerTrick('grab', audioManager);
     else if (input.trickPose) this.triggerTrick('pose', audioManager);
 
     if (this.trickTimer > 0) {
-      this.trickTimer -= dt;
+      this.trickTimer -= effectiveDt;
       if (this.trickTimer <= 0) {
         this.activeTrick = null;
       }
@@ -549,31 +752,20 @@ export class PlayerManager {
       this.stats.activeTrickName = null;
     }
 
-    const effectiveDt = Math.min(dt, 0.05) * (this.stats.slowMoActive ? 0.7 : 1.0);
+    // Smooth snappy slide into active 3-lane position
+    this.targetLaneX = getLaneX(this.currentLane);
+    this.position.x = THREE.MathUtils.lerp(this.position.x, this.targetLaneX, 16.0 * effectiveDt);
+    this.carveAngle = THREE.MathUtils.lerp(this.carveAngle, (this.targetLaneX - this.position.x) * 0.14, 14.0 * effectiveDt);
 
-    const steerSpeed = (input.drift ? 40.0 : 26.0) * (0.85 + (0.08 - friction) * 2.0);
-    let targetCarve = 0;
-
-    if (input.left) {
-      targetCarve = input.drift ? -0.48 : -0.32;
-      this.velocity.x -= steerSpeed * effectiveDt;
-    } else if (input.right) {
-      targetCarve = input.drift ? 0.48 : 0.32;
-      this.velocity.x += steerSpeed * effectiveDt;
-    }
-
-    const dampingFactor = currentBiome === 'dunes' ? 0.94 : 0.88;
-    this.velocity.x *= Math.pow(dampingFactor, effectiveDt * 60);
-    this.carveAngle = THREE.MathUtils.lerp(this.carveAngle, targetCarve, 12 * effectiveDt);
-
-    let targetSpeed = 22.0;
-    if (input.forward) targetSpeed = 34.0;
+    let targetSpeed = 24.0;
+    if (input.forward) targetSpeed = 36.0;
     if (input.drift) targetSpeed *= 0.85;
 
     const styleBonus = (this.stats.styleMeter / 100) * 9.0;
     targetSpeed += styleBonus;
 
     if (currentBiome === 'dunes') targetSpeed += 2.5;
+    if (this.activePowerUps.jetpackTimer > 0) targetSpeed += 6.0;
 
     this.velocity.z = THREE.MathUtils.lerp(this.velocity.z, targetSpeed, 3.5 * effectiveDt);
 
@@ -638,9 +830,15 @@ export class PlayerManager {
     }
 
     this.stats.isOnFloatingIsland = isOnIsland;
-    const targetY = groundHeight + this.hoverHeight;
+    let targetY = groundHeight + this.hoverHeight;
 
-    if (this.position.y <= targetY) {
+    // Jetpack Sky Corridor Flight
+    if (this.activePowerUps.jetpackTimer > 0) {
+      targetY = groundHeight + 11.5;
+      this.position.y = THREE.MathUtils.lerp(this.position.y, targetY, 7.0 * effectiveDt);
+      this.isGrounded = false;
+      this.emitWindPetals(this.position, 2);
+    } else if (this.position.y <= targetY) {
       if (!this.isGrounded && this.jumpVelocity < -2) {
         this.emitJumpDust(this.position, 8);
         const trickBonus = Math.floor(this.stats.airTime * 280) + (this.activeTrick ? 350 : 0);
@@ -655,11 +853,18 @@ export class PlayerManager {
       this.activeTrick = null;
     }
 
+    let hFront = getTerrainHeight(this.position.x, this.position.z + 1.2);
+    let hBack = getTerrainHeight(this.position.x, this.position.z - 1.2);
+    if (terrainManager) {
+      hFront = terrainManager.getSurfaceHeight(this.position.x, this.position.z + 1.2, this.position.y).height;
+      hBack = terrainManager.getSurfaceHeight(this.position.x, this.position.z - 1.2, this.position.y).height;
+    }
+    const calculatedPitch = Math.atan2(hFront - hBack, 2.4);
+    this.pitchAngle = THREE.MathUtils.lerp(this.pitchAngle, calculatedPitch, 14 * effectiveDt);
+
     const currentGroundNormal = getTerrainNormal(this.position.x, this.position.z);
     this.targetNormal.copy(currentGroundNormal);
     this.normal.lerp(this.targetNormal, 14 * effectiveDt);
-
-    this.pitchAngle = (this.normal.z / this.normal.y) * 0.8;
 
     this.group.position.copy(this.position);
 
@@ -667,10 +872,25 @@ export class PlayerManager {
     this.boardMesh.rotation.x = this.pitchAngle + (this.activeTrick === 'flip' ? this.flipAngle : 0);
     this.boardMesh.rotation.y = this.spinAngle;
 
+    // Subway Surfers Crouch / Duck under barriers pose
+    const slideCrouchY = this.isSliding ? -0.52 : -this.grabPoseWeight * 0.25;
+    const slidePitch = this.isSliding ? 0.62 : (this.flipAngle - this.grabPoseWeight * 0.5);
+
     this.characterMesh.rotation.z = -this.carveAngle * 0.9;
-    this.characterMesh.rotation.x = this.flipAngle - this.grabPoseWeight * 0.5;
+    this.characterMesh.rotation.x = slidePitch;
     this.characterMesh.rotation.y = -this.carveAngle * 0.4 + (this.isGrounded ? 0.35 : this.spinAngle);
-    this.characterMesh.position.y = -this.grabPoseWeight * 0.25;
+    this.characterMesh.position.y = slideCrouchY;
+
+    // Sync Subway Surfers Stats
+    this.stats.currentLane = this.currentLane;
+    this.stats.isSliding = this.isSliding;
+    this.stats.slideTimer = this.slideTimer;
+    this.stats.activePowerUps = { ...this.activePowerUps };
+    this.stats.scoreMultiplier = this.scoreMultiplier;
+    this.stats.gameState = this.gameState;
+    this.stats.distance += Math.round(this.velocity.z * effectiveDt * 1.5);
+    this.stats.score += Math.round(this.velocity.z * effectiveDt * 3.5 * this.scoreMultiplier);
+    this.stats.highScore = Math.max(this.stats.highScore, this.stats.score);
 
     const capeWind = Math.sin(time * 14.0 + this.position.z * 0.2) * (0.35 + (this.velocity.z / 30) * 0.4);
     this.capeMesh.rotation.x = 0.5 + capeWind;
@@ -692,15 +912,15 @@ export class PlayerManager {
     // Soot Sprite Companion — orbits playfully and reacts to tricks & landings
     if (this.sootSpriteMesh.visible) {
       this.sootSpriteTime += effectiveDt;
-      const orbitRadius = 1.1;
+      const orbitRadius = 1.85;
       const t = this.sootSpriteTime;
       const bounce = this.activeTrick ? Math.sin(t * 12.0) * 0.4 : 0;
       this.sootSpriteMesh.position.set(
-        Math.sin(t * 1.4) * orbitRadius,
-        1.4 + Math.sin(t * 2.2) * 0.25 + bounce,
-        -0.6 + Math.cos(t * 1.4) * orbitRadius * 0.6
+        Math.sin(t * 1.2) * orbitRadius,
+        2.1 + Math.sin(t * 2.0) * 0.3 + bounce,
+        -1.0 + Math.cos(t * 1.2) * (orbitRadius * 0.5)
       );
-      this.sootSpriteMesh.rotation.y = t * 1.5;
+      this.sootSpriteMesh.rotation.y = Math.sin(t * 0.8) * 0.2;
     }
 
     this.updateTrailRibbon(effectiveDt);
