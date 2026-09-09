@@ -74,7 +74,7 @@ export class PlayerManager {
   currentCosmetics: CosmeticsConfig = {
     boardId: 'ivory-drift',
     trailId: 'verdant-breeze',
-    capeColor: '#3bb396',
+    capeColor: '#10b981',
     poseId: 'standard',
   };
 
@@ -139,16 +139,16 @@ export class PlayerManager {
     // 2. Build Stylized Ghibli Surfer Voyager Character
     this.characterMesh = new THREE.Group();
 
-    // Body / tunic (Warm terracotta / deep rust #C85A32)
+    // Body / tunic (Vibrant Ghibli terracotta red #E53935)
     const torsoGeom = new THREE.CapsuleGeometry(0.32, 0.55, 4, 8);
-    const torsoMat = new THREE.MeshLambertMaterial({ color: 0xc85a32 });
+    const torsoMat = new THREE.MeshLambertMaterial({ color: 0xe53935 });
     this.torsoMesh = new THREE.Mesh(torsoGeom, torsoMat);
     this.torsoMesh.position.set(0, 0.85, 0);
     this.torsoMesh.castShadow = true;
     this.characterMesh.add(this.torsoMesh);
 
-    // Dynamic Articulated Surfer Arms
-    const armMat = new THREE.MeshLambertMaterial({ color: 0xc85a32 });
+    // Arms
+    const armMat = new THREE.MeshLambertMaterial({ color: 0xe53935 });
     const skinMat = new THREE.MeshLambertMaterial({ color: 0xfde3ce });
     const bracerMat = new THREE.MeshBasicMaterial({ color: 0x8ef0ff });
 
@@ -193,7 +193,7 @@ export class PlayerManager {
     this.characterMesh.add(this.rightArmMesh);
 
     // Legs
-    const legMat = new THREE.MeshLambertMaterial({ color: 0x3f4e5a });
+    const legMat = new THREE.MeshLambertMaterial({ color: 0x2c3e50 });
     const leftLeg = new THREE.Mesh(new THREE.CylinderGeometry(0.11, 0.09, 0.65, 6), legMat);
     leftLeg.position.set(-0.2, 0.35, -0.2);
     leftLeg.rotation.set(-0.2, 0, 0.15);
@@ -211,14 +211,14 @@ export class PlayerManager {
     head.position.set(0, 1.35, 0.05);
     this.characterMesh.add(head);
 
-    // Wide brim straw hat
+    // Wide brim straw hat (#F59E0B)
     const hatGeom = new THREE.ConeGeometry(0.65, 0.22, 12);
-    const hatMat = new THREE.MeshLambertMaterial({ color: 0xdfb76c });
+    const hatMat = new THREE.MeshLambertMaterial({ color: 0xf59e0b });
     this.hatMesh = new THREE.Mesh(hatGeom, hatMat);
     this.hatMesh.position.set(0, 1.5, 0.05);
     this.characterMesh.add(this.hatMesh);
 
-    // Desert Nomad Cowl / Hood
+    // Desert Nomad Cowl
     const hoodGeom = new THREE.SphereGeometry(0.32, 8, 8);
     const hoodMat = new THREE.MeshLambertMaterial({ color: 0xd8c2a4 });
     this.hoodMesh = new THREE.Mesh(hoodGeom, hoodMat);
@@ -244,11 +244,11 @@ export class PlayerManager {
     this.acornCapMesh.visible = false;
     this.characterMesh.add(this.acornCapMesh);
 
-    // Wind-swept flowing cape / scarf
+    // Wind-swept flowing emerald cape / scarf (#10B981)
     const capeGeom = new THREE.PlaneGeometry(0.6, 1.3, 3, 5);
     capeGeom.translate(0, -0.65, 0);
     const capeMat = new THREE.MeshLambertMaterial({
-      color: 0x3bb396,
+      color: 0x10b981,
       side: THREE.DoubleSide,
     });
     this.capeMesh = new THREE.Mesh(capeGeom, capeMat);
@@ -257,20 +257,32 @@ export class PlayerManager {
 
     this.group.add(this.characterMesh);
 
-    // Whisperwood Soot Sprite Companion — a tiny round black spirit that tags along
+    // Whisperwood Soot Sprite Companion — cute black spirit ball with big white eyes
     this.sootSpriteMesh = new THREE.Group();
-    const sootBodyMat = new THREE.MeshLambertMaterial({ color: 0x1c1c1c });
-    const sootEyeMat = new THREE.MeshBasicMaterial({ color: 0xffffff });
-    const sootBody = new THREE.Mesh(new THREE.IcosahedronGeometry(0.22, 1), sootBodyMat);
+    const sootBodyMat = new THREE.MeshLambertMaterial({ color: 0x111111 });
+    const sootEyeWhiteMat = new THREE.MeshBasicMaterial({ color: 0xffffff });
+    const sootPupilMat = new THREE.MeshBasicMaterial({ color: 0x111111 });
+
+    const sootBody = new THREE.Mesh(new THREE.IcosahedronGeometry(0.28, 1), sootBodyMat);
     this.sootSpriteMesh.add(sootBody);
-    const eyeGeom = new THREE.SphereGeometry(0.045, 6, 6);
-    const leftEye = new THREE.Mesh(eyeGeom, sootEyeMat);
-    leftEye.position.set(-0.08, 0.03, 0.19);
-    this.sootSpriteMesh.add(leftEye);
-    const rightEye = new THREE.Mesh(eyeGeom, sootEyeMat);
-    rightEye.position.set(0.08, 0.03, 0.19);
-    this.sootSpriteMesh.add(rightEye);
-    this.sootSpriteMesh.visible = true; // Enabled by default as companion
+
+    // Left Eye
+    const leftEyeWhite = new THREE.Mesh(new THREE.SphereGeometry(0.075, 8, 8), sootEyeWhiteMat);
+    leftEyeWhite.position.set(-0.11, 0.04, 0.23);
+    this.sootSpriteMesh.add(leftEyeWhite);
+    const leftPupil = new THREE.Mesh(new THREE.SphereGeometry(0.035, 6, 6), sootPupilMat);
+    leftPupil.position.set(-0.11, 0.04, 0.29);
+    this.sootSpriteMesh.add(leftPupil);
+
+    // Right Eye
+    const rightEyeWhite = new THREE.Mesh(new THREE.SphereGeometry(0.075, 8, 8), sootEyeWhiteMat);
+    rightEyeWhite.position.set(0.11, 0.04, 0.23);
+    this.sootSpriteMesh.add(rightEyeWhite);
+    const rightPupil = new THREE.Mesh(new THREE.SphereGeometry(0.035, 6, 6), sootPupilMat);
+    rightPupil.position.set(0.11, 0.04, 0.29);
+    this.sootSpriteMesh.add(rightPupil);
+
+    this.sootSpriteMesh.visible = true; // Always visible as companion
     this.group.add(this.sootSpriteMesh);
 
     // 3. GPU Board Ribbon Trail
@@ -298,8 +310,8 @@ export class PlayerManager {
       vertexShader: BoardTrailShader.vertexShader,
       fragmentShader: BoardTrailShader.fragmentShader,
       uniforms: {
-        uColorA: { value: new THREE.Color('#4DE2C0') },
-        uColorB: { value: new THREE.Color('#F7D6A5') },
+        uColorA: { value: new THREE.Color('#10B981') },
+        uColorB: { value: new THREE.Color('#F59E0B') },
         uOpacity: { value: 0.85 },
       },
       transparent: true,
@@ -316,7 +328,7 @@ export class PlayerManager {
     const dustMat = new THREE.SpriteMaterial({
       map: this.dustTexture,
       transparent: true,
-      opacity: 0.8,
+      opacity: 0.85,
       depthWrite: false,
     });
     for (let i = 0; i < 20; i++) {
@@ -341,7 +353,7 @@ export class PlayerManager {
     });
     for (let i = 0; i < 15; i++) {
       const sp = new THREE.Sprite(petalMat);
-      sp.scale.set(0.6, 0.6, 1);
+      sp.scale.set(0.65, 0.65, 1);
       sp.visible = false;
       this.scene.add(sp);
       this.petalParticles.push({
@@ -431,11 +443,11 @@ export class PlayerManager {
       this.acornCapMesh.visible = isForestWanderer;
     }
     if (this.torsoMesh) {
-      const torsoColor = isForestWanderer ? '#5c7a4a' : isNomad ? '#ad4b29' : '#c85a32';
+      const torsoColor = isForestWanderer ? '#388e3c' : isNomad ? '#ad4b29' : '#e53935';
       (this.torsoMesh.material as THREE.MeshLambertMaterial).color.set(torsoColor);
     }
     if (this.sootSpriteMesh) {
-      this.sootSpriteMesh.visible = true; // Soot sprite active as companion
+      this.sootSpriteMesh.visible = true;
     }
 
     this.updateTrailColors();
@@ -522,7 +534,6 @@ export class PlayerManager {
 
     const effectiveDt = Math.min(dt, 0.05) * (this.stats.slowMoActive ? 0.7 : 1.0);
 
-    // Steering & Carving
     const steerSpeed = (input.drift ? 40.0 : 26.0) * (0.85 + (0.08 - friction) * 2.0);
     let targetCarve = 0;
 
@@ -538,7 +549,6 @@ export class PlayerManager {
     this.velocity.x *= Math.pow(dampingFactor, effectiveDt * 60);
     this.carveAngle = THREE.MathUtils.lerp(this.carveAngle, targetCarve, 12 * effectiveDt);
 
-    // Forward Surfing Speed
     let targetSpeed = 22.0;
     if (input.forward) targetSpeed = 34.0;
     if (input.drift) targetSpeed *= 0.85;
@@ -550,7 +560,6 @@ export class PlayerManager {
 
     this.velocity.z = THREE.MathUtils.lerp(this.velocity.z, targetSpeed, 3.5 * effectiveDt);
 
-    // Updraft Thermal Geysers Collision
     if (terrainManager && terrainManager.updraftsList) {
       for (const up of terrainManager.updraftsList) {
         const dist = Math.hypot(this.position.x - up.x, this.position.z - up.z);
@@ -567,7 +576,6 @@ export class PlayerManager {
       }
     }
 
-    // Jump & Air Time
     if (input.jump && this.isGrounded) {
       this.jumpVelocity = 15.0;
       this.isGrounded = false;
@@ -664,7 +672,7 @@ export class PlayerManager {
       }
     }
 
-    // Whisperwood Soot Sprite Companion — bobs and orbits playfully alongside the player
+    // Soot Sprite Companion — orbits playfully next to player
     if (this.sootSpriteMesh.visible) {
       this.sootSpriteTime += effectiveDt;
       const orbitRadius = 1.1;

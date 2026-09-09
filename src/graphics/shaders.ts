@@ -2,8 +2,8 @@ import * as THREE from 'three';
 
 /**
  * Studio Ghibli Shaders
- * Provides soft multi-band toon ramps, painterly skybox gradients, vertex-driven wind sway,
- * warm-side/cool-shadow color splitting, directional rim lighting, soft gradient trails,
+ * Soft 3-band cel toon ramps, painterly tri-planar ground blending, vertex wind sway,
+ * warm-side/cool-shadow color splitting, golden rim lighting, soft ribbon trails,
  * and nostalgic painterly post-processing with film grain.
  */
 
@@ -28,7 +28,6 @@ export const SkyboxShader = {
     varying vec3 vWorldPosition;
     varying vec2 vUv;
 
-    // Pseudo-random noise for subtle painterly sky grain
     float noise(vec2 st) {
       return fract(sin(dot(st.xy, vec2(12.9898, 78.233))) * 43758.5453123);
     }
@@ -37,24 +36,24 @@ export const SkyboxShader = {
       vec3 dir = normalize(vWorldPosition);
       float elevation = max(dir.y, 0.0);
 
-      // Painterly soft 3-band gradient sky with smooth transitions
-      float band1 = smoothstep(0.0, 0.28, elevation);
-      float band2 = smoothstep(0.20, 0.85, elevation);
+      // Painterly soft 3-band gradient sky
+      float band1 = smoothstep(0.0, 0.32, elevation);
+      float band2 = smoothstep(0.22, 0.88, elevation);
 
       vec3 skyColor = mix(uSkyHorizon, uSkyMid, band1);
       skyColor = mix(skyColor, uSkyTop, band2);
 
-      // Warm golden sun halo & atmospheric radial glow
+      // Warm golden sun halo & atmospheric glow
       float sunDot = max(dot(dir, normalize(uSunPosition)), 0.0);
-      float sunGlow = pow(sunDot, 10.0) * 0.40 + pow(sunDot, 48.0) * 0.65;
+      float sunGlow = pow(sunDot, 12.0) * 0.45 + pow(sunDot, 56.0) * 0.70;
       skyColor += uSunColor * sunGlow;
 
       // Soft volumetric haze near horizon
       float haze = exp(-elevation * (10.0 - uHazeDensity * 5.0));
-      vec3 hazeColor = mix(uSkyHorizon, uSunColor, 0.38);
-      skyColor = mix(skyColor, hazeColor, haze * 0.72);
+      vec3 hazeColor = mix(uSkyHorizon, uSunColor, 0.40);
+      skyColor = mix(skyColor, hazeColor, haze * 0.65);
 
-      // Subtle painterly atmospheric noise
+      // Subtle painterly atmospheric grain
       float n = (noise(vUv * 400.0 + uTime * 0.02) - 0.5) * 0.015;
       skyColor += vec3(n);
 
@@ -82,8 +81,8 @@ export const TerrainShader = {
     uniform vec3 uSunDirection;
     uniform vec3 uSunColor;
     uniform vec3 uAmbientColor;
-    uniform vec3 uSlopeWarmColor; // Sunlit slope tint (#F9E4B7)
-    uniform vec3 uSlopeCoolColor; // Shaded slope tint (#4E8B69)
+    uniform vec3 uSlopeWarmColor; // Sunlit slope tint multiplier (#FFF4D4)
+    uniform vec3 uSlopeCoolColor; // Shaded slope tint multiplier (#5B9B82)
     uniform float uCelRampHardness;
     uniform float uRimLightIntensity;
     uniform vec3 uCameraPos;
@@ -97,15 +96,15 @@ export const TerrainShader = {
       vec3 L = normalize(uSunDirection);
       vec3 V = normalize(uCameraPos - vWorldPosition);
 
-      // Organic tri-planar texture blending
+      // Tri-planar texture sampling at crisp 0.10 UV scale for sharp grass & flower detail
       vec3 blending = abs(N);
       blending = normalize(max(blending, 0.00001));
       float bSum = blending.x + blending.y + blending.z;
       blending /= bSum;
 
-      vec2 coord1 = vWorldPosition.yz * 0.04;
-      vec2 coord2 = vWorldPosition.zx * 0.04;
-      vec2 coord3 = vWorldPosition.xy * 0.04;
+      vec2 coord1 = vWorldPosition.yz * 0.10;
+      vec2 coord2 = vWorldPosition.zx * 0.10;
+      vec2 coord3 = vWorldPosition.xy * 0.10;
 
       vec4 col1 = texture2D(uGroundTexture, coord1);
       vec4 col2 = texture2D(uGroundTexture, coord2);
@@ -114,24 +113,19 @@ export const TerrainShader = {
 
       // Soft 3-Band Ghibli Cel Ramp Lighting
       float NdotL = dot(N, L);
-
-      // Band 1: Ambient Shadow to Midtone
-      float shadowToMid = smoothstep(-0.2, 0.15 + 0.1 * uCelRampHardness, NdotL);
-      // Band 2: Midtone to Sunlit Highlight
+      float shadowToMid = smoothstep(-0.25, 0.15 + 0.1 * uCelRampHardness, NdotL);
       float midToSun = smoothstep(0.15 + 0.1 * uCelRampHardness, 0.65, NdotL);
-
-      // Combine 3 tone bands (Shadow -> Midtone -> Sunlight)
       float celFactor = shadowToMid * 0.5 + midToSun * 0.5;
 
-      // Warm-side / Cool-shadow color splitting
-      vec3 warmSunSlope = mix(texColor, uSlopeWarmColor, 0.32);
-      vec3 coolShadeSlope = mix(texColor, uSlopeCoolColor, 0.40);
-      vec3 baseLit = mix(coolShadeSlope, warmSunSlope, celFactor);
+      // Multiplicative color splitting (preserves 100% of painterly grass/flower detail!)
+      vec3 sunlitTex = texColor * uSlopeWarmColor * 1.35;
+      vec3 shadedTex = texColor * uSlopeCoolColor * 0.88;
+      vec3 baseLit = mix(shadedTex, sunlitTex, celFactor);
 
-      // Soft rim lighting on sunlit terrain ridges
+      // Golden rim light on sunlit terrain crests
       float rim = 1.0 - max(dot(V, N), 0.0);
       rim = smoothstep(0.48, 0.92, rim) * max(dot(N, L), 0.1);
-      vec3 rimColor = uSunColor * (rim * uRimLightIntensity * 0.65);
+      vec3 rimColor = uSunColor * (rim * uRimLightIntensity * 0.60);
 
       vec3 finalColor = baseLit * (uAmbientColor + uSunColor * celFactor) + rimColor;
 
@@ -160,14 +154,12 @@ export const FoliageShader = {
       vUv = uv;
       vHeightFactor = uv.y;
 
-      // Instance transform reconstruction
       float s = aInstanceScale;
       float c = cos(aInstanceRot);
       float sn = sin(aInstanceRot);
 
       vec3 localPos = position;
 
-      // Vertex wind sway with macro-wave oscillation
       float totalWind = uWindStrength * (1.0 + uPlayerSpeedFactor * 0.5);
       float wave = sin(uTime * uWindSpeed * 2.5 + aInstancePosition.x * 0.3 + aInstancePosition.z * 0.25)
                  + 0.5 * sin(uTime * uWindSpeed * 4.0 + aInstancePosition.z * 0.6);
@@ -210,17 +202,13 @@ export const FoliageShader = {
       vec3 L = normalize(uSunDirection);
       vec3 V = normalize(uCameraPos - vWorldPosition);
 
-      // Two-sided soft cel lighting with leaf translucent backlight
       float NdotL = max(dot(N, L), 0.15);
-      float backLight = max(dot(-N, L), 0.0) * 0.40; // Subsurface translucent glow
+      float backLight = max(dot(-N, L), 0.0) * 0.42;
 
-      // Soft 2-band cel step
       float celLight = smoothstep(0.1, 0.7, NdotL + backLight);
 
-      // Sunlight gradient along blade height
-      vec3 sunlitAlbedo = mix(texColor.rgb * 0.75, texColor.rgb * 1.3, vHeightFactor);
+      vec3 sunlitAlbedo = mix(texColor.rgb * 0.80, texColor.rgb * 1.35, vHeightFactor);
 
-      // Soft golden rim lighting for foliage silhouettes
       float rim = 1.0 - max(dot(V, N), 0.0);
       rim = smoothstep(0.55, 0.92, rim) * uRimLightIntensity;
       vec3 rimCol = uSunColor * (rim * 0.55);
@@ -252,13 +240,10 @@ export const BoardTrailShader = {
     varying vec2 vUv;
 
     void main() {
-      // Soft fading edge across ribbon width
       float edgeAlpha = smoothstep(0.0, 0.45, 0.5 - abs(vUv.y - 0.5));
-      // Lengthwise tail fade
       float lengthAlpha = smoothstep(0.0, 0.35, vProgress);
 
       vec3 color = mix(uColorA, uColorB, vProgress);
-      // Soft painterly warm core (not harsh neon)
       color += vec3(0.25, 0.35, 0.18) * pow(edgeAlpha, 2.5);
 
       gl_FragColor = vec4(color, edgeAlpha * lengthAlpha * uOpacity);
@@ -284,7 +269,6 @@ export const PostProcessShader = {
     uniform vec2 uResolution;
     varying vec2 vUv;
 
-    // Pseudo-random generator for film grain / painterly texture noise
     float rand(vec2 co) {
       return fract(sin(dot(co.xy, vec2(12.9898, 78.233))) * 43758.5453);
     }
@@ -292,7 +276,6 @@ export const PostProcessShader = {
     void main() {
       vec2 uv = vUv;
 
-      // Radial motion blur when surfing at high speeds
       vec3 sceneCol = vec3(0.0);
       if (uHighSpeedBlur > 0.05) {
         vec2 center = vec2(0.5, 0.45);
@@ -305,28 +288,25 @@ export const PostProcessShader = {
         sceneCol = texture2D(tDiffuse, uv).rgb;
       }
 
-      // Soft bloom threshold & bleed
       if (uBloom > 0.01) {
         vec3 bloomAccum = vec3(0.0);
         vec2 texel = 1.0 / uResolution;
         float r = 2.5 * uBloom;
-        bloomAccum += max(texture2D(tDiffuse, uv + vec2(-r, 0.0) * texel).rgb - 0.65, 0.0);
-        bloomAccum += max(texture2D(tDiffuse, uv + vec2(r, 0.0) * texel).rgb - 0.65, 0.0);
-        bloomAccum += max(texture2D(tDiffuse, uv + vec2(0.0, -r) * texel).rgb - 0.65, 0.0);
-        bloomAccum += max(texture2D(tDiffuse, uv + vec2(0.0, r) * texel).rgb - 0.65, 0.0);
-        sceneCol += bloomAccum * (0.35 * uBloom);
+        bloomAccum += max(texture2D(tDiffuse, uv + vec2(-r, 0.0) * texel).rgb - 0.62, 0.0);
+        bloomAccum += max(texture2D(tDiffuse, uv + vec2(r, 0.0) * texel).rgb - 0.62, 0.0);
+        bloomAccum += max(texture2D(tDiffuse, uv + vec2(0.0, -r) * texel).rgb - 0.62, 0.0);
+        bloomAccum += max(texture2D(tDiffuse, uv + vec2(0.0, r) * texel).rgb - 0.62, 0.0);
+        sceneCol += bloomAccum * (0.38 * uBloom);
       }
 
-      // Ghibli Color Grading: Nostalgic pastel look with warm highlight lift, lush greens, gentle cool shadow tint
+      // Nostalgic Ghibli color grading: lifted golden highlights, rich emerald greens, cool shadow depth
       vec3 mapped = sceneCol * (2.4 * sceneCol + 0.12) / (sceneCol * (2.2 * sceneCol + 1.5) + 0.18);
 
-      // Warm highlight lift & gentle midtone curve
-      mapped.r = pow(mapped.r, 0.93);
-      mapped.g = pow(mapped.g, 0.95);
-      mapped.b = pow(mapped.b, 1.03); // slight cool shadow depth
+      mapped.r = pow(mapped.r, 0.92);
+      mapped.g = pow(mapped.g, 0.94);
+      mapped.b = pow(mapped.b, 1.02);
       mapped += vec3(0.05, 0.04, 0.02) * uColorLift;
 
-      // Subtle painterly film grain
       float grain = (rand(uv * 1000.0 + fract(uTime * 0.1)) - 0.5) * uFilmGrain;
       mapped += grain;
 

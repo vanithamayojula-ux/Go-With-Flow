@@ -17,36 +17,36 @@ export interface LightingPresetConfig {
 
 export const LIGHTING_PRESETS: Record<LightingMode, LightingPresetConfig> = {
   'golden-hour': {
-    skyTop: '#4B94E6',
-    skyMid: '#7EC8FF',
-    skyHorizon: '#FCD8B8',
-    sunColor: '#F7D6A5',
+    skyTop: '#2B8BE3',
+    skyMid: '#5CB3FF',
+    skyHorizon: '#FFD1B3',
+    sunColor: '#FFE0B2',
     sunPosition: [80, 45, -120],
-    ambientColor: '#8DB8E8',
-    slopeWarm: '#F9E4B7',
-    slopeCool: '#4E8B69',
+    ambientColor: '#8BBBE8',
+    slopeWarm: '#FFF0C7',
+    slopeCool: '#5B9B82',
     hazeDensity: 0.85,
   },
   'morning': {
-    skyTop: '#5B8FE8',
-    skyMid: '#86BFFF',
-    skyHorizon: '#FFDEBD',
-    sunColor: '#FFE0A3',
+    skyTop: '#3A80E8',
+    skyMid: '#78B9FF',
+    skyHorizon: '#FFE3C7',
+    sunColor: '#FFEBB5',
     sunPosition: [-90, 35, -100],
-    ambientColor: '#9AC0ED',
-    slopeWarm: '#FEE0B6',
-    slopeCool: '#56986F',
+    ambientColor: '#8BB9F0',
+    slopeWarm: '#FFF4D4',
+    slopeCool: '#52997B',
     hazeDensity: 0.95,
   },
   'bright-day': {
-    skyTop: '#3582EB',
-    skyMid: '#5EB0FF',
-    skyHorizon: '#BDE6FD',
-    sunColor: '#FFF8E7',
+    skyTop: '#1A6ED4',
+    skyMid: '#4DA6FF',
+    skyHorizon: '#BDE8FF',
+    sunColor: '#FFF5DC',
     sunPosition: [30, 95, -80],
-    ambientColor: '#A3D2F7',
-    slopeWarm: '#FCE7C5',
-    slopeCool: '#4F9468',
+    ambientColor: '#8BC4F7',
+    slopeWarm: '#FFF7E0',
+    slopeCool: '#4A996E',
     hazeDensity: 0.6,
   },
 };
@@ -73,7 +73,6 @@ export class SkyManager {
   cloudsGroup: THREE.Group;
   cloudSprites: { sprite: THREE.Sprite; baseX: number; baseY: number; baseZ: number; speedOffset: number }[] = [];
 
-  // Ghibli Bird Flock & Desert Sky Creature
   flockGroup: THREE.Group;
   birds: BirdData[] = [];
   desertCreatureGroup: THREE.Group;
@@ -82,7 +81,6 @@ export class SkyManager {
   constructor(scene: THREE.Scene) {
     this.scene = scene;
 
-    // 1. Layered Gradient Skybox Sphere
     const skyGeom = new THREE.SphereGeometry(900, 32, 24);
     this.skyMaterial = new THREE.ShaderMaterial({
       vertexShader: SkyboxShader.vertexShader,
@@ -103,36 +101,34 @@ export class SkyManager {
     this.skyMesh = new THREE.Mesh(skyGeom, this.skyMaterial);
     this.scene.add(this.skyMesh);
 
-    // 2. Scene Lights
-    this.dirLight = new THREE.DirectionalLight(0xf7d6a5, 1.4);
+    this.dirLight = new THREE.DirectionalLight(0xffe0b2, 1.4);
     this.dirLight.position.set(80, 45, -120);
     this.scene.add(this.dirLight);
 
-    this.ambientLight = new THREE.AmbientLight(0x8db8e8, 0.75);
+    this.ambientLight = new THREE.AmbientLight(0x8bbbe8, 0.80);
     this.scene.add(this.ambientLight);
 
-    // 3. Parallax Pseudo-Volumetric Cloud Sprites & Towering Cumulonimbus
     this.cloudTexture = createPainterlyCloudTexture();
     this.toweringCloudTexture = createToweringCumulusTexture();
     this.cloudsGroup = new THREE.Group();
     this.scene.add(this.cloudsGroup);
 
-    const cloudCount = 24;
+    const cloudCount = 26;
     const spriteMat = new THREE.SpriteMaterial({
       map: this.cloudTexture,
       transparent: true,
-      opacity: 0.88,
+      opacity: 0.92,
       depthWrite: false,
     });
 
     for (let i = 0; i < cloudCount; i++) {
       const sprite = new THREE.Sprite(spriteMat);
       const angle = (i / cloudCount) * Math.PI * 2 + Math.random() * 0.2;
-      const radius = 280 + Math.random() * 220;
+      const radius = 260 + Math.random() * 220;
       const x = Math.cos(angle) * radius;
       const z = Math.sin(angle) * radius;
-      const y = 75 + Math.random() * 65;
-      const scale = 95 + Math.random() * 70;
+      const y = 70 + Math.random() * 65;
+      const scale = 100 + Math.random() * 75;
 
       sprite.position.set(x, y, z);
       sprite.scale.set(scale, scale * 0.65, 1);
@@ -147,7 +143,6 @@ export class SkyManager {
       });
     }
 
-    // Towering Ghibli Cumulonimbus clouds (Laputa / Howl's Moving Castle style)
     const towerMat = new THREE.SpriteMaterial({
       map: this.toweringCloudTexture,
       transparent: true,
@@ -156,11 +151,11 @@ export class SkyManager {
     });
 
     const toweringPositions = [
-      { angle: 0.35, dist: 450, height: 160, scale: 220 },
-      { angle: 0.85, dist: 480, height: 180, scale: 260 },
-      { angle: 2.1, dist: 420, height: 150, scale: 200 },
-      { angle: 3.5, dist: 460, height: 170, scale: 240 },
-      { angle: 5.2, dist: 440, height: 190, scale: 250 },
+      { angle: 0.35, dist: 440, height: 160, scale: 230 },
+      { angle: 0.85, dist: 470, height: 180, scale: 270 },
+      { angle: 2.1, dist: 410, height: 150, scale: 210 },
+      { angle: 3.5, dist: 450, height: 170, scale: 250 },
+      { angle: 5.2, dist: 430, height: 190, scale: 260 },
     ];
 
     for (const t of toweringPositions) {
@@ -180,11 +175,10 @@ export class SkyManager {
       });
     }
 
-    // 4. Soaring Flock of Ghibli Birds in V-Formation
     this.flockGroup = new THREE.Group();
     this.scene.add(this.flockGroup);
 
-    const birdMat = new THREE.MeshBasicMaterial({ color: 0x223545, side: THREE.DoubleSide });
+    const birdMat = new THREE.MeshBasicMaterial({ color: 0x1f2e3d, side: THREE.DoubleSide });
     const wingGeom = new THREE.BufferGeometry();
     const wingVerts = new Float32Array([
       0, 0, 0,
@@ -193,7 +187,6 @@ export class SkyManager {
     ]);
     wingGeom.setAttribute('position', new THREE.BufferAttribute(wingVerts, 3));
 
-    // Form an elegant 8-bird V-formation
     const formationOffsets = [
       { x: 0, y: 0, z: 0 },
       { x: -5, y: -0.5, z: -6 },
@@ -229,7 +222,6 @@ export class SkyManager {
       });
     }
 
-    // 5. Majestic Soaring Desert Sky Creature / Sand Leviathan
     this.desertCreatureGroup = new THREE.Group();
     const creatureMat = new THREE.MeshBasicMaterial({ color: 0xa87d55, side: THREE.DoubleSide });
 
@@ -278,7 +270,6 @@ export class SkyManager {
     this.skyMesh.position.copy(playerPos);
     this.skyMaterial.uniforms.uTime.value = time;
 
-    // Parallax clouds move around player center with gentle natural drift + forward parallax
     this.cloudsGroup.position.x = playerPos.x * 0.2;
     this.cloudsGroup.position.z = playerPos.z * 0.3;
 
@@ -289,7 +280,6 @@ export class SkyManager {
       c.sprite.position.y = c.baseY + Math.cos(drift * 0.05) * 4;
     }
 
-    // 1. Update Ghibli Soaring Birds in Formation
     const flockFlightZ = (playerPos.z + (time * 16) % 800) - 200;
     const flockFlightX = playerPos.x + Math.sin(time * 0.15) * 60 - 30;
     const flockFlightY = playerPos.y + 75 + Math.cos(time * 0.1) * 8;
@@ -304,7 +294,6 @@ export class SkyManager {
       b.rightWing.rotation.z = -flap;
     }
 
-    // 2. Update Soaring Desert Sky Creature (glides gracefully near the sun)
     const creatureAngle = time * 0.25;
     const creatureOrbitRadius = 140;
     const creatureX = playerPos.x + Math.cos(creatureAngle) * creatureOrbitRadius + 60;
