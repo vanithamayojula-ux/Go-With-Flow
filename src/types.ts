@@ -34,6 +34,9 @@ export interface ShaderParams {
   bloomIntensity: number;
   colorLift: number;
   highSpeedBlur: number;
+  speedLineIntensity?: number;
+  heatShimmerIntensity?: number;
+  rainIntensity?: number;
 }
 
 export interface GraphicsConfig {
@@ -63,6 +66,8 @@ export interface PlayerStats {
   activeTrickName: string | null;
   slowMoActive: boolean;
   isOnFloatingIsland: boolean;
+  isBiomeTransitioning?: boolean;
+  weather?: 'clear' | 'light-rain' | 'pollen-drift';
 }
 
 export interface FloatingIslandData {

@@ -289,32 +289,34 @@ export class AudioManager {
   private startAmbientLoop() {
     if (!this.ctx || !this.ambientGain) return;
 
-    // Nostalgic Ghibli chord progressions (maj7 & sus2 chords in D major)
+    // Nostalgic Joe Hisaishi Orchestral & Piano Score (maj7, add9, and sus2 chords in D major)
     const chords = [
-      [293.66, 369.99, 440.0, 554.37], // Dmaj7
-      [246.94, 329.63, 440.0, 493.88], // Bm7 / E sus
-      [220.0,  329.63, 440.0, 554.37], // A sus / A maj
-      [196.0,  293.66, 369.99, 440.0], // G maj9
+      { pad: [293.66, 369.99, 440.0, 554.37], arpeggio: [587.33, 739.99, 880.0, 1108.73, 1318.5] }, // Dmaj7
+      { pad: [246.94, 329.63, 440.0, 493.88], arpeggio: [493.88, 659.25, 880.0, 987.77, 1318.5] },  // Bm7 / Esus
+      { pad: [220.0,  329.63, 440.0, 554.37], arpeggio: [440.0,  554.37, 880.0, 1108.73, 1318.5] }, // Asus4 / Amaj
+      { pad: [196.0,  293.66, 369.99, 440.0], arpeggio: [392.0,  587.33, 739.99, 880.0, 1174.66] }, // Gmaj9
     ];
 
     let chordIdx = 0;
     const playNextChord = () => {
       if (!this.ctx || !this.ambientGain || this.isMuted) return;
-      const chord = chords[chordIdx];
+      const current = chords[chordIdx];
       chordIdx = (chordIdx + 1) % chords.length;
 
       const t = this.ctx.currentTime;
-      chord.forEach((f, i) => {
+
+      // 1. Soft Warm Orchestral String Pad
+      current.pad.forEach((f, i) => {
         const osc = this.ctx!.createOscillator();
         const g = this.ctx!.createGain();
 
-        osc.type = 'sine';
+        osc.type = 'triangle';
         osc.frequency.setValueAtTime(f, t);
 
-        const noteGain = 0.025 / chord.length;
+        const noteGain = 0.035 / current.pad.length;
         g.gain.setValueAtTime(0.0001, t);
-        g.gain.linearRampToValueAtTime(noteGain, t + 1.5 + i * 0.2);
-        g.gain.exponentialRampToValueAtTime(0.0001, t + 5.5);
+        g.gain.linearRampToValueAtTime(noteGain, t + 1.8 + i * 0.25);
+        g.gain.exponentialRampToValueAtTime(0.0001, t + 5.8);
 
         osc.connect(g);
         g.connect(this.ambientGain!);
@@ -322,10 +324,29 @@ export class AudioManager {
         osc.start(t);
         osc.stop(t + 6.0);
       });
+
+      // 2. Hisaishi Music-Box / Piano Arpeggio Motif
+      current.arpeggio.forEach((f, i) => {
+        const pianoDelay = t + 0.4 + i * 0.35;
+        const osc = this.ctx!.createOscillator();
+        const g = this.ctx!.createGain();
+
+        osc.type = 'sine';
+        osc.frequency.setValueAtTime(f, pianoDelay);
+
+        g.gain.setValueAtTime(0.04, pianoDelay);
+        g.gain.exponentialRampToValueAtTime(0.0002, pianoDelay + 1.4);
+
+        osc.connect(g);
+        g.connect(this.ambientGain!);
+
+        osc.start(pianoDelay);
+        osc.stop(pianoDelay + 1.4);
+      });
     };
 
     playNextChord();
-    this.ambientTimer = window.setInterval(playNextChord, 6200);
+    this.ambientTimer = window.setInterval(playNextChord, 6000);
   }
 
   toggleMute(): boolean {

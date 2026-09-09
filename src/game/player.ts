@@ -65,10 +65,15 @@ export class PlayerManager {
   trickTimer = 0;
   slowMoTimer = 0;
 
-  // Camera State
+  // Camera State & Cinematic Biome Establishing Pull-Back
   cameraPos = new THREE.Vector3();
   cameraLookAt = new THREE.Vector3();
   cameraTilt = 0;
+  biomeTransitionTimer = 0;
+
+  triggerBiomePullBack() {
+    this.biomeTransitionTimer = 2.5; // 2.5 second wide camera establishing shot
+  }
 
   // Cosmetics
   currentCosmetics: CosmeticsConfig = {
@@ -672,14 +677,15 @@ export class PlayerManager {
       }
     }
 
-    // Soot Sprite Companion — orbits playfully next to player
+    // Soot Sprite Companion — orbits playfully and reacts to tricks & landings
     if (this.sootSpriteMesh.visible) {
       this.sootSpriteTime += effectiveDt;
       const orbitRadius = 1.1;
       const t = this.sootSpriteTime;
+      const bounce = this.activeTrick ? Math.sin(t * 12.0) * 0.4 : 0;
       this.sootSpriteMesh.position.set(
         Math.sin(t * 1.4) * orbitRadius,
-        1.4 + Math.sin(t * 2.2) * 0.25,
+        1.4 + Math.sin(t * 2.2) * 0.25 + bounce,
         -0.6 + Math.cos(t * 1.4) * orbitRadius * 0.6
       );
       this.sootSpriteMesh.rotation.y = t * 1.5;
@@ -687,7 +693,22 @@ export class PlayerManager {
 
     this.updateTrailRibbon(effectiveDt);
 
-    // Camera Tracking
+    // Cinematic Storyteller Camera (handheld breathing drift + establishing pull-back on biome shift)
+    const driftX = Math.sin(time * 1.2) * 0.22 + Math.cos(time * 0.7) * 0.12;
+    const driftY = Math.cos(time * 0.9) * 0.18 + Math.sin(time * 1.5) * 0.08;
+
+    let biomePullBackZ = 0;
+    let biomePullBackY = 0;
+    if (this.biomeTransitionTimer > 0) {
+      this.biomeTransitionTimer -= effectiveDt;
+      const pullProgress = Math.sin((1.0 - this.biomeTransitionTimer / 2.5) * Math.PI);
+      biomePullBackZ = -pullProgress * 5.5; // Wide dramatic pull-back
+      biomePullBackY = pullProgress * 2.8;
+      this.stats.isBiomeTransitioning = true;
+    } else {
+      this.stats.isBiomeTransitioning = false;
+    }
+
     if (this.isUpright) {
       const targetCameraTilt = -this.carveAngle * 0.18;
       this.cameraTilt = THREE.MathUtils.lerp(this.cameraTilt, targetCameraTilt, 8 * effectiveDt);
@@ -695,9 +716,9 @@ export class PlayerManager {
       const airZoom = this.isGrounded ? 0 : Math.min(this.stats.airTime * 1.5, 3.2);
       const slowMoZoom = this.stats.slowMoActive ? -1.2 : 0.0;
 
-      const targetCamX = this.position.x - this.carveAngle * 2.2;
-      const targetCamY = this.position.y + 4.2 + (this.isGrounded ? 0 : 1.4);
-      const targetCamZ = this.position.z - 8.2 - (this.velocity.z / 25) * 2.2 - airZoom + slowMoZoom;
+      const targetCamX = this.position.x - this.carveAngle * 2.2 + driftX;
+      const targetCamY = this.position.y + 4.2 + (this.isGrounded ? 0 : 1.4) + driftY + biomePullBackY;
+      const targetCamZ = this.position.z - 8.2 - (this.velocity.z / 25) * 2.2 - airZoom + slowMoZoom + biomePullBackZ;
 
       this.cameraPos.x = THREE.MathUtils.lerp(this.cameraPos.x, targetCamX, 6.0 * effectiveDt);
       this.cameraPos.y = THREE.MathUtils.lerp(this.cameraPos.y, targetCamY, 7.0 * effectiveDt);
@@ -713,9 +734,9 @@ export class PlayerManager {
       const airZoom = this.isGrounded ? 0 : Math.min(this.stats.airTime * 1.5, 3.0);
       const slowMoZoom = this.stats.slowMoActive ? -1.0 : 0.0;
 
-      const targetCamX = this.position.x - this.carveAngle * 3.5;
-      const targetCamY = this.position.y + 3.8 + (this.isGrounded ? 0 : 1.2);
-      const targetCamZ = this.position.z - 7.5 - (this.velocity.z / 25) * 2.0 - airZoom + slowMoZoom;
+      const targetCamX = this.position.x - this.carveAngle * 3.5 + driftX;
+      const targetCamY = this.position.y + 3.8 + (this.isGrounded ? 0 : 1.2) + driftY + biomePullBackY;
+      const targetCamZ = this.position.z - 7.5 - (this.velocity.z / 25) * 2.0 - airZoom + slowMoZoom + biomePullBackZ;
 
       this.cameraPos.x = THREE.MathUtils.lerp(this.cameraPos.x, targetCamX, 6.0 * effectiveDt);
       this.cameraPos.y = THREE.MathUtils.lerp(this.cameraPos.y, targetCamY, 7.0 * effectiveDt);

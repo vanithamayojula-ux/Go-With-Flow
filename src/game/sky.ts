@@ -287,9 +287,17 @@ export class SkyManager {
     this.flockGroup.position.set(flockFlightX, flockFlightY, flockFlightZ);
     this.flockGroup.rotation.y = Math.sin(time * 0.15) * 0.35;
 
+    // Living World Detail: Birds scatter as player surfs close by
+    const distToFlock = Math.hypot(playerPos.x - flockFlightX, playerPos.z - flockFlightZ);
+    const isScattering = distToFlock < 120;
+    const flapSpeed = isScattering ? 10.5 : 5.5;
+
     for (const b of this.birds) {
-      b.mesh.position.set(b.offsetX, b.offsetY, b.offsetZ);
-      const flap = Math.sin(time * 5.5 + b.phase) * 0.55;
+      const scatterOffsetX = isScattering ? b.offsetX * 1.6 : b.offsetX;
+      const scatterOffsetY = isScattering ? b.offsetY + Math.sin(time * 3.0 + b.phase) * 3.5 : b.offsetY;
+      b.mesh.position.set(scatterOffsetX, scatterOffsetY, b.offsetZ);
+
+      const flap = Math.sin(time * flapSpeed + b.phase) * 0.55;
       b.leftWing.rotation.z = flap;
       b.rightWing.rotation.z = -flap;
     }

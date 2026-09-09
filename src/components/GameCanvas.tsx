@@ -153,6 +153,8 @@ export const GameCanvas: React.FC<GameCanvasProps> = ({
         uBloom: { value: shaderParams.bloomIntensity },
         uColorLift: { value: shaderParams.colorLift },
         uHighSpeedBlur: { value: 0 },
+        uSpeedLines: { value: 0 },
+        uHeatShimmer: { value: 0 },
         uResolution: { value: new THREE.Vector2(width * dpr, height * dpr) },
       },
       depthWrite: false,
@@ -320,6 +322,7 @@ export const GameCanvas: React.FC<GameCanvasProps> = ({
       const currentBiome = playerMgr.stats.currentBiome;
       if (currentBiome !== lastBiomeRef.current) {
         lastBiomeRef.current = currentBiome;
+        playerMgr.triggerBiomePullBack(); // Cinematic wide establishing shot pull-back!
         audio.playBiomeShiftSound(currentBiome);
         const biomeNames: Record<BiomeType, string> = {
           meadow: 'Verdant Meadow Plains',
@@ -364,9 +367,12 @@ export const GameCanvas: React.FC<GameCanvasProps> = ({
         foliageMgr.updateFoliage(terrainMgr.chunks, playerMgr.position.z, playerMgr.position.x, graphicsConfig.vegetationDensity);
       }
 
-      // Update Foliage Wind Uniforms
+      // Update Foliage Wind & Interactive Player Bending Uniforms
       const speedNorm = Math.min(playerMgr.stats.speed / 30, 1.5);
       foliageMgr.updateShaderTime(timeSeconds, speedNorm, camera.position);
+      if (foliageMgr.grassMaterial.uniforms.uPlayerPos) {
+        foliageMgr.grassMaterial.uniforms.uPlayerPos.value.copy(playerMgr.position);
+      }
 
       // Update Sky & Parallax Clouds
       skyMgr.update(playerMgr.position, playerMgr.velocity.z, timeSeconds);
@@ -389,16 +395,21 @@ export const GameCanvas: React.FC<GameCanvasProps> = ({
         }
       }
 
-      // Terrain Uniforms Camera update
+      // Terrain Uniforms Camera & Time update
       terrainMgr.terrainMaterial.uniforms.uCameraPos.value.copy(camera.position);
+      terrainMgr.terrainMaterial.uniforms.uTime.value = timeSeconds;
 
       // Render Scene
       if (graphicsConfig.enablePostProcess && rt && postScene && postCamera && postMaterial) {
-        // High speed radial motion blur factor
+        // High speed radial motion blur factor & anime speed lines
         const blurFactor = Math.max(0, (playerMgr.stats.speed - 26) / 16);
+        const speedLinesFactor = Math.max(0, (playerMgr.stats.speed - 28) / 12);
+        const heatShimmerFactor = currentBiome === 'dunes' ? 1.0 : 0.0;
 
         postMaterial.uniforms.uTime.value = timeSeconds;
         postMaterial.uniforms.uHighSpeedBlur.value = blurFactor * shaderParams.highSpeedBlur;
+        if (postMaterial.uniforms.uSpeedLines) postMaterial.uniforms.uSpeedLines.value = speedLinesFactor;
+        if (postMaterial.uniforms.uHeatShimmer) postMaterial.uniforms.uHeatShimmer.value = heatShimmerFactor;
 
         renderer.setRenderTarget(rt);
         renderer.render(scene, camera);

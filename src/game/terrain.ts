@@ -5,7 +5,7 @@ import { createPainterlyGroundTexture } from '../graphics/textures';
 import { BiomeType, FloatingIslandData } from '../types';
 
 export const CHUNK_SIZE = 80;
-export const CHUNK_SEGMENTS = 28; // balanced for 60fps on mid-range devices
+export const CHUNK_SEGMENTS = 28;
 
 export function getBiomeAt(z: number): BiomeType {
   const normalizedZ = Math.max(0, z);
@@ -112,8 +112,8 @@ export class TerrainManager {
         uSunDirection: { value: new THREE.Vector3(0.5, 0.8, -0.3).normalize() },
         uSunColor: { value: new THREE.Color('#FFF1D0') },
         uAmbientColor: { value: new THREE.Color('#94BCE8') },
-        uSlopeWarmColor: { value: new THREE.Color('#F9E4B7') },
-        uSlopeCoolColor: { value: new THREE.Color('#4E8B69') },
+        uSlopeWarmColor: { value: new THREE.Color('#FFF0C7') },
+        uSlopeCoolColor: { value: new THREE.Color('#5B9B82') },
         uCelRampHardness: { value: 0.35 },
         uRimLightIntensity: { value: 0.6 },
         uCameraPos: { value: new THREE.Vector3() },
@@ -202,7 +202,6 @@ export class TerrainManager {
       }
     }
 
-    // Dynamic Biome Palette Adjustment on Shader
     const currentBiome = getBiomeAt(playerZ);
     if (currentBiome === 'dunes') {
       this.terrainMaterial.uniforms.uSlopeWarmColor.value.set('#FFF0C4');
@@ -214,11 +213,10 @@ export class TerrainManager {
       this.terrainMaterial.uniforms.uSlopeWarmColor.value.set('#E8D98A');
       this.terrainMaterial.uniforms.uSlopeCoolColor.value.set('#2E5C3E');
     } else {
-      this.terrainMaterial.uniforms.uSlopeWarmColor.value.set('#F9E4B7');
-      this.terrainMaterial.uniforms.uSlopeCoolColor.value.set('#4E8B69');
+      this.terrainMaterial.uniforms.uSlopeWarmColor.value.set('#FFF0C7');
+      this.terrainMaterial.uniforms.uSlopeCoolColor.value.set('#5B9B82');
     }
 
-    // Gently bob & twinkle active Whisperwood firefly swarms
     for (const chunk of this.chunks.values()) {
       for (const dec of chunk.foliageInstances.decorations) {
         if (dec.userData.isFireflySwarm) {
@@ -273,7 +271,7 @@ export class TerrainManager {
     const updrafts: UpdraftGeyser[] = [];
     const decorations: THREE.Object3D[] = [];
 
-    // 1. Grass clusters
+    // Grass clusters
     const grassCount = biome === 'dunes' ? 18 : biome === 'forest' ? 55 : 45;
     for (let g = 0; g < grassCount; g++) {
       const rx = (Math.random() - 0.5) * CHUNK_SIZE * 0.95;
@@ -290,7 +288,7 @@ export class TerrainManager {
       });
     }
 
-    // 2. Ghibli puff trees
+    // Ghibli puff trees
     if ((biome === 'meadow' || biome === 'forest') && Math.random() > (biome === 'forest' ? 0.15 : 0.4)) {
       const treeCount = biome === 'forest' ? 3 + Math.floor(Math.random() * 4) : 1 + Math.floor(Math.random() * 3);
       for (let t = 0; t < treeCount; t++) {
@@ -308,7 +306,7 @@ export class TerrainManager {
       }
     }
 
-    // 3. Floating Islands
+    // Floating Islands
     const shouldSpawnIsland = biome === 'sky-islands' ? Math.random() > 0.25 : Math.random() > 0.82;
     if (shouldSpawnIsland) {
       const islandX = worldOffsetX + (Math.random() - 0.5) * CHUNK_SIZE * 0.6;
@@ -348,7 +346,7 @@ export class TerrainManager {
         mesh: islandGroup,
       });
 
-      // 4. Updraft Thermal Geyser
+      // Updraft Thermal Geyser
       const updraftX = islandX - 8 + Math.random() * 16;
       const updraftZ = islandZ - 18 - Math.random() * 10;
       const updraftY = getTerrainHeight(updraftX, updraftZ);
@@ -390,7 +388,7 @@ export class TerrainManager {
       });
     }
 
-    // 5. Floating Wind Orbs (Collectibles)
+    // Collectibles
     if (Math.random() > 0.35) {
       const rx = (Math.random() - 0.5) * CHUNK_SIZE * 0.7;
       const rz = (Math.random() - 0.5) * CHUNK_SIZE * 0.7;
@@ -412,7 +410,7 @@ export class TerrainManager {
       });
     }
 
-    // 6. Ghibli Props & Environment World Building
+    // Ghibli Props & Environment World Building
     if (biome === 'dunes') {
       if (Math.random() < 0.34) {
         const rx = (Math.random() - 0.5) * CHUNK_SIZE * 0.65;
@@ -447,7 +445,19 @@ export class TerrainManager {
         decorations.push(acacia);
       }
     } else if (biome === 'meadow') {
-      if (Math.random() < 0.38) {
+      // Picturesque Ghibli Hillside Red-Roofed Village & Spire Tower (Image 2 Left Panel)
+      if (Math.random() < 0.28) {
+        const rx = (Math.random() - 0.5) * CHUNK_SIZE * 0.6;
+        const rz = (Math.random() - 0.5) * CHUNK_SIZE * 0.6;
+        const wx = worldOffsetX + rx;
+        const wz = worldOffsetZ + rz;
+        const wy = getTerrainHeight(wx, wz);
+        const village = this.createGhibliHillsideVillage(wx, wy, wz);
+        this.scene.add(village);
+        decorations.push(village);
+      }
+
+      if (Math.random() < 0.35) {
         const rx = (Math.random() - 0.5) * CHUNK_SIZE * 0.7;
         const rz = (Math.random() - 0.5) * CHUNK_SIZE * 0.7;
         const wx = worldOffsetX + rx;
@@ -458,7 +468,7 @@ export class TerrainManager {
         decorations.push(lantern);
       }
 
-      if (Math.random() < 0.5) {
+      if (Math.random() < 0.45) {
         const rx = (Math.random() - 0.5) * CHUNK_SIZE * 0.75;
         const rz = (Math.random() - 0.5) * CHUNK_SIZE * 0.75;
         const wx = worldOffsetX + rx;
@@ -467,17 +477,6 @@ export class TerrainManager {
         const boulders = this.createMossyBoulders(wx, wy, wz);
         this.scene.add(boulders);
         decorations.push(boulders);
-      }
-
-      if (Math.random() < 0.22) {
-        const rx = (Math.random() - 0.5) * CHUNK_SIZE * 0.65;
-        const rz = (Math.random() - 0.5) * CHUNK_SIZE * 0.65;
-        const wx = worldOffsetX + rx;
-        const wz = worldOffsetZ + rz;
-        const wy = getTerrainHeight(wx, wz);
-        const cottage = this.createMountainCottage(wx, wy, wz);
-        this.scene.add(cottage);
-        decorations.push(cottage);
       }
     } else if (biome === 'forest') {
       if (Math.random() < 0.3) {
@@ -535,6 +534,115 @@ export class TerrainManager {
   }
 
   // --- Procedural Reference Graphics Builders ---
+
+  /**
+   * Picturesque Ghibli Hillside Village with red terracotta roofs, white plaster walls,
+   * and a white clock/spire tower (Exact match for Image 2 Left Panel!)
+   */
+  private createGhibliHillsideVillage(x: number, y: number, z: number): THREE.Group {
+    const group = new THREE.Group();
+    group.position.set(x, y - 0.2, z);
+    group.rotation.y = Math.random() * Math.PI * 2;
+    group.scale.setScalar(1.1 + Math.random() * 0.3);
+
+    const plasterMat = new THREE.MeshLambertMaterial({ color: 0xf7f7f7 }); // White plaster walls
+    const roofMat = new THREE.MeshLambertMaterial({ color: 0xd94326 });    // Red terracotta tile roof
+    const timberMat = new THREE.MeshLambertMaterial({ color: 0x5c4632 });  // Dark timber framing
+    const windowMat = new THREE.MeshBasicMaterial({ color: 0xffebad });    // Warm glowing window
+
+    // 1. Central White Clock/Spire Tower
+    const towerBodyGeom = new THREE.BoxGeometry(1.6, 6.5, 1.6);
+    towerBodyGeom.translate(0, 3.25, 0);
+    const towerBody = new THREE.Mesh(towerBodyGeom, plasterMat);
+    group.add(towerBody);
+
+    // Tower Spire Roof Cone
+    const spireGeom = new THREE.ConeGeometry(1.4, 3.5, 4);
+    spireGeom.rotateY(Math.PI / 4);
+    spireGeom.translate(0, 8.25, 0);
+    const spire = new THREE.Mesh(spireGeom, roofMat);
+    group.add(spire);
+
+    // Clock Face / Spire Window
+    const clockGeom = new THREE.CircleGeometry(0.38, 12);
+    const clock = new THREE.Mesh(clockGeom, windowMat);
+    clock.position.set(0, 5.2, 0.81);
+    group.add(clock);
+
+    // 2. Surrounding Cottages with Red Roofs
+    const cottageOffsets = [
+      { x: -2.8, z: 0.8, rot: 0.2, scale: 1.0 },
+      { x: 2.6, z: 1.2, rot: -0.3, scale: 0.9 },
+      { x: -0.5, z: -2.8, rot: 0.1, scale: 1.1 },
+      { x: 2.2, z: -2.2, rot: 0.4, scale: 0.85 },
+    ];
+
+    cottageOffsets.forEach(c => {
+      const house = new THREE.Group();
+      house.position.set(c.x, 0, c.z);
+      house.rotation.y = c.rot;
+      house.scale.setScalar(c.scale);
+
+      // House Body
+      const bodyGeom = new THREE.BoxGeometry(2.4, 2.2, 2.8);
+      bodyGeom.translate(0, 1.1, 0);
+      const body = new THREE.Mesh(bodyGeom, plasterMat);
+      house.add(body);
+
+      // Roof
+      const rGeom = new THREE.ConeGeometry(2.2, 1.6, 4);
+      rGeom.rotateY(Math.PI / 4);
+      rGeom.translate(0, 3.0, 0);
+      const rMesh = new THREE.Mesh(rGeom, roofMat);
+      house.add(rMesh);
+
+      // Windows
+      const winGeom = new THREE.PlaneGeometry(0.5, 0.5);
+      const win = new THREE.Mesh(winGeom, windowMat);
+      win.position.set(0, 1.3, 1.41);
+      house.add(win);
+
+      // Living World Detail: Distant Porch Sweeper character figure on front porch
+      if (c.scale > 0.95) {
+        const porchGeom = new THREE.BoxGeometry(1.6, 0.15, 0.9);
+        porchGeom.translate(0, 0.08, 1.85);
+        const porch = new THREE.Mesh(porchGeom, timberMat);
+        house.add(porch);
+
+        // Sweeper Body (cute low-poly Ghibli blue apron figure)
+        const sweeperGroup = new THREE.Group();
+        sweeperGroup.position.set(0.3, 0.15, 1.85);
+        const sweeperBodyMat = new THREE.MeshLambertMaterial({ color: 0x3b82f6 }); // Blue apron
+        const sweeperHeadMat = new THREE.MeshLambertMaterial({ color: 0xfde3ce }); // Skin tone
+        const broomMat = new THREE.MeshLambertMaterial({ color: 0x9a6b38 });      // Straw broom
+
+        const sBody = new THREE.Mesh(new THREE.CylinderGeometry(0.12, 0.18, 0.65, 6), sweeperBodyMat);
+        sBody.position.y = 0.325;
+        sweeperGroup.add(sBody);
+
+        const sHead = new THREE.Mesh(new THREE.SphereGeometry(0.11, 8, 8), sweeperHeadMat);
+        sHead.position.y = 0.72;
+        sweeperGroup.add(sHead);
+
+        // Sweeper Broom
+        const broomHandle = new THREE.Mesh(new THREE.CylinderGeometry(0.02, 0.02, 0.85, 4), broomMat);
+        broomHandle.position.set(-0.12, 0.42, 0.1);
+        broomHandle.rotation.z = 0.35;
+        sweeperGroup.add(broomHandle);
+
+        const broomBristles = new THREE.Mesh(new THREE.ConeGeometry(0.09, 0.22, 6), broomMat);
+        broomBristles.position.set(-0.25, 0.1, 0.15);
+        broomBristles.rotation.z = Math.PI;
+        sweeperGroup.add(broomBristles);
+
+        house.add(sweeperGroup);
+      }
+
+      group.add(house);
+    });
+
+    return group;
+  }
 
   private createAncientRibArch(x: number, y: number, z: number): THREE.Group {
     const group = new THREE.Group();
@@ -679,7 +787,7 @@ export class TerrainManager {
     group.position.set(x, y - 0.2, z);
 
     const rockMat = new THREE.MeshStandardMaterial({
-      color: 0x6e7870,
+      color: 0x4a6b53, // Overgrown mossy rock green
       roughness: 0.92,
     });
 
@@ -696,39 +804,6 @@ export class TerrainManager {
       rock.rotation.set(Math.random() * Math.PI, Math.random() * Math.PI, 0);
       group.add(rock);
     }
-
-    return group;
-  }
-
-  private createMountainCottage(x: number, y: number, z: number): THREE.Group {
-    const group = new THREE.Group();
-    group.position.set(x, y - 0.2, z);
-    group.scale.setScalar(1.2);
-
-    const woodMat = new THREE.MeshLambertMaterial({ color: 0x6d523e });
-    const roofMat = new THREE.MeshLambertMaterial({ color: 0xa84234 });
-    const windowMat = new THREE.MeshBasicMaterial({ color: 0xffebad });
-
-    const bodyGeom = new THREE.BoxGeometry(4.2, 2.8, 4.2);
-    bodyGeom.translate(0, 1.4, 0);
-    const body = new THREE.Mesh(bodyGeom, woodMat);
-    group.add(body);
-
-    const roofGeom = new THREE.ConeGeometry(3.6, 2.0, 4);
-    roofGeom.rotateY(Math.PI / 4);
-    roofGeom.translate(0, 3.6, 0);
-    const roof = new THREE.Mesh(roofGeom, roofMat);
-    group.add(roof);
-
-    const winGeom = new THREE.PlaneGeometry(0.8, 0.8);
-    const win1 = new THREE.Mesh(winGeom, windowMat);
-    win1.position.set(0, 1.5, 2.12);
-    group.add(win1);
-
-    const win2 = new THREE.Mesh(winGeom, windowMat);
-    win2.position.set(2.12, 1.5, 0);
-    win2.rotation.y = Math.PI / 2;
-    group.add(win2);
 
     return group;
   }
@@ -764,6 +839,27 @@ export class TerrainManager {
     hollow.position.set(0, 1.1, 1.85);
     hollow.rotation.x = Math.PI * 0.15;
     group.add(hollow);
+
+    // Living World Detail: Soot Sprites peeking out from tree hollow
+    const spriteGroup = new THREE.Group();
+    spriteGroup.position.set(0, 1.1, 1.75);
+    const sootMat = new THREE.MeshLambertMaterial({ color: 0x111111 });
+    const eyeMat = new THREE.MeshBasicMaterial({ color: 0xffffff });
+
+    for (let s = 0; s < 3; s++) {
+      const soot = new THREE.Mesh(new THREE.IcosahedronGeometry(0.14, 1), sootMat);
+      soot.position.set((s - 1) * 0.22, (Math.random() - 0.5) * 0.1, 0);
+      spriteGroup.add(soot);
+
+      const eyeL = new THREE.Mesh(new THREE.SphereGeometry(0.04, 6, 6), eyeMat);
+      eyeL.position.set(soot.position.x - 0.04, soot.position.y + 0.02, 0.12);
+      spriteGroup.add(eyeL);
+
+      const eyeR = new THREE.Mesh(new THREE.SphereGeometry(0.04, 6, 6), eyeMat);
+      eyeR.position.set(soot.position.x + 0.04, soot.position.y + 0.02, 0.12);
+      spriteGroup.add(eyeR);
+    }
+    group.add(spriteGroup);
 
     const canopyTiers = [
       { y: 10.5, r: 4.6, mat: canopyMat },

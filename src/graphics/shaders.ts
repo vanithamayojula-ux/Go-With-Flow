@@ -44,9 +44,16 @@ export const SkyboxShader = {
       skyColor = mix(skyColor, uSkyTop, band2);
 
       // Warm golden sun halo & atmospheric glow
-      float sunDot = max(dot(dir, normalize(uSunPosition)), 0.0);
+      vec3 sunDir = normalize(uSunPosition);
+      float sunDot = max(dot(dir, sunDir), 0.0);
       float sunGlow = pow(sunDot, 12.0) * 0.45 + pow(sunDot, 56.0) * 0.70;
       skyColor += uSunColor * sunGlow;
+
+      // Volumetric Ghibli God-Rays / Sun Shafts
+      float godRayAngle = atan(dir.x - sunDir.x, dir.z - sunDir.z);
+      float godRays = sin(godRayAngle * 14.0 + uTime * 0.4) * 0.5 + 0.5;
+      godRays *= pow(sunDot, 6.0) * 0.35;
+      skyColor += uSunColor * godRays;
 
       // Soft volumetric haze near horizon
       float haze = exp(-elevation * (10.0 - uHazeDensity * 5.0));
@@ -86,10 +93,24 @@ export const TerrainShader = {
     uniform float uCelRampHardness;
     uniform float uRimLightIntensity;
     uniform vec3 uCameraPos;
+    uniform float uTime;
+    uniform float uRainSheen;
 
     varying vec3 vWorldPosition;
     varying vec3 vNormal;
     varying vec2 vUv;
+
+    float cloudShadowNoise(vec2 p) {
+      vec2 i = floor(p);
+      vec2 f = fract(p);
+      f = f * f * (3.0 - 2.0 * f);
+      float n = i.x + i.y * 57.0;
+      return mix(
+        mix(fract(sin(n + 0.0) * 43758.5453), fract(sin(n + 1.0) * 43758.5453), f.x),
+        mix(fract(sin(n + 57.0) * 43758.5453), fract(sin(n + 58.0) * 43758.5453), f.x),
+        f.y
+      );
+    }
 
     void main() {
       vec3 N = normalize(vNormal);
@@ -117,17 +138,36 @@ export const TerrainShader = {
       float midToSun = smoothstep(0.15 + 0.1 * uCelRampHardness, 0.65, NdotL);
       float celFactor = shadowToMid * 0.5 + midToSun * 0.5;
 
+      // Drifting Cloud Shadow Projection
+      vec2 shadowUv = vWorldPosition.xz * 0.015 + vec2(uTime * 0.012, uTime * 0.008);
+      float cloudVal = cloudShadowNoise(shadowUv);
+      float cloudShadow = smoothstep(0.35, 0.75, cloudVal);
+      celFactor *= (1.0 - cloudShadow * 0.35);
+
       // Multiplicative color splitting (preserves 100% of painterly grass/flower detail!)
       vec3 sunlitTex = texColor * uSlopeWarmColor * 1.35;
       vec3 shadedTex = texColor * uSlopeCoolColor * 0.88;
       vec3 baseLit = mix(shadedTex, sunlitTex, celFactor);
+
+      // Rain Sheen / Wet Surface Reflection
+      if (uRainSheen > 0.01) {
+        float spec = pow(max(dot(reflect(-L, N), V), 0.0), 32.0);
+        baseLit += uSunColor * spec * uRainSheen * 0.45;
+        baseLit *= (1.0 - uRainSheen * 0.15); // Darken ground when wet
+      }
 
       // Golden rim light on sunlit terrain crests
       float rim = 1.0 - max(dot(V, N), 0.0);
       rim = smoothstep(0.48, 0.92, rim) * max(dot(N, L), 0.1);
       vec3 rimColor = uSunColor * (rim * uRimLightIntensity * 0.60);
 
+      // Distance Depth Fog
+      float dist = length(vWorldPosition - uCameraPos);
+      float fogFactor = smoothstep(120.0, 480.0, dist);
+      vec3 fogColor = mix(uAmbientColor, uSlopeWarmColor, 0.4);
+
       vec3 finalColor = baseLit * (uAmbientColor + uSunColor * celFactor) + rimColor;
+      finalColor = mix(finalColor, fogColor, fogFactor * 0.45);
 
       gl_FragColor = vec4(finalColor, 1.0);
     }
@@ -140,6 +180,7 @@ export const FoliageShader = {
     uniform float uWindSpeed;
     uniform float uWindStrength;
     uniform float uPlayerSpeedFactor;
+    uniform vec3 uPlayerPos;
 
     attribute vec3 aInstancePosition;
     attribute float aInstanceScale;
@@ -175,6 +216,17 @@ export const FoliageShader = {
       );
 
       vec3 worldPos = transformed + aInstancePosition;
+
+      // Micro-Detail: Interactive Grass Bending away from player surfboard
+      float distToPlayer = length(worldPos.xz - uPlayerPos.xz);
+      if (distToPlayer < 3.2 && uv.y > 0.1) {
+        vec2 pushDir = normalize(worldPos.xz - uPlayerPos.xz + vec2(0.001));
+        float pushFactor = (1.0 - distToPlayer / 3.2) * uv.y * 1.4;
+        worldPos.x += pushDir.x * pushFactor;
+        worldPos.z += pushDir.y * pushFactor;
+        worldPos.y -= pushFactor * 0.35;
+      }
+
       vWorldPosition = worldPos;
       vNormal = normalize(normalMatrix * normal);
 
@@ -266,6 +318,8 @@ export const PostProcessShader = {
     uniform float uBloom;
     uniform float uColorLift;
     uniform float uHighSpeedBlur;
+    uniform float uSpeedLines;
+    uniform float uHeatShimmer;
     uniform vec2 uResolution;
     varying vec2 vUv;
 
@@ -275,6 +329,13 @@ export const PostProcessShader = {
 
     void main() {
       vec2 uv = vUv;
+
+      // Desert Heat Shimmer UV Wave Distortion
+      if (uHeatShimmer > 0.01) {
+        float waveX = sin(uv.y * 45.0 + uTime * 6.0) * 0.0025 * uHeatShimmer;
+        float waveY = cos(uv.x * 35.0 + uTime * 5.0) * 0.0018 * uHeatShimmer;
+        uv += vec2(waveX, waveY);
+      }
 
       vec3 sceneCol = vec3(0.0);
       if (uHighSpeedBlur > 0.05) {
@@ -286,6 +347,18 @@ export const PostProcessShader = {
         sceneCol *= 0.2;
       } else {
         sceneCol = texture2D(tDiffuse, uv).rgb;
+      }
+
+      // Anime-Native Speed Lines during high boost
+      if (uSpeedLines > 0.05) {
+        vec2 center = vec2(0.5, 0.45);
+        vec2 dir = uv - center;
+        float dist = length(dir);
+        float angle = atan(dir.y, dir.x);
+        float linePattern = sin(angle * 48.0 + uTime * 18.0);
+        linePattern = smoothstep(0.4, 0.95, linePattern);
+        float mask = smoothstep(0.28, 0.75, dist) * uSpeedLines;
+        sceneCol += vec3(1.0, 0.96, 0.88) * linePattern * mask * 0.45;
       }
 
       if (uBloom > 0.01) {
