@@ -18,10 +18,14 @@ import {
 } from './types';
 
 const DEFAULT_COSMETICS_CONFIG: CosmeticsConfig = {
-  boardId: 'ivory-drift',
-  trailId: 'verdant-breeze',
-  capeColor: '#c85a32', // Warm Ghibli terracotta rust
+  boardId: 'cyber-phantom',
+  trailId: 'electric-cyan',
+  capeColor: '#00f0ff',
   poseId: 'standard',
+  armorVariant: 'carbon-fiber',
+  visorColor: '#00f0ff',
+  underglowColor: '#00f0ff',
+  characterStyle: 'cyber-runner',
 };
 
 const DEFAULT_GRAPHICS_CONFIG: GraphicsConfig = {
@@ -38,18 +42,22 @@ const DEFAULT_GRAPHICS_CONFIG: GraphicsConfig = {
 const DEFAULT_SHADER_PARAMS: ShaderParams = {
   windSpeed: 1.0,
   windStrength: 0.65,
-  rimLightIntensity: 0.6,
-  celRampHardness: 0.35,
-  slopeWarmth: 0.3,
-  filmGrainIntensity: 0.032, // Subtle 0.02 - 0.04 target
-  bloomIntensity: 0.45,
-  colorLift: 0.4,
+  rimLightIntensity: 0.8,
+  celRampHardness: 0.45,
+  slopeWarmth: 0.2,
+  filmGrainIntensity: 0.025,
+  bloomIntensity: 0.75, // Rich cyberpunk emissive bloom
+  colorLift: 0.35,
   highSpeedBlur: 0.6,
+  speedLineIntensity: 0.8,
+  chromaticAberration: 0.005,
+  scanlineIntensity: 0.5,
+  glitchIntensity: 0.0,
 };
 
 export default function App() {
   const [graphicsConfig, setGraphicsConfig] = useState<GraphicsConfig>(DEFAULT_GRAPHICS_CONFIG);
-  const [lightingMode, setLightingMode] = useState<LightingMode>('golden-hour');
+  const [lightingMode, setLightingMode] = useState<LightingMode>('midnight-cyan');
   const [shaderParams, setShaderParams] = useState<ShaderParams>(DEFAULT_SHADER_PARAMS);
   const [cosmeticsConfig, setCosmeticsConfig] = useState<CosmeticsConfig>(DEFAULT_COSMETICS_CONFIG);
   const [isCinematicCam, setIsCinematicCam] = useState(false);
@@ -61,7 +69,7 @@ export default function App() {
   const [notification, setNotification] = useState<string | null>(null);
   const [isUprightMode, setIsUprightMode] = useState<boolean>(true);
 
-  // Subway Surfers State
+  // Cyber Navigation State
   const [isGameOver, setIsGameOver] = useState(false);
   const [restartCount, setRestartCount] = useState(0);
   const [reviveCount, setReviveCount] = useState(0);
@@ -76,25 +84,32 @@ export default function App() {
   });
 
   const [stats, setStats] = useState<PlayerStats>({
-    speed: 18,
-    maxSpeed: 42,
+    speed: 24,
+    maxSpeed: 52,
     distance: 0,
     score: 0,
     highScore: 0,
-    styleMeter: 15,
+    styleMeter: 25,
     styleTier: 'Chill',
+    overdriveMeter: 25,
+    overdriveTier: 'Charged',
+    comboTier: 'blue',
     airTime: 0,
     isGrounded: true,
     combo: 0,
     windOrbsCollected: 0,
-    currentBiome: 'meadow',
-    currentFriction: 0.08,
+    dataShardsCollected: 0,
+    currentBiome: 'neon-undercity',
+    currentFriction: 0.02,
     activeTrickName: null,
     slowMoActive: false,
     isOnFloatingIsland: false,
     currentLane: 0,
     isSliding: false,
     slideTimer: 0,
+    isGrinding: false,
+    isBoosting: false,
+    boostEnergy: 100,
     activePowerUps: {
       magnetTimer: 0,
       jetpackTimer: 0,
@@ -170,7 +185,7 @@ export default function App() {
   const handleResetDefaults = useCallback(() => {
     setGraphicsConfig(DEFAULT_GRAPHICS_CONFIG);
     setShaderParams(DEFAULT_SHADER_PARAMS);
-    setLightingMode('golden-hour');
+    setLightingMode('midnight-cyan');
     triggerNotification('Settings reset to defaults');
   }, [triggerNotification]);
 

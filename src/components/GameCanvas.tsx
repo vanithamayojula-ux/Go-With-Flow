@@ -191,6 +191,9 @@ export const GameCanvas: React.FC<GameCanvasProps> = ({
         uHighSpeedBlur: { value: 0 },
         uSpeedLines: { value: 0 },
         uHeatShimmer: { value: 0 },
+        uChromaticAberration: { value: shaderParams.chromaticAberration ?? 0.005 },
+        uScanlines: { value: shaderParams.scanlineIntensity ?? 0.5 },
+        uGlitch: { value: 0 },
         uResolution: { value: new THREE.Vector2(width * dpr, height * dpr) },
       },
       depthWrite: false,
@@ -425,19 +428,32 @@ export const GameCanvas: React.FC<GameCanvasProps> = ({
 
         const collision = obstacleMgr.checkCollisions(playerMgr.position, playerMgr.isSliding);
 
+        // Boost Gate acceleration
+        if (collision.hitBoostGate) {
+          playerMgr.applyBoostGateHit(audio);
+          onNotification('⚡ BOOST ARCH CHARGED! SONIC ACCELERATION! ⚡');
+        }
+
+        // Rail Grinding
+        playerMgr.setGrinding(collision.isGrinding, audio);
+
         if (collision.collectedCoins > 0) {
           playerMgr.addCoins(collision.collectedCoins);
-          audio.playOrbChime();
-          onNotification(`+${collision.collectedCoins * 100 * playerMgr.scoreMultiplier} Wind Orbs!`);
+          audio.playDataShardCollect();
+          onNotification(`+${collision.collectedCoins * 100 * playerMgr.scoreMultiplier} Data Shards!`);
         }
 
         if (collision.collectedPowerUp) {
           playerMgr.applyPowerUp(collision.collectedPowerUp, audio);
-          const pNames: Record<PowerUpType, string> = {
-            'magnet': '🧲 Spirit Magnet Active! (12s)',
-            'jetpack': '🚀 Zephyr Jetpack Soaring! (8.5s)',
-            'multiplier2x': '✨ 2x Spirit Multiplier Active! (15s)',
-            'hoverboard-shield': '🛡️ Hoverboard Shield Bubble!',
+          const pNames: Record<string, string> = {
+            'quantum-magnet': '🧲 QUANTUM SHARD ATTRACTOR (12s)',
+            'sonic-jetpack': '🚀 HYPERDRIVE FLIGHT (8.5s)',
+            'holo-shield': '🛡️ HOLO-DEFENSE SHIELD ENGAGED',
+            'overdrive-2x': '⚡ 2X OVERDRIVE MULTIPLIER (15s)',
+            'magnet': '🧲 QUANTUM SHARD ATTRACTOR (12s)',
+            'jetpack': '🚀 HYPERDRIVE FLIGHT (8.5s)',
+            'hoverboard-shield': '🛡️ HOLO-DEFENSE SHIELD ENGAGED',
+            'multiplier2x': '⚡ 2X OVERDRIVE MULTIPLIER (15s)',
           };
           onNotification(pNames[collision.collectedPowerUp] || 'Power-Up Collected!');
         }
@@ -446,14 +462,14 @@ export const GameCanvas: React.FC<GameCanvasProps> = ({
           if (playerMgr.activePowerUps.hoverboardShield) {
             playerMgr.absorbShieldHit();
             audio.playCarveWhoosh();
-            onNotification('🛡️ Shield Absorbed Collision!');
+            onNotification('🛡️ SHIELD DEFLECTED IMPACT!');
             if (collision.crashedObstacle) {
               obstacleMgr.removeObstacle(collision.crashedObstacle);
             }
           } else {
             playerMgr.crash();
             audio.playCrashSound();
-            onNotification('💥 Wipeout! Respite needed at the sanctuary.');
+            onNotification('💥 SYSTEM CRASH! NEURAL DESYNC DETECTED');
             if (onGameOver) {
               onGameOver();
             }
@@ -468,22 +484,26 @@ export const GameCanvas: React.FC<GameCanvasProps> = ({
         playerMgr.triggerBiomePullBack(); // Cinematic wide establishing shot pull-back!
         audio.playBiomeShiftSound(currentBiome);
         const biomeNames: Record<BiomeType, string> = {
-          meadow: 'Verdant Meadow Plains',
-          dunes: 'Golden Sand Dunes',
-          'sky-islands': 'Ethereal Sky Islands',
-          forest: 'Whisperwood Forest',
+          'neon-undercity': 'NEON UNDERCITY // SECTOR 01',
+          'orbital-ring': 'ORBITAL RING // STRATOSPHERE',
+          'the-grid': 'THE GRID // VECTOR CYBERSPACE',
+          'derelict-station': 'DERELICT STATION // HAZARD ZONE',
+          meadow: 'NEON UNDERCITY // SECTOR 01',
+          dunes: 'ORBITAL RING // STRATOSPHERE',
+          'sky-islands': 'THE GRID // VECTOR CYBERSPACE',
+          forest: 'DERELICT STATION // HAZARD ZONE',
         };
-        onNotification(`Entering ${biomeNames[currentBiome]}!`);
+        onNotification(`Entering ${biomeNames[currentBiome] || currentBiome}!`);
       }
 
-      // Style tier transition detection
+      // Style & Overdrive tier transition detection
       const currentTier = playerMgr.stats.styleTier;
       if (currentTier !== lastTierRef.current) {
         if (currentTier === 'Transcendent') {
           audio.playGoalCompleteSound();
-          onNotification('✨ TRANSCENDENT FLOW! Rainbow Trail & Speed Boost Active!');
+          onNotification('⚡ MAX VELOCITY OVERDRIVE! PLASMA TRAIL ACTIVE! ⚡');
         } else if (currentTier === 'Flow') {
-          onNotification('Flow State Achieved! +25% Speed Glide');
+          onNotification('Overdrive Surge Achieved! +25% Speed Glide');
         }
         lastTierRef.current = currentTier;
       }
@@ -494,12 +514,12 @@ export const GameCanvas: React.FC<GameCanvasProps> = ({
         collectedTotal += playerMgr.checkOrbCollection(chunk.foliageInstances.orbs);
       });
       if (collectedTotal > 0) {
-        audio.playOrbChime();
-        onNotification(`+${collectedTotal * 200} Wind Orb Collected!`);
+        audio.playDataShardCollect();
+        onNotification(`+${collectedTotal * 200} Data Shards Harvested!`);
       }
 
-      // Update Audio Wind
-      audio.updateWind(playerMgr.stats.speed, playerMgr.stats.maxSpeed, Math.abs(playerMgr.carveAngle) > 0.15);
+      // Update Audio Dynamics
+      audio.updateSpeed(playerMgr.stats.speed, playerMgr.stats.maxSpeed, playerMgr.stats.isBoosting);
 
       // Stream Terrain & Foliage
       terrainMgr.update(playerMgr.position.z, playerMgr.position.x, 3, timeSeconds);
@@ -519,6 +539,9 @@ export const GameCanvas: React.FC<GameCanvasProps> = ({
 
       // Update Sky & Parallax Clouds
       skyMgr.update(playerMgr.position, playerMgr.velocity.z, timeSeconds);
+      if (skyMgr.skyMaterial && skyMgr.skyMaterial.uniforms.uGridMode) {
+        skyMgr.skyMaterial.uniforms.uGridMode.value = currentBiome === 'the-grid' ? 1.0 : 0.0;
+      }
 
       // Update Camera (Surfer Cam or Cinematic Fly Cam)
       if (isCinematicCam) {
@@ -548,15 +571,22 @@ export const GameCanvas: React.FC<GameCanvasProps> = ({
 
       // Render Scene
       if (graphicsConfig.enablePostProcess && rt && postScene && postCamera && postMaterial) {
-        // High speed radial motion blur factor & anime speed lines (clamped — was unbounded and
-        // produced an extreme, screen-smearing blur at normal cruising speeds of 80-110 km/h)
+        // High speed radial motion blur factor & anime speed lines
         const blurFactor = Math.min(1.0, Math.max(0, (playerMgr.stats.speed - 26) / 60));
         const speedLinesFactor = Math.min(1.0, Math.max(0, (playerMgr.stats.speed - 28) / 55));
-        const heatShimmerFactor = currentBiome === 'dunes' ? 1.0 : 0.0;
+        const heatShimmerFactor = currentBiome === 'orbital-ring' || currentBiome === 'dunes' ? 1.0 : 0.0;
 
         postMaterial.uniforms.uTime.value = timeSeconds;
         postMaterial.uniforms.uHighSpeedBlur.value = blurFactor * shaderParams.highSpeedBlur;
-        if (postMaterial.uniforms.uSpeedLines) postMaterial.uniforms.uSpeedLines.value = speedLinesFactor;
+        if (postMaterial.uniforms.uBloom) postMaterial.uniforms.uBloom.value = shaderParams.bloomIntensity;
+        if (postMaterial.uniforms.uChromaticAberration) postMaterial.uniforms.uChromaticAberration.value = shaderParams.chromaticAberration ?? 0.005;
+        if (postMaterial.uniforms.uScanlines) postMaterial.uniforms.uScanlines.value = shaderParams.scanlineIntensity ?? 0.5;
+        if (postMaterial.uniforms.uGlitch) {
+          postMaterial.uniforms.uGlitch.value = playerMgr.gameState === 'gameover' ? 0.85 : (shaderParams.glitchIntensity ?? 0.0);
+        }
+        if (postMaterial.uniforms.uSpeedLines) {
+          postMaterial.uniforms.uSpeedLines.value = playerMgr.stats.isBoosting ? 1.0 : speedLinesFactor;
+        }
         if (postMaterial.uniforms.uHeatShimmer) postMaterial.uniforms.uHeatShimmer.value = heatShimmerFactor;
 
         renderer.setRenderTarget(rt);

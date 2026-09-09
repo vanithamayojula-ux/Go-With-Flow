@@ -1,6 +1,5 @@
 import * as THREE from 'three';
 import { SkyboxShader } from '../graphics/shaders';
-import { createPainterlyCloudTexture, createToweringCumulusTexture } from '../graphics/textures';
 import { LightingMode } from '../types';
 
 export interface LightingPresetConfig {
@@ -16,49 +15,91 @@ export interface LightingPresetConfig {
 }
 
 export const LIGHTING_PRESETS: Record<LightingMode, LightingPresetConfig> = {
-  'golden-hour': {
-    skyTop: '#2B8BE3',
-    skyMid: '#5CB3FF',
-    skyHorizon: '#FFD1B3',
-    sunColor: '#FFE0B2',
-    sunPosition: [80, 45, -120],
-    ambientColor: '#8BBBE8',
-    slopeWarm: '#FFF0C7',
-    slopeCool: '#5B9B82',
-    hazeDensity: 0.85,
+  'midnight-cyan': {
+    skyTop: '#01030a',
+    skyMid: '#030d1f',
+    skyHorizon: '#00f0ff',
+    sunColor: '#00f0ff',
+    sunPosition: [40, 80, -160],
+    ambientColor: '#040b18',
+    slopeWarm: '#00e5ff',
+    slopeCool: '#02182b',
+    hazeDensity: 0.9,
   },
-  'morning': {
-    skyTop: '#3A80E8',
-    skyMid: '#78B9FF',
-    skyHorizon: '#FFE3C7',
-    sunColor: '#FFEBB5',
-    sunPosition: [-90, 35, -100],
-    ambientColor: '#8BB9F0',
-    slopeWarm: '#FFF4D4',
-    slopeCool: '#52997B',
+  'synthwave-magenta': {
+    skyTop: '#090114',
+    skyMid: '#1a0328',
+    skyHorizon: '#ff007f',
+    sunColor: '#ff00aa',
+    sunPosition: [-60, 75, -150],
+    ambientColor: '#120222',
+    slopeWarm: '#ff007f',
+    slopeCool: '#1f0438',
     hazeDensity: 0.95,
   },
+  'toxic-matrix': {
+    skyTop: '#000803',
+    skyMid: '#011809',
+    skyHorizon: '#00ff66',
+    sunColor: '#00ff77',
+    sunPosition: [0, 90, -140],
+    ambientColor: '#001408',
+    slopeWarm: '#00ff66',
+    slopeCool: '#00260f',
+    hazeDensity: 0.85,
+  },
+  'solar-amber': {
+    skyTop: '#0c0500',
+    skyMid: '#1e0c01',
+    skyHorizon: '#ff7700',
+    sunColor: '#ff8800',
+    sunPosition: [70, 60, -130],
+    ambientColor: '#180a02',
+    slopeWarm: '#ff8800',
+    slopeCool: '#2d1200',
+    hazeDensity: 0.88,
+  },
+  // Backward compatibility keys aliased to cyberpunk presets
+  'golden-hour': {
+    skyTop: '#090114',
+    skyMid: '#1a0328',
+    skyHorizon: '#ff007f',
+    sunColor: '#ff00aa',
+    sunPosition: [-60, 75, -150],
+    ambientColor: '#120222',
+    slopeWarm: '#ff007f',
+    slopeCool: '#1f0438',
+    hazeDensity: 0.95,
+  },
+  'morning': {
+    skyTop: '#01030a',
+    skyMid: '#030d1f',
+    skyHorizon: '#00f0ff',
+    sunColor: '#00f0ff',
+    sunPosition: [40, 80, -160],
+    ambientColor: '#040b18',
+    slopeWarm: '#00e5ff',
+    slopeCool: '#02182b',
+    hazeDensity: 0.9,
+  },
   'bright-day': {
-    skyTop: '#1A6ED4',
-    skyMid: '#4DA6FF',
-    skyHorizon: '#BDE8FF',
-    sunColor: '#FFF5DC',
-    sunPosition: [30, 95, -80],
-    ambientColor: '#8BC4F7',
-    slopeWarm: '#FFF7E0',
-    slopeCool: '#4A996E',
-    hazeDensity: 0.6,
+    skyTop: '#000803',
+    skyMid: '#011809',
+    skyHorizon: '#00ff66',
+    sunColor: '#00ff77',
+    sunPosition: [0, 90, -140],
+    ambientColor: '#001408',
+    slopeWarm: '#00ff66',
+    slopeCool: '#00260f',
+    hazeDensity: 0.85,
   },
 };
 
-interface BirdData {
+interface HoverTrafficData {
   mesh: THREE.Group;
-  leftWing: THREE.Mesh;
-  rightWing: THREE.Mesh;
-  offsetX: number;
-  offsetY: number;
-  offsetZ: number;
-  phase: number;
+  speed: number;
+  baseY: number;
+  laneX: number;
 }
 
 export class SkyManager {
@@ -68,31 +109,30 @@ export class SkyManager {
   dirLight: THREE.DirectionalLight;
   ambientLight: THREE.AmbientLight;
 
-  cloudTexture: THREE.CanvasTexture;
-  toweringCloudTexture: THREE.CanvasTexture;
-  cloudsGroup: THREE.Group;
-  cloudSprites: { sprite: THREE.Sprite; baseX: number; baseY: number; baseZ: number; speedOffset: number }[] = [];
+  // Distant Cyber Aerial Traffic Group
+  trafficGroup: THREE.Group;
+  hoverVehicles: HoverTrafficData[] = [];
 
-  flockGroup: THREE.Group;
-  birds: BirdData[] = [];
-  desertCreatureGroup: THREE.Group;
-  desertCreatureWings: { left: THREE.Mesh; right: THREE.Mesh };
+  // Giant Holographic Moon / Orbital Ring
+  holoRingMesh: THREE.Mesh;
 
   constructor(scene: THREE.Scene) {
     this.scene = scene;
 
+    // 1. Cyber Skybox Dome
     const skyGeom = new THREE.SphereGeometry(900, 32, 24);
     this.skyMaterial = new THREE.ShaderMaterial({
       vertexShader: SkyboxShader.vertexShader,
       fragmentShader: SkyboxShader.fragmentShader,
       uniforms: {
-        uSkyTop: { value: new THREE.Color(LIGHTING_PRESETS['golden-hour'].skyTop) },
-        uSkyMid: { value: new THREE.Color(LIGHTING_PRESETS['golden-hour'].skyMid) },
-        uSkyHorizon: { value: new THREE.Color(LIGHTING_PRESETS['golden-hour'].skyHorizon) },
-        uSunPosition: { value: new THREE.Vector3(80, 45, -120) },
-        uSunColor: { value: new THREE.Color(LIGHTING_PRESETS['golden-hour'].sunColor) },
+        uSkyTop: { value: new THREE.Color(LIGHTING_PRESETS['midnight-cyan'].skyTop) },
+        uSkyMid: { value: new THREE.Color(LIGHTING_PRESETS['midnight-cyan'].skyMid) },
+        uSkyHorizon: { value: new THREE.Color(LIGHTING_PRESETS['midnight-cyan'].skyHorizon) },
+        uSunPosition: { value: new THREE.Vector3(40, 80, -160) },
+        uSunColor: { value: new THREE.Color(LIGHTING_PRESETS['midnight-cyan'].sunColor) },
         uTime: { value: 0 },
-        uHazeDensity: { value: 0.8 },
+        uHazeDensity: { value: 0.9 },
+        uGridMode: { value: 0.0 },
       },
       side: THREE.BackSide,
       depthWrite: false,
@@ -101,243 +141,120 @@ export class SkyManager {
     this.skyMesh = new THREE.Mesh(skyGeom, this.skyMaterial);
     this.scene.add(this.skyMesh);
 
-    this.dirLight = new THREE.DirectionalLight(0xffe0b2, 1.4);
-    this.dirLight.position.set(80, 45, -120);
-    this.scene.add(this.dirLight);
-
-    this.ambientLight = new THREE.AmbientLight(0x8bbbe8, 0.80);
+    // 2. Cyber Lights (Low ambient, high saturated colored directional key)
+    this.ambientLight = new THREE.AmbientLight(0x060c18, 0.6);
     this.scene.add(this.ambientLight);
 
-    // Exponential depth fog matching sky horizon color
-    this.scene.fog = new THREE.FogExp2(LIGHTING_PRESETS['golden-hour'].skyHorizon, 0.0038);
+    this.dirLight = new THREE.DirectionalLight(0x00f0ff, 1.4);
+    this.dirLight.position.set(40, 80, -160);
+    this.dirLight.castShadow = true;
+    this.dirLight.shadow.mapSize.width = 1024;
+    this.dirLight.shadow.mapSize.height = 1024;
+    this.dirLight.shadow.camera.near = 10;
+    this.dirLight.shadow.camera.far = 300;
+    this.dirLight.shadow.camera.left = -35;
+    this.dirLight.shadow.camera.right = 35;
+    this.dirLight.shadow.camera.top = 35;
+    this.dirLight.shadow.camera.bottom = -35;
+    this.scene.add(this.dirLight);
 
-    this.cloudTexture = createPainterlyCloudTexture();
-    this.toweringCloudTexture = createToweringCumulusTexture();
-    this.cloudsGroup = new THREE.Group();
-    this.scene.add(this.cloudsGroup);
-
-    const cloudCount = 26;
-    const spriteMat = new THREE.SpriteMaterial({
-      map: this.cloudTexture,
+    // 3. Colossal Holographic Orbital Ring in Upper Sky
+    const ringGeom = new THREE.TorusGeometry(320, 4.5, 16, 64);
+    const ringMat = new THREE.MeshBasicMaterial({
+      color: 0x00f0ff,
+      wireframe: true,
       transparent: true,
-      opacity: 0.92,
-      depthWrite: false,
+      opacity: 0.35,
     });
+    this.holoRingMesh = new THREE.Mesh(ringGeom, ringMat);
+    this.holoRingMesh.position.set(0, 220, -380);
+    this.holoRingMesh.rotation.set(0.65, 0.4, 0);
+    this.scene.add(this.holoRingMesh);
 
-    for (let i = 0; i < cloudCount; i++) {
-      const sprite = new THREE.Sprite(spriteMat);
-      const angle = (i / cloudCount) * Math.PI * 2 + Math.random() * 0.2;
-      const radius = 260 + Math.random() * 220;
-      const x = Math.cos(angle) * radius;
-      const z = Math.sin(angle) * radius;
-      const y = 70 + Math.random() * 65;
-      const scale = 100 + Math.random() * 75;
+    // 4. Distant Skyway Aerial Traffic (Speeder silhouettes with glowing headlights & taillights)
+    this.trafficGroup = new THREE.Group();
+    this.scene.add(this.trafficGroup);
 
-      sprite.position.set(x, y, z);
-      sprite.scale.set(scale, scale * 0.65, 1);
-      this.cloudsGroup.add(sprite);
+    const vehicleGeom = new THREE.BoxGeometry(2.4, 0.6, 6.0);
+    const vehicleMat = new THREE.MeshBasicMaterial({ color: 0x0a101d });
+    const headLightMat = new THREE.MeshBasicMaterial({ color: 0x00f0ff });
+    const tailLightMat = new THREE.MeshBasicMaterial({ color: 0xff0044 });
 
-      this.cloudSprites.push({
-        sprite,
-        baseX: x,
-        baseY: y,
-        baseZ: z,
-        speedOffset: 0.006 + Math.random() * 0.008,
-      });
+    for (let i = 0; i < 18; i++) {
+      const vGroup = new THREE.Group();
+      const body = new THREE.Mesh(vehicleGeom, vehicleMat);
+      vGroup.add(body);
+
+      // Cyan front lights
+      const hLight = new THREE.Mesh(new THREE.BoxGeometry(1.8, 0.15, 0.2), headLightMat);
+      hLight.position.set(0, 0, 3.0);
+      vGroup.add(hLight);
+
+      // Red tail lights
+      const tLight = new THREE.Mesh(new THREE.BoxGeometry(1.8, 0.15, 0.2), tailLightMat);
+      tLight.position.set(0, 0, -3.0);
+      vGroup.add(tLight);
+
+      const laneX = (Math.random() - 0.5) * 280;
+      const baseY = 40 + Math.random() * 85;
+      const baseZ = (Math.random() - 0.5) * 400;
+      vGroup.position.set(laneX, baseY, baseZ);
+
+      const speed = 25 + Math.random() * 45;
+      this.hoverVehicles.push({ mesh: vGroup, speed, baseY, laneX });
+      this.trafficGroup.add(vGroup);
     }
-
-    const towerMat = new THREE.SpriteMaterial({
-      map: this.toweringCloudTexture,
-      transparent: true,
-      opacity: 0.95,
-      depthWrite: false,
-    });
-
-    const toweringPositions = [
-      { angle: 0.35, dist: 440, height: 160, scale: 230 },
-      { angle: 0.85, dist: 470, height: 180, scale: 270 },
-      { angle: 2.1, dist: 410, height: 150, scale: 210 },
-      { angle: 3.5, dist: 450, height: 170, scale: 250 },
-      { angle: 5.2, dist: 430, height: 190, scale: 260 },
-    ];
-
-    for (const t of toweringPositions) {
-      const sprite = new THREE.Sprite(towerMat);
-      const x = Math.cos(t.angle) * t.dist;
-      const z = Math.sin(t.angle) * t.dist;
-      sprite.position.set(x, t.height, z);
-      sprite.scale.set(t.scale * 0.65, t.scale, 1);
-      this.cloudsGroup.add(sprite);
-
-      this.cloudSprites.push({
-        sprite,
-        baseX: x,
-        baseY: t.height,
-        baseZ: z,
-        speedOffset: 0.003,
-      });
-    }
-
-    this.flockGroup = new THREE.Group();
-    this.scene.add(this.flockGroup);
-
-    const birdMat = new THREE.MeshBasicMaterial({ color: 0x1f2e3d, side: THREE.DoubleSide });
-    const wingGeom = new THREE.BufferGeometry();
-    const wingVerts = new Float32Array([
-      0, 0, 0,
-      1.2, 0.2, 0.4,
-      0.3, 0, -0.6,
-    ]);
-    wingGeom.setAttribute('position', new THREE.BufferAttribute(wingVerts, 3));
-
-    const formationOffsets = [
-      { x: 0, y: 0, z: 0 },
-      { x: -5, y: -0.5, z: -6 },
-      { x: 5, y: -0.3, z: -6 },
-      { x: -10, y: -1.0, z: -12 },
-      { x: 10, y: -0.8, z: -12 },
-      { x: -15, y: -1.6, z: -18 },
-      { x: 15, y: -1.3, z: -18 },
-      { x: 20, y: -1.8, z: -24 },
-    ];
-
-    for (let i = 0; i < formationOffsets.length; i++) {
-      const f = formationOffsets[i];
-      const bird = new THREE.Group();
-      bird.scale.setScalar(0.75);
-
-      const leftWing = new THREE.Mesh(wingGeom, birdMat);
-      const rightWing = new THREE.Mesh(wingGeom, birdMat);
-      rightWing.scale.set(-1, 1, 1);
-
-      bird.add(leftWing);
-      bird.add(rightWing);
-
-      this.flockGroup.add(bird);
-      this.birds.push({
-        mesh: bird,
-        leftWing,
-        rightWing,
-        offsetX: f.x,
-        offsetY: f.y,
-        offsetZ: f.z,
-        phase: i * 0.45,
-      });
-    }
-
-    this.desertCreatureGroup = new THREE.Group();
-    const creatureMat = new THREE.MeshBasicMaterial({ color: 0xa87d55, side: THREE.DoubleSide });
-
-    const cBodyGeom = new THREE.ConeGeometry(1.2, 6, 5);
-    cBodyGeom.rotateX(Math.PI / 2);
-    const cBody = new THREE.Mesh(cBodyGeom, creatureMat);
-    this.desertCreatureGroup.add(cBody);
-
-    const cWingGeom = new THREE.BufferGeometry();
-    const cWingVerts = new Float32Array([
-      0, 0, 1.5,
-      7.0, 0.4, -0.5,
-      0, 0, -2.5,
-    ]);
-    cWingGeom.setAttribute('position', new THREE.BufferAttribute(cWingVerts, 3));
-
-    const cLeftWing = new THREE.Mesh(cWingGeom, creatureMat);
-    const cRightWing = new THREE.Mesh(cWingGeom, creatureMat);
-    cRightWing.scale.set(-1, 1, 1);
-
-    this.desertCreatureGroup.add(cLeftWing);
-    this.desertCreatureGroup.add(cRightWing);
-    this.desertCreatureWings = { left: cLeftWing, right: cRightWing };
-
-    this.desertCreatureGroup.scale.setScalar(1.2);
-    this.scene.add(this.desertCreatureGroup);
   }
 
-  applyLightingPreset(presetName: LightingMode) {
-    const config = LIGHTING_PRESETS[presetName];
-    if (!config) return;
+  applyLightingPreset(mode: LightingMode) {
+    const preset = LIGHTING_PRESETS[mode] || LIGHTING_PRESETS['midnight-cyan'];
 
-    this.skyMaterial.uniforms.uSkyTop.value.set(config.skyTop);
-    this.skyMaterial.uniforms.uSkyMid.value.set(config.skyMid);
-    this.skyMaterial.uniforms.uSkyHorizon.value.set(config.skyHorizon);
-    this.skyMaterial.uniforms.uSunColor.value.set(config.sunColor);
-    this.skyMaterial.uniforms.uSunPosition.value.set(...config.sunPosition);
-    this.skyMaterial.uniforms.uHazeDensity.value = config.hazeDensity;
+    this.skyMaterial.uniforms.uSkyTop.value.set(preset.skyTop);
+    this.skyMaterial.uniforms.uSkyMid.value.set(preset.skyMid);
+    this.skyMaterial.uniforms.uSkyHorizon.value.set(preset.skyHorizon);
+    this.skyMaterial.uniforms.uSunColor.value.set(preset.sunColor);
+    this.skyMaterial.uniforms.uSunPosition.value.set(...preset.sunPosition);
+    this.skyMaterial.uniforms.uHazeDensity.value = preset.hazeDensity;
 
-    this.dirLight.color.set(config.sunColor);
-    this.dirLight.position.set(...config.sunPosition);
-    this.ambientLight.color.set(config.ambientColor);
+    this.dirLight.color.set(preset.sunColor);
+    this.dirLight.position.set(...preset.sunPosition);
+    this.ambientLight.color.set(preset.ambientColor);
 
-    // Real scene-level distance fog (THREE.FogExp2) so floating islands, cottages, trees, and the
-    // character blend softly into the horizon at distance instead of popping as flat, disconnected
-    // shapes. The terrain itself has its own hand-tuned fog baked into its shader and is unaffected
-    // by scene.fog (its ShaderMaterial doesn't opt into the built-in fog chunks), so this only
-    // applies to standard-material objects that previously had zero atmospheric falloff.
-    if (!this.scene.fog) {
-      this.scene.fog = new THREE.FogExp2(config.skyHorizon, 0.0035);
-    } else if (this.scene.fog instanceof THREE.FogExp2) {
-      this.scene.fog.color.set(config.skyHorizon);
+    (this.holoRingMesh.material as THREE.MeshBasicMaterial).color.set(preset.sunColor);
+  }
+
+  setGridMode(gridMode: number) {
+    if (this.skyMaterial.uniforms.uGridMode) {
+      this.skyMaterial.uniforms.uGridMode.value = gridMode;
     }
   }
 
   update(playerPos: THREE.Vector3, playerVelocityZ: number, time: number) {
+    // Skybox follows player camera
     this.skyMesh.position.copy(playerPos);
+    this.holoRingMesh.position.set(playerPos.x, playerPos.y + 220, playerPos.z - 380);
+    this.holoRingMesh.rotation.z = time * 0.05;
+
     this.skyMaterial.uniforms.uTime.value = time;
 
-    this.cloudsGroup.position.x = playerPos.x * 0.2;
-    this.cloudsGroup.position.z = playerPos.z * 0.3;
-
-    for (let i = 0; i < this.cloudSprites.length; i++) {
-      const c = this.cloudSprites[i];
-      const drift = time * 0.8 + i * 2.0;
-      c.sprite.position.x = c.baseX + Math.sin(drift * 0.08) * 15;
-      c.sprite.position.y = c.baseY + Math.cos(drift * 0.05) * 4;
+    // Update Aerial Cyber Traffic
+    for (const v of this.hoverVehicles) {
+      v.mesh.position.z += v.speed * 0.016;
+      if (v.mesh.position.z > playerPos.z + 280) {
+        v.mesh.position.z = playerPos.z - 280;
+        v.mesh.position.x = playerPos.x + (Math.random() - 0.5) * 280;
+      }
     }
-
-    const flockFlightZ = (playerPos.z + (time * 16) % 800) - 200;
-    const flockFlightX = playerPos.x + Math.sin(time * 0.15) * 60 - 30;
-    const flockFlightY = playerPos.y + 75 + Math.cos(time * 0.1) * 8;
-
-    this.flockGroup.position.set(flockFlightX, flockFlightY, flockFlightZ);
-    this.flockGroup.rotation.y = Math.sin(time * 0.15) * 0.35;
-
-    // Living World Detail: Birds scatter as player surfs close by
-    const distToFlock = Math.hypot(playerPos.x - flockFlightX, playerPos.z - flockFlightZ);
-    const isScattering = distToFlock < 120;
-    const flapSpeed = isScattering ? 10.5 : 5.5;
-
-    for (const b of this.birds) {
-      const scatterOffsetX = isScattering ? b.offsetX * 1.6 : b.offsetX;
-      const scatterOffsetY = isScattering ? b.offsetY + Math.sin(time * 3.0 + b.phase) * 3.5 : b.offsetY;
-      b.mesh.position.set(scatterOffsetX, scatterOffsetY, b.offsetZ);
-
-      const flap = Math.sin(time * flapSpeed + b.phase) * 0.55;
-      b.leftWing.rotation.z = flap;
-      b.rightWing.rotation.z = -flap;
-    }
-
-    const creatureAngle = time * 0.25;
-    const creatureOrbitRadius = 140;
-    const creatureX = playerPos.x + Math.cos(creatureAngle) * creatureOrbitRadius + 60;
-    const creatureZ = playerPos.z + Math.sin(creatureAngle) * creatureOrbitRadius - 60;
-    const creatureY = playerPos.y + 110 + Math.sin(time * 0.4) * 10;
-
-    this.desertCreatureGroup.position.set(creatureX, creatureY, creatureZ);
-    this.desertCreatureGroup.rotation.y = -creatureAngle + Math.PI / 2;
-    this.desertCreatureGroup.rotation.z = 0.25;
-    const cFlap = Math.sin(time * 1.8) * 0.3;
-    this.desertCreatureWings.left.rotation.z = cFlap;
-    this.desertCreatureWings.right.rotation.z = -cFlap;
   }
 
   dispose() {
     this.scene.remove(this.skyMesh);
-    this.scene.remove(this.cloudsGroup);
-    this.scene.remove(this.flockGroup);
-    this.scene.remove(this.desertCreatureGroup);
+    this.scene.remove(this.dirLight);
+    this.scene.remove(this.ambientLight);
+    this.scene.remove(this.holoRingMesh);
+    this.scene.remove(this.trafficGroup);
     this.skyMaterial.dispose();
     this.skyMesh.geometry.dispose();
-    this.cloudTexture.dispose();
-    this.toweringCloudTexture.dispose();
+    this.holoRingMesh.geometry.dispose();
   }
 }

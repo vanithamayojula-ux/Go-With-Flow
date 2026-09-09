@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { Volume2, VolumeX, Sliders, Eye, FileCode2, Wind, Sparkles, Palette, Compass, Smartphone, Monitor, Code, Shield, Trophy } from 'lucide-react';
+import { Volume2, VolumeX, Sliders, Eye, Palette, Smartphone, Monitor, Shield, Trophy, Zap, Radio, Terminal } from 'lucide-react';
 import { BiomeType, LightingMode, PlayerStats } from '../types';
 
 interface GameHUDProps {
@@ -43,333 +43,321 @@ export const GameHUD: React.FC<GameHUDProps> = ({
 }) => {
   const [showDevInspector, setShowDevInspector] = useState(false);
 
-  const getStyleTierColor = (tier: string) => {
+  const getOverdriveTierColor = (tier: string) => {
     switch (tier) {
-      case 'Transcendent':
-        return 'bg-gradient-to-r from-amber-400 via-rose-400 to-pink-400 text-amber-950 border-amber-300 shadow-amber-300/40';
-      case 'Flow':
-        return 'bg-gradient-to-r from-amber-300 to-yellow-400 text-amber-950 border-amber-400/50 shadow-amber-400/30';
-      case 'Breeze':
-        return 'bg-gradient-to-r from-emerald-300 to-teal-400 text-emerald-950 border-emerald-400/50 shadow-emerald-400/30';
+      case 'Max-Velocity':
+        return 'bg-gradient-to-r from-cyan-400 via-fuchsia-400 to-white text-black border-white shadow-lg shadow-white/40 animate-pulse';
+      case 'Overdrive':
+        return 'bg-gradient-to-r from-fuchsia-500 to-pink-500 text-white border-pink-400 shadow-md shadow-pink-500/30';
+      case 'Charged':
+        return 'bg-gradient-to-r from-cyan-500 to-blue-500 text-white border-cyan-400 shadow-md shadow-cyan-500/20';
       default:
-        return 'bg-gradient-to-r from-amber-100 to-orange-200 text-amber-900 border-amber-300/50 shadow-amber-300/20';
+        return 'bg-gradient-to-r from-slate-700 to-slate-800 text-slate-300 border-slate-600';
     }
+  };
+
+  const getComboBadgeColor = (combo: number) => {
+    if (combo >= 5) return 'bg-white/90 text-black border-white shadow-xl shadow-white/50 animate-pulse';
+    if (combo >= 3) return 'bg-fuchsia-500/90 text-white border-fuchsia-300 shadow-lg shadow-fuchsia-500/30';
+    if (combo === 2) return 'bg-cyan-500/90 text-white border-cyan-300 shadow-md shadow-cyan-500/20';
+    return 'bg-blue-600/80 text-blue-100 border-blue-400';
   };
 
   const getBiomeBadge = (biome: BiomeType) => {
     switch (biome) {
-      case 'dunes':
-        return { name: 'Golden Sand Dunes', icon: '🌾' };
-      case 'sky-islands':
-        return { name: 'Ethereal Sky Islands', icon: '☁️' };
-      case 'forest':
-        return { name: 'Whisperwood Forest', icon: '🌲' };
+      case 'orbital-ring':
+        return { name: 'ORBITAL RING // ZERO-G', tag: 'ZONE-02', color: 'border-cyan-400 text-cyan-300' };
+      case 'the-grid':
+        return { name: 'THE GRID // VECTOR VOID', tag: 'ZONE-03', color: 'border-emerald-400 text-emerald-300' };
+      case 'derelict-station':
+        return { name: 'DERELICT // STATION-09', tag: 'ZONE-04', color: 'border-amber-400 text-amber-300' };
       default:
-        return { name: 'Verdant Meadow Plains', icon: '🍃' };
+        return { name: 'NEON UNDERCITY // SECTOR-07', tag: 'ZONE-01', color: 'border-fuchsia-400 text-fuchsia-300' };
     }
   };
 
   const biomeBadge = getBiomeBadge(stats.currentBiome);
+  const overdrivePercent = Math.round(stats.overdriveMeter || stats.styleMeter || 0);
 
   return (
-    <div id="game-hud-root" className="pointer-events-none absolute inset-0 z-20 flex flex-col justify-between p-3.5 sm:p-5 select-none font-serif">
-      {/* Top Navigation & Status Bar */}
+    <div id="game-hud-root" className="pointer-events-none absolute inset-0 z-20 flex flex-col justify-between p-3 sm:p-5 select-none font-mono">
+      {/* Top Telemetry & Cyber Status Bar */}
       <div className="flex items-start justify-between w-full">
-        {/* Left: Diegetic Parchment Branding & Journey Metrics */}
+        {/* Left: Cyberpunk In-World Telemetry */}
         <div className="flex flex-col space-y-2">
-          {/* Title Stamp & Biome Tag */}
+          {/* Logo & Zone Indicator */}
           <div className="flex items-center space-x-2 pointer-events-auto flex-wrap gap-y-1.5">
-            <div className="flex items-center space-x-2.5 px-4 py-2 rounded-2xl bg-[#FFFDF5]/90 backdrop-blur-md border border-[#D97706]/35 text-[#78350F] shadow-lg shadow-amber-900/10">
-              <div className="w-2.5 h-2.5 rounded-full bg-[#D97706] animate-pulse" />
-              <div>
-                <span className="font-bold tracking-wide text-base text-[#78350F]">Skyflow</span>
-                <span className="text-xs text-[#B45309] ml-1.5 font-sans font-medium hidden sm:inline">Endless Surf</span>
-              </div>
+            <div className="flex items-center space-x-2 px-3 py-1.5 rounded-lg bg-black/80 backdrop-blur-md border border-cyan-500/50 shadow-lg shadow-cyan-950/40">
+              <div className="w-2.5 h-2.5 rounded-sm bg-cyan-400 animate-pulse shadow-md shadow-cyan-400" />
+              <span className="font-black text-sm tracking-widest text-cyan-300">NEON // DRIFT</span>
+              <span className="text-[10px] px-1.5 py-0.5 rounded bg-cyan-950/80 border border-cyan-500/40 text-cyan-400 font-bold">
+                REV 2.0
+              </span>
             </div>
 
-            {/* Diegetic Biome Parchment Tag */}
-            <div className="px-3.5 py-1.5 rounded-full bg-[#FFFDF5]/85 backdrop-blur-md border border-[#D97706]/30 text-[#92400E] text-xs font-semibold flex items-center space-x-1.5 shadow-md shadow-amber-950/5">
-              <span>{biomeBadge.icon}</span>
+            {/* Zone Tag */}
+            <div className={`px-2.5 py-1.5 rounded-lg bg-black/75 backdrop-blur-md border text-xs font-bold flex items-center space-x-1.5 shadow-md ${biomeBadge.color}`}>
+              <span className="text-[10px] bg-white/10 px-1 py-0.5 rounded font-black">{biomeBadge.tag}</span>
               <span>{biomeBadge.name}</span>
             </div>
 
-            {/* Floating Island Banner */}
-            {stats.isOnFloatingIsland && (
-              <div className="px-3 py-1 rounded-full bg-[#FEF3C7]/90 border border-[#F59E0B] text-[#78350F] text-xs font-bold shadow-md animate-bounce">
-                ☁️ Floating Isle
+            {stats.isGrinding && (
+              <div className="px-2.5 py-1 rounded-lg bg-fuchsia-600/90 border border-fuchsia-300 text-white text-xs font-black tracking-wider shadow-lg shadow-fuchsia-500/40 animate-pulse flex items-center space-x-1">
+                <Zap className="w-3.5 h-3.5 text-yellow-300" />
+                <span>RAIL GRIND ACTIVE</span>
               </div>
             )}
           </div>
 
-          {/* Subway Surfers In-World Metrics Bar */}
+          {/* Core Metrics: Speed, Score, Shards, Distance */}
           <div className="flex items-center space-x-2 pointer-events-auto flex-wrap gap-y-1.5">
-            {/* Score & Multiplier Badge */}
-            <div className="px-3.5 py-1.5 rounded-xl bg-[#FFFDF5]/95 backdrop-blur-md border border-[#D97706]/35 text-[#78350F] flex items-center space-x-2 shadow-md">
-              <span className="text-[10px] text-[#B45309] uppercase font-sans font-bold">Score</span>
-              <span className="text-lg font-black text-[#92400E] font-mono tracking-tight">
+            {/* Speedometer */}
+            <div className="px-3 py-1.5 rounded-lg bg-black/80 backdrop-blur-md border border-cyan-500/40 text-cyan-300 flex items-center space-x-2 shadow-md">
+              <span className="text-[9px] text-cyan-500 font-bold uppercase tracking-wider">SPEED</span>
+              <span className="text-base font-black font-mono tracking-tight text-cyan-100">
+                {stats.speed} <span className="text-[10px] text-cyan-400 font-normal">KM/H</span>
+              </span>
+            </div>
+
+            {/* Score & Multiplier */}
+            <div className="px-3 py-1.5 rounded-lg bg-black/80 backdrop-blur-md border border-fuchsia-500/40 text-fuchsia-300 flex items-center space-x-2 shadow-md">
+              <span className="text-[9px] text-fuchsia-500 font-bold uppercase tracking-wider">SCORE</span>
+              <span className="text-base font-black font-mono tracking-tight text-white">
                 {stats.score.toLocaleString()}
               </span>
               {stats.scoreMultiplier > 1 && (
-                <span className="px-1.5 py-0.5 rounded-md bg-[#F59E0B] text-white text-[10px] font-black tracking-wider animate-pulse">
+                <span className="px-1.5 py-0.2 rounded bg-fuchsia-500 text-white text-[10px] font-black animate-pulse">
                   x{stats.scoreMultiplier}
                 </span>
               )}
             </div>
 
             {/* High Score Trophy */}
-            <div className="px-3 py-1.5 rounded-xl bg-[#FFFDF5]/90 backdrop-blur-md border border-[#D97706]/25 text-[#78350F] flex items-center space-x-1.5 shadow-sm">
-              <Trophy className="w-3.5 h-3.5 text-amber-500" />
-              <span className="text-xs font-bold text-[#92400E] font-mono">
+            <div className="px-2.5 py-1.5 rounded-lg bg-black/70 backdrop-blur-md border border-amber-500/30 text-amber-300 flex items-center space-x-1.5 shadow-sm">
+              <Trophy className="w-3.5 h-3.5 text-amber-400" />
+              <span className="text-xs font-bold text-amber-200">
                 {stats.highScore > 0 ? stats.highScore.toLocaleString() : '0'}
               </span>
             </div>
 
-            {/* Wind Orbs / Coins Collected */}
-            <div className="px-3 py-1.5 rounded-xl bg-[#FFFDF5]/90 backdrop-blur-md border border-[#D97706]/25 text-[#78350F] flex items-center space-x-1.5 shadow-sm">
-              <Wind className="w-4 h-4 text-[#D97706]" />
-              <span className="text-sm font-bold text-[#78350F] font-mono">
-                {stats.windOrbsCollected}
+            {/* Data Shards Collected */}
+            <div className="px-2.5 py-1.5 rounded-lg bg-black/70 backdrop-blur-md border border-cyan-500/30 text-cyan-300 flex items-center space-x-1.5 shadow-sm">
+              <span className="text-xs">💎</span>
+              <span className="text-xs font-bold text-cyan-100">
+                {stats.dataShardsCollected || stats.windOrbsCollected || 0}
               </span>
             </div>
 
-            {/* Distance Badge */}
-            <div className="px-3 py-1.5 rounded-xl bg-[#FFFDF5]/85 backdrop-blur-md border border-[#D97706]/20 text-[#78350F] flex items-center space-x-1.5 shadow-sm">
-              <span className="text-xs">🧭</span>
-              <span className="text-xs font-bold text-[#92400E] font-mono">
-                {stats.distance}m
-              </span>
+            {/* Distance */}
+            <div className="px-2.5 py-1.5 rounded-lg bg-black/70 backdrop-blur-md border border-slate-700 text-slate-300 flex items-center space-x-1 shadow-sm">
+              <span className="text-[10px] text-slate-500 font-bold">DST</span>
+              <span className="text-xs font-bold font-mono text-slate-200">{stats.distance}M</span>
             </div>
           </div>
 
-          {/* Active Subway Surfers Power-Ups Strip */}
+          {/* Active Cyber Power-Ups Strip */}
           <div className="flex items-center space-x-1.5 pointer-events-auto">
             {stats.activePowerUps?.magnetTimer > 0 && (
-              <div className="px-2.5 py-1 rounded-lg bg-red-500/90 text-white text-[11px] font-bold flex items-center space-x-1 shadow-md animate-pulse">
-                <span>🧲 Magnet</span>
-                <span className="font-mono text-[10px] bg-red-700/80 px-1 rounded">
-                  {Math.ceil(stats.activePowerUps.magnetTimer)}s
-                </span>
+              <div className="px-2 py-0.5 rounded bg-red-600/90 border border-red-400 text-white text-[10px] font-bold flex items-center space-x-1 shadow-md animate-pulse">
+                <span>🧲 QUANTUM MAGNET</span>
+                <span className="bg-black/60 px-1 rounded font-mono">{Math.ceil(stats.activePowerUps.magnetTimer)}s</span>
               </div>
             )}
             {stats.activePowerUps?.jetpackTimer > 0 && (
-              <div className="px-2.5 py-1 rounded-lg bg-cyan-500/90 text-white text-[11px] font-bold flex items-center space-x-1 shadow-md animate-bounce">
-                <span>🚀 Jetpack</span>
-                <span className="font-mono text-[10px] bg-cyan-700/80 px-1 rounded">
-                  {Math.ceil(stats.activePowerUps.jetpackTimer)}s
-                </span>
+              <div className="px-2 py-0.5 rounded bg-cyan-600/90 border border-cyan-400 text-white text-[10px] font-bold flex items-center space-x-1 shadow-md animate-bounce">
+                <span>🚀 SONIC JETPACK</span>
+                <span className="bg-black/60 px-1 rounded font-mono">{Math.ceil(stats.activePowerUps.jetpackTimer)}s</span>
               </div>
             )}
             {stats.activePowerUps?.multiplierTimer > 0 && (
-              <div className="px-2.5 py-1 rounded-lg bg-amber-500/90 text-white text-[11px] font-bold flex items-center space-x-1 shadow-md">
-                <span>✨ 2x Multiplier</span>
-                <span className="font-mono text-[10px] bg-amber-700/80 px-1 rounded">
-                  {Math.ceil(stats.activePowerUps.multiplierTimer)}s
-                </span>
+              <div className="px-2 py-0.5 rounded bg-amber-600/90 border border-amber-400 text-white text-[10px] font-bold flex items-center space-x-1 shadow-md">
+                <span>✨ 2X OVERDRIVE</span>
+                <span className="bg-black/60 px-1 rounded font-mono">{Math.ceil(stats.activePowerUps.multiplierTimer)}s</span>
               </div>
             )}
             {stats.activePowerUps?.hoverboardShield && (
-              <div className="px-2.5 py-1 rounded-lg bg-emerald-500/90 text-white text-[11px] font-bold flex items-center space-x-1 shadow-md">
-                <span>🛡️ Shield Active</span>
+              <div className="px-2 py-0.5 rounded bg-emerald-600/90 border border-emerald-400 text-white text-[10px] font-bold flex items-center space-x-1 shadow-md">
+                <span>🛡️ HOLO-SHIELD</span>
               </div>
             )}
           </div>
         </div>
 
-        {/* Center: Style Flow Parchment Pill & Trick Banner */}
-        <div className="flex flex-col items-center max-w-xs sm:max-w-md w-full px-2">
-          {/* Active Trick Banner */}
+        {/* Center: Overdrive Gauge & Trick Banner */}
+        <div className="flex flex-col items-center max-w-xs sm:max-w-sm w-full px-2">
+          {/* Active Trick / Combo Banner */}
           {stats.activeTrickName && (
-            <div className="mb-2 px-4 py-1.5 rounded-full bg-gradient-to-r from-[#F59E0B] to-[#D97706] text-white text-xs font-bold backdrop-blur-md border border-amber-200/50 shadow-lg shadow-amber-900/20 flex items-center space-x-2 animate-pulse">
-              <Sparkles className="w-4 h-4 text-yellow-200" />
+            <div className={`mb-2 px-3.5 py-1 rounded-full border text-xs font-black backdrop-blur-md flex items-center space-x-2 transition-all ${getComboBadgeColor(stats.combo)}`}>
+              <Zap className="w-3.5 h-3.5 animate-spin" />
               <span>{stats.activeTrickName}</span>
               {stats.combo > 1 && (
-                <span className="px-1.5 py-0.2 rounded bg-white text-[#78350F] font-black text-[10px]">
-                  x{stats.combo}
+                <span className="px-1.5 py-0.2 rounded bg-black text-cyan-300 font-black text-[10px]">
+                  {stats.combo}X COMBO
                 </span>
               )}
             </div>
           )}
 
-          {/* Notification Toast */}
+          {/* Glitch Notification Toast */}
           {notification && !stats.activeTrickName && (
-            <div className="mb-2 px-4 py-1.5 rounded-full bg-[#FFFDF5]/95 border border-[#D97706]/40 text-[#78350F] text-xs font-semibold backdrop-blur-md shadow-lg shadow-amber-900/10">
+            <div className="mb-2 px-3.5 py-1 rounded-md bg-black/90 border border-cyan-500/60 text-cyan-300 text-xs font-bold backdrop-blur-md shadow-lg shadow-cyan-950/40 animate-pulse">
               {notification}
             </div>
           )}
 
-          {/* Style Flow Parchment Bar */}
-          <div className="w-full pointer-events-auto bg-[#FFFDF5]/90 backdrop-blur-md border border-[#D97706]/35 rounded-2xl p-2.5 shadow-lg shadow-amber-950/10">
-            <div className="flex items-center justify-between text-xs mb-1.5 px-1">
+          {/* OVERDRIVE Segmented Tech Meter */}
+          <div className="w-full pointer-events-auto bg-black/85 backdrop-blur-md border border-cyan-500/40 rounded-xl p-2 shadow-lg shadow-cyan-950/30">
+            <div className="flex items-center justify-between text-xs mb-1 px-1">
               <div className="flex items-center space-x-1.5">
-                <Sparkles className="w-3.5 h-3.5 text-[#D97706]" />
-                <span className="text-[#92400E] font-semibold">Spirit Flow:</span>
-                <span className={`font-bold uppercase tracking-wider text-[10px] px-2 py-0.5 rounded-md border ${getStyleTierColor(stats.styleTier)}`}>
-                  {stats.styleTier}
+                <span className="text-cyan-400 font-bold text-[10px] tracking-wider">OVERDRIVE</span>
+                <span className={`text-[9px] px-1.5 py-0.2 rounded font-black uppercase border ${getOverdriveTierColor(stats.overdriveTier || 'Charged')}`}>
+                  {stats.overdriveTier || 'Charged'}
                 </span>
               </div>
-              <div className="font-mono text-[#78350F] text-xs font-bold">
-                {Math.round(stats.styleMeter)}%
+              <div className="font-mono text-cyan-200 text-xs font-black">
+                {overdrivePercent}%
               </div>
             </div>
 
-            {/* Soft Warm Progress Bar */}
-            <div className="w-full h-2.5 bg-[#FEF3C7] rounded-full overflow-hidden p-0.5 border border-[#F59E0B]/30">
+            {/* Segmented Neon Bar */}
+            <div className="w-full h-2 bg-slate-900 rounded-full overflow-hidden p-0.5 border border-cyan-500/30">
               <div
-                className={`h-full rounded-full transition-all duration-300 ${getStyleTierColor(stats.styleTier)}`}
-                style={{ width: `${Math.max(4, stats.styleMeter)}%` }}
+                className={`h-full rounded-full transition-all duration-200 ${getOverdriveTierColor(stats.overdriveTier || 'Charged')}`}
+                style={{ width: `${Math.max(4, overdrivePercent)}%` }}
               />
             </div>
           </div>
         </div>
 
-        {/* Right: Soft Parchment Controls & Dev Inspector Toggle */}
-        <div className="flex flex-col items-end space-y-2 pointer-events-auto">
-          <div className="flex items-center space-x-2">
-            {/* Audio Toggle */}
+        {/* Right: Quick Cyber Controls Toolbar */}
+        <div className="flex items-center space-x-1.5 pointer-events-auto">
+          {/* Holo-Shield Deploy Button */}
+          <button
+            onClick={onActivateShield}
+            className={`p-2 rounded-lg border backdrop-blur-md transition-all active:scale-95 ${
+              stats.activePowerUps?.hoverboardShield
+                ? 'bg-emerald-500/20 border-emerald-400 text-emerald-300 shadow-md shadow-emerald-500/20'
+                : 'bg-black/60 border-slate-700 text-slate-400 hover:text-white'
+            }`}
+            title="Deploy Holo-Shield (Double-Tap Space)"
+          >
+            <Shield className="w-4 h-4" />
+          </button>
+
+          {/* Lighting Mode Selector */}
+          <div className="relative group">
             <button
-              id="btn-hud-audio"
-              onClick={onToggleMute}
-              className={`p-2.5 rounded-xl backdrop-blur-md border transition-all shadow-md ${
-                isMuted
-                  ? 'bg-rose-100/90 border-rose-300 text-rose-800 hover:bg-rose-200'
-                  : 'bg-[#FFFDF5]/90 border-[#D97706]/35 text-[#78350F] hover:bg-[#FEF3C7]'
-              }`}
-              title={isMuted ? 'Unmute Audio' : 'Mute Audio'}
+              className="p-2 rounded-lg bg-black/60 border border-slate-700 text-slate-300 hover:text-white backdrop-blur-md active:scale-95"
+              title="Change Cyberpunk Lighting Mood"
             >
-              {isMuted ? <VolumeX className="w-4 h-4" /> : <Volume2 className="w-4 h-4" />}
+              <Radio className="w-4 h-4 text-cyan-400" />
             </button>
-
-            {/* Upright (Portrait) / Wide Orientation Toggle */}
-            {onToggleUpright && (
-              <button
-                id="btn-hud-orientation"
-                onClick={onToggleUpright}
-                className={`p-2.5 rounded-xl backdrop-blur-md border transition-all shadow-md flex items-center space-x-1.5 ${
-                  isUpright
-                    ? 'bg-[#FEF3C7] border-[#F59E0B] text-[#78350F]'
-                    : 'bg-[#FFFDF5]/90 border-[#D97706]/35 text-[#92400E] hover:bg-[#FEF3C7]'
-                }`}
-                title={isUpright ? 'Switch to Widescreen View' : 'Switch to Upright (Portrait) View'}
-              >
-                {isUpright ? <Smartphone className="w-4 h-4" /> : <Monitor className="w-4 h-4" />}
-                <span className="text-xs font-semibold hidden sm:inline">{isUpright ? 'Upright' : 'Wide'}</span>
-              </button>
-            )}
-
-            {/* Cinematic Camera View Switcher */}
-            <button
-              id="btn-hud-cam"
-              onClick={onToggleCam}
-              className={`p-2.5 rounded-xl backdrop-blur-md border transition-all shadow-md ${
-                isCinematicCam
-                  ? 'bg-[#FEF3C7] border-[#F59E0B] text-[#78350F]'
-                  : 'bg-[#FFFDF5]/90 border-[#D97706]/35 text-[#92400E] hover:bg-[#FEF3C7]'
-              }`}
-              title="Toggle Surfer / Cinematic Fly Cam"
-            >
-              <Eye className="w-4 h-4" />
-            </button>
-
-            {/* Hoverboard Shield Trigger (Subway Surfers double tap / shield) */}
-            {onActivateShield && (
-              <button
-                id="btn-hud-shield"
-                onClick={onActivateShield}
-                className={`p-2.5 rounded-xl backdrop-blur-md border transition-all shadow-md flex items-center space-x-1 ${
-                  stats.activePowerUps.hoverboardShield
-                    ? 'bg-emerald-100 border-emerald-400 text-emerald-800 animate-pulse'
-                    : 'bg-[#FFFDF5]/90 border-[#D97706]/35 text-[#78350F] hover:bg-[#FEF3C7]'
-                }`}
-                title="Activate Hoverboard Shield (Protects against 1 collision)"
-              >
-                <Shield className="w-4 h-4 text-emerald-600" />
-                <span className="text-xs font-semibold hidden sm:inline">Shield</span>
-              </button>
-            )}
-
-            {/* Equipment & Cosmetics Trigger */}
-            <button
-              id="btn-hud-cosmetics"
-              onClick={onOpenCosmetics}
-              className="px-3 py-2 rounded-xl bg-[#FFFDF5]/90 backdrop-blur-md border border-[#D97706]/35 text-[#78350F] hover:bg-[#FEF3C7] flex items-center space-x-1.5 shadow-md text-xs font-semibold"
-              title="Open Voyager Equipment & Cosmetics"
-            >
-              <Palette className="w-4 h-4 text-[#D97706]" />
-              <span className="hidden sm:inline">Boards & Gear</span>
-            </button>
-
-            {/* Graphics Settings Trigger */}
-            <button
-              id="btn-hud-graphics"
-              onClick={onOpenGraphicsDrawer}
-              className="px-3 py-2 rounded-xl bg-[#FFFDF5]/90 backdrop-blur-md border border-[#D97706]/35 text-[#78350F] hover:bg-[#FEF3C7] flex items-center space-x-1.5 shadow-md text-xs font-semibold"
-              title="Open Graphics & Shaders Settings"
-            >
-              <Sliders className="w-4 h-4 text-[#D97706]" />
-              <span className="hidden sm:inline">Graphics</span>
-            </button>
-
-            {/* Art Deliverables Trigger */}
-            <button
-              id="btn-hud-deliverables"
-              onClick={onOpenDeliverables}
-              className="px-3 py-2 rounded-xl bg-gradient-to-r from-[#F59E0B] to-[#D97706] text-white hover:brightness-105 flex items-center space-x-1.5 shadow-md text-xs font-semibold"
-              title="Open Art Asset & Shader Deliverables"
-            >
-              <FileCode2 className="w-4 h-4 text-yellow-100" />
-              <span className="hidden md:inline">Art Assets</span>
-            </button>
-
-            {/* Hidden Dev Inspector Toggle */}
-            <button
-              onClick={() => setShowDevInspector(!showDevInspector)}
-              className={`p-2 rounded-xl backdrop-blur-md border transition-all text-xs ${
-                showDevInspector
-                  ? 'bg-slate-900 text-emerald-400 border-emerald-400/40'
-                  : 'bg-[#FFFDF5]/60 border-[#D97706]/20 text-[#B45309] hover:bg-[#FEF3C7]'
-              }`}
-              title="Toggle Dev Inspector Readouts"
-            >
-              <Code className="w-3.5 h-3.5" />
-            </button>
+            <div className="absolute right-0 top-full mt-1.5 hidden group-hover:flex flex-col space-y-1 p-1.5 rounded-lg bg-black/95 border border-cyan-500/40 shadow-xl shadow-cyan-950/40 z-30 min-w-[140px]">
+              {(['midnight-cyan', 'synthwave-magenta', 'toxic-matrix', 'solar-amber'] as LightingMode[]).map(mode => (
+                <button
+                  key={mode}
+                  onClick={() => onSelectLighting(mode)}
+                  className={`px-2.5 py-1 text-left text-[11px] font-bold rounded transition-all ${
+                    lightingMode === mode
+                      ? 'bg-cyan-500/20 border border-cyan-400 text-cyan-200'
+                      : 'text-slate-400 hover:text-white hover:bg-white/5'
+                  }`}
+                >
+                  {mode.toUpperCase().replace('-', ' ')}
+                </button>
+              ))}
+            </div>
           </div>
 
-          {/* Dev-Only Diagnostics Readout (Hidden by default!) */}
-          {showDevInspector && (
-            <div className="flex items-center space-x-2 px-2.5 py-1 rounded-lg bg-slate-950/90 backdrop-blur-md border border-emerald-400/40 text-[10px] font-mono text-white/80 shadow-xl">
-              <span className={fps >= 55 ? 'text-emerald-400 font-bold' : 'text-amber-400 font-bold'}>
-                {fps} FPS
-              </span>
-              <span className="text-white/30">|</span>
-              <span>{drawCalls} calls</span>
-              <span className="text-white/30">|</span>
-              <span>{instanceCount} foliage</span>
-              <span className="text-white/30">|</span>
-              <span>µ={stats.currentFriction.toFixed(2)}</span>
-            </div>
+          {/* Camera View Mode */}
+          <button
+            onClick={onToggleCam}
+            className={`p-2 rounded-lg border backdrop-blur-md transition-all active:scale-95 ${
+              isCinematicCam
+                ? 'bg-fuchsia-500/20 border-fuchsia-400 text-fuchsia-300'
+                : 'bg-black/60 border-slate-700 text-slate-400 hover:text-white'
+            }`}
+            title="Toggle Cinematic Fly Camera"
+          >
+            <Eye className="w-4 h-4" />
+          </button>
+
+          {/* Upright / Widescreen Cam */}
+          {onToggleUpright && (
+            <button
+              onClick={onToggleUpright}
+              className={`p-2 rounded-lg border backdrop-blur-md transition-all active:scale-95 ${
+                isUpright
+                  ? 'bg-cyan-500/20 border-cyan-400 text-cyan-300'
+                  : 'bg-black/60 border-slate-700 text-slate-400 hover:text-white'
+              }`}
+              title="Toggle Upright Portrait / Wide Chase Cam"
+            >
+              {isUpright ? <Smartphone className="w-4 h-4" /> : <Monitor className="w-4 h-4" />}
+            </button>
           )}
 
-          {/* Quick Lighting Presets */}
-          <div className="hidden lg:flex items-center space-x-1 bg-[#FFFDF5]/90 backdrop-blur-md border border-[#D97706]/30 p-1 rounded-xl text-[11px]">
-            {(['morning', 'golden-hour', 'bright-day'] as LightingMode[]).map(mode => (
-              <button
-                key={mode}
-                onClick={() => onSelectLighting(mode)}
-                className={`px-2.5 py-0.5 rounded-lg capitalize transition-all ${
-                  lightingMode === mode
-                    ? 'bg-[#F59E0B] text-white font-bold shadow-sm'
-                    : 'text-[#78350F] hover:bg-[#FEF3C7]'
-                }`}
-              >
-                {mode.replace('-', ' ')}
-              </button>
-            ))}
-          </div>
+          {/* Mute Audio */}
+          <button
+            onClick={onToggleMute}
+            className={`p-2 rounded-lg border backdrop-blur-md transition-all active:scale-95 ${
+              isMuted
+                ? 'bg-red-500/20 border-red-500 text-red-400'
+                : 'bg-black/60 border-slate-700 text-slate-400 hover:text-white'
+            }`}
+            title={isMuted ? 'Unmute Synthwave Score' : 'Mute Audio'}
+          >
+            {isMuted ? <VolumeX className="w-4 h-4" /> : <Volume2 className="w-4 h-4" />}
+          </button>
+
+          {/* Cosmetics Bay */}
+          <button
+            onClick={onOpenCosmetics}
+            className="p-2 rounded-lg bg-black/60 border border-slate-700 text-slate-300 hover:text-cyan-300 backdrop-blur-md active:scale-95"
+            title="Cyberpunk Hoverboard & Armor Bay"
+          >
+            <Palette className="w-4 h-4" />
+          </button>
+
+          {/* Graphics Settings */}
+          <button
+            onClick={onOpenGraphicsDrawer}
+            className="p-2 rounded-lg bg-black/60 border border-slate-700 text-slate-300 hover:text-cyan-300 backdrop-blur-md active:scale-95"
+            title="Graphics & Shaders Inspector"
+          >
+            <Sliders className="w-4 h-4" />
+          </button>
+
+          {/* Dev Debug Overlay Toggle */}
+          <button
+            onClick={() => setShowDevInspector(prev => !prev)}
+            className={`p-2 rounded-lg border backdrop-blur-md transition-all active:scale-95 ${
+              showDevInspector
+                ? 'bg-cyan-500/20 border-cyan-400 text-cyan-300'
+                : 'bg-black/60 border-slate-700 text-slate-400 hover:text-white'
+            }`}
+            title="Telemetry Debugger"
+          >
+            <Terminal className="w-4 h-4" />
+          </button>
         </div>
       </div>
 
-      {/* Bottom Spacer */}
-      <div />
+      {/* Dev Inspector Mini-HUD */}
+      {showDevInspector && (
+        <div className="pointer-events-auto absolute top-20 right-5 p-3 rounded-lg bg-black/90 border border-cyan-500/40 text-[11px] text-cyan-300 backdrop-blur-md shadow-xl z-30 flex flex-col space-y-1">
+          <div className="text-white font-bold border-b border-cyan-500/30 pb-1 mb-1">
+            [TELEMETRY DIAGNOSTICS]
+          </div>
+          <div>FPS: <span className="font-bold text-white">{fps}</span></div>
+          <div>DRAW CALLS: <span className="font-bold text-white">{drawCalls}</span></div>
+          <div>INSTANCES: <span className="font-bold text-white">{instanceCount}</span></div>
+          <div>ZONE: <span className="font-bold text-white">{stats.currentBiome.toUpperCase()}</span></div>
+          <div>LANE: <span className="font-bold text-white">{stats.currentLane}</span></div>
+          <div>GRINDING: <span className="font-bold text-white">{stats.isGrinding ? 'YES' : 'NO'}</span></div>
+          <div>BOOSTING: <span className="font-bold text-white">{stats.isBoosting ? 'YES' : 'NO'}</span></div>
+        </div>
+      )}
     </div>
   );
 };

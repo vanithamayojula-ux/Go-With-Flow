@@ -1,65 +1,44 @@
 import * as THREE from 'three';
-import { getTerrainHeight, getTerrainNormal, getBiomeAt, getBiomeFriction, TerrainManager } from './terrain';
+import { getBiomeAt, getBiomeFriction, getTerrainHeight, getTerrainNormal, TerrainManager } from './terrain';
 import { BoardTrailShader } from '../graphics/shaders';
-import { createDustParticleTexture, createWindPetalTexture } from '../graphics/textures';
-import { BiomeType, CosmeticsConfig, PlayerStats, TrickType, LaneIndex, PowerUpType, ActivePowerUps, GameState } from '../types';
-import { getLaneX } from './obstacles';
+import { createDustParticleTexture, createPetalParticleTexture } from '../graphics/textures';
 import { AudioManager } from './audio';
+import {
+  ActivePowerUps,
+  BiomeType,
+  ComboTier,
+  CosmeticsConfig,
+  GameState,
+  LaneIndex,
+  OverdriveTier,
+  PlayerStats,
+  PowerUpType,
+  TrickType,
+} from '../types';
+import { getLaneX } from './obstacles';
 
 export class PlayerManager {
   scene: THREE.Scene;
   group: THREE.Group;
-  boardMesh: THREE.Group;
-  boardDeckMesh!: THREE.Mesh;
-  boardFoilMesh!: THREE.Mesh;
+
+  // Meshes
   characterMesh: THREE.Group;
-  torsoMesh!: THREE.Mesh;
+  torsoMesh: THREE.Mesh;
+  headMesh: THREE.Mesh;
+  visorMesh: THREE.Mesh;
   capeMesh: THREE.Mesh;
+  leftArmMesh: THREE.Group;
+  rightArmMesh: THREE.Group;
 
-  // Trail Ribbon
-  trailMesh: THREE.Mesh;
-  trailGeometry: THREE.BufferGeometry;
-  trailMaterial: THREE.ShaderMaterial;
-  trailPositions: Float32Array;
-  trailUvs: Float32Array;
-  trailProgress: Float32Array;
-  trailHistory: { left: THREE.Vector3; right: THREE.Vector3 }[] = [];
-  maxTrailPoints = 36;
+  // Cyber Hoverboard & Real-Time Neon Underglow
+  boardMesh: THREE.Group;
+  boardDeckMesh: THREE.Mesh;
+  boardFoilMesh: THREE.Mesh;
+  underglowMesh: THREE.Mesh;
 
-  // Dust & Petal Particle Pool
-  dustParticles: { mesh: THREE.Sprite; active: boolean; life: number; maxLife: number; vel: THREE.Vector3 }[] = [];
-  dustTexture: THREE.CanvasTexture;
-  petalParticles: { mesh: THREE.Sprite; active: boolean; life: number; vel: THREE.Vector3 }[] = [];
-  petalTexture: THREE.CanvasTexture;
-
-  // Physics State
-  position = new THREE.Vector3(0, 5, 0);
-  velocity = new THREE.Vector3(0, 0, 18);
-  normal = new THREE.Vector3(0, 1, 0);
-  targetNormal = new THREE.Vector3(0, 1, 0);
-  carveAngle = 0;
-  pitchAngle = 0;
-  isGrounded = true;
-  hoverHeight = 0.30;
-  jumpVelocity = 0;
-  spinAngle = 0;
-  flipAngle = 0;
-  grabPoseWeight = 0;
-  zenPoseWeight = 0;
-
-  // Upright Vertical Camera Mode
-  isUpright = true;
-
-  // Character Mesh References
-  hatMesh!: THREE.Mesh;
-  hoodMesh!: THREE.Mesh;
-  acornCapMesh!: THREE.Group;
-  leftArmMesh!: THREE.Group;
-  rightArmMesh!: THREE.Group;
-
-  // Whisperwood Soot Sprite Companion
-  sootSpriteMesh!: THREE.Group;
-  sootSpriteTime = Math.random() * Math.PI * 2;
+  // Cyber Recon Drone Companion
+  cyberDroneMesh: THREE.Group;
+  cyberDroneTime = Math.random() * Math.PI * 2;
 
   // Mid-Air Trick & Slow-Motion Window
   activeTrick: TrickType | null = null;
@@ -73,22 +52,31 @@ export class PlayerManager {
   biomeTransitionTimer = 0;
 
   triggerBiomePullBack() {
-    this.biomeTransitionTimer = 2.5; // 2.5 second wide camera establishing shot
+    this.biomeTransitionTimer = 2.5;
   }
 
   // Cosmetics
   currentCosmetics: CosmeticsConfig = {
-    boardId: 'ivory-drift',
-    trailId: 'verdant-breeze',
-    capeColor: '#10b981',
+    boardId: 'cyber-phantom',
+    trailId: 'electric-cyan',
+    capeColor: '#00f0ff',
     poseId: 'standard',
+    armorVariant: 'carbon-fiber',
+    visorColor: '#00f0ff',
+    underglowColor: '#00f0ff',
   };
 
-  // Subway Surfers 3-Lane Navigation & Slide
+  // 3-Lane Navigation & Slide
   currentLane: LaneIndex = 0;
   targetLaneX = 0;
   isSliding = false;
   slideTimer = 0;
+
+  // Overdrive, Boost & Rail Grinding
+  overdriveMeter = 25.0; // 0 to 100
+  boostTimer = 0;
+  isGrinding = false;
+  grindSparkTimer = 0;
 
   // Power-Ups & Multipliers
   activePowerUps: ActivePowerUps = {
@@ -106,25 +94,32 @@ export class PlayerManager {
 
   // Stats
   stats: PlayerStats = {
-    speed: 18,
-    maxSpeed: 42,
+    speed: 24,
+    maxSpeed: 52,
     distance: 0,
     score: 0,
     highScore: 0,
-    styleMeter: 15,
+    styleMeter: 25,
     styleTier: 'Chill',
+    overdriveMeter: 25,
+    overdriveTier: 'Charged',
+    comboTier: 'blue',
     airTime: 0,
     isGrounded: true,
     combo: 0,
     windOrbsCollected: 0,
-    currentBiome: 'meadow',
-    currentFriction: 0.08,
+    dataShardsCollected: 0,
+    currentBiome: 'neon-undercity',
+    currentFriction: 0.02,
     activeTrickName: null,
     slowMoActive: false,
     isOnFloatingIsland: false,
     currentLane: 0,
     isSliding: false,
     slideTimer: 0,
+    isGrinding: false,
+    isBoosting: false,
+    boostEnergy: 100,
     activePowerUps: {
       magnetTimer: 0,
       jetpackTimer: 0,
@@ -135,6 +130,33 @@ export class PlayerManager {
     gameState: 'playing',
   };
 
+  // Physics State
+  position = new THREE.Vector3();
+  velocity = new THREE.Vector3(0, 0, 24);
+  jumpVelocity = 0;
+  hoverHeight = 0.55;
+  normal = new THREE.Vector3(0, 1, 0);
+  targetNormal = new THREE.Vector3(0, 1, 0);
+  carveAngle = 0;
+  pitchAngle = 0;
+  spinAngle = 0;
+  flipAngle = 0;
+  grabPoseWeight = 0;
+  isGrounded = true;
+  isUpright = true;
+
+  // Trail Geometry & Particles
+  trailGeometry!: THREE.BufferGeometry;
+  trailMaterial!: THREE.ShaderMaterial;
+  trailMesh!: THREE.Mesh;
+  maxTrailPoints = 85;
+  trailHistory: { left: THREE.Vector3; right: THREE.Vector3 }[] = [];
+
+  dustParticles: { mesh: THREE.Sprite; vel: THREE.Vector3; life: number; maxLife: number }[] = [];
+  petalParticles: { mesh: THREE.Sprite; vel: THREE.Vector3; life: number; maxLife: number; rotSpeed: number }[] = [];
+  dustTexture!: THREE.CanvasTexture;
+  petalTexture!: THREE.CanvasTexture;
+
   constructor(scene: THREE.Scene) {
     this.scene = scene;
     this.group = new THREE.Group();
@@ -144,393 +166,277 @@ export class PlayerManager {
     this.position.set(0, h + this.hoverHeight, 0);
     this.group.position.copy(this.position);
 
-    // 1. Build Stylized Hover Surfboard
+    // 1. Build Cyberpunk Stealth Hoverboard
     this.boardMesh = new THREE.Group();
-    const boardGeom = new THREE.CylinderGeometry(0.38, 0.46, 2.8, 12);
+
+    // Dark matte carbon-fiber deck
+    const boardGeom = new THREE.CylinderGeometry(0.36, 0.44, 2.9, 12);
     boardGeom.rotateZ(Math.PI / 2);
     boardGeom.scale(1.0, 0.12, 1.0);
     const boardMat = new THREE.MeshStandardMaterial({
-      color: 0xfaeed7, // Warm ivory
-      roughness: 0.25,
-      metalness: 0.1,
+      color: 0x090e18,
+      roughness: 0.22,
+      metalness: 0.85,
     });
-    const boardDeck = new THREE.Mesh(boardGeom, boardMat);
-    this.boardDeckMesh = boardDeck;
-    this.boardMesh.add(boardDeck);
+    this.boardDeckMesh = new THREE.Mesh(boardGeom, boardMat);
+    this.boardMesh.add(this.boardDeckMesh);
 
-    const foilGeom = new THREE.BoxGeometry(0.1, 0.25, 2.2);
-    foilGeom.translate(0, -0.12, 0);
-    const foilMat = new THREE.MeshBasicMaterial({ color: 0x6de4a2 });
-    const foil = new THREE.Mesh(foilGeom, foilMat);
-    this.boardFoilMesh = foil;
-    this.boardMesh.add(foil);
+    // Glowing Laser-Edge Perimeter Trim
+    const foilGeom = new THREE.BoxGeometry(0.08, 0.22, 2.4);
+    foilGeom.translate(0, -0.1, 0);
+    const foilMat = new THREE.MeshBasicMaterial({ color: 0x00f0ff });
+    this.boardFoilMesh = new THREE.Mesh(foilGeom, foilMat);
+    this.boardMesh.add(this.boardFoilMesh);
 
-    const noseGeom = new THREE.ConeGeometry(0.35, 0.7, 8);
+    // Sharp Angular Hoverboard Nose
+    const noseGeom = new THREE.ConeGeometry(0.36, 0.75, 6);
     noseGeom.rotateX(Math.PI / 2);
     noseGeom.scale(1.0, 0.14, 1.0);
     const nose = new THREE.Mesh(noseGeom, boardMat);
-    nose.position.set(0, 0, 1.6);
+    nose.position.set(0, 0, 1.65);
     this.boardMesh.add(nose);
+
+    // Real-Time Neon Underglow (Down-facing glowing disc casting light onto wet road)
+    const underglowGeom = new THREE.PlaneGeometry(1.4, 3.2);
+    underglowGeom.rotateX(-Math.PI / 2);
+    const underglowMat = new THREE.MeshBasicMaterial({
+      color: 0x00f0ff,
+      transparent: true,
+      opacity: 0.85,
+      blending: THREE.AdditiveBlending,
+    });
+    this.underglowMesh = new THREE.Mesh(underglowGeom, underglowMat);
+    this.underglowMesh.position.set(0, -0.16, 0);
+    this.boardMesh.add(this.underglowMesh);
 
     this.group.add(this.boardMesh);
 
-    // 2. Build Stylized Ghibli Surfer Voyager Character
+    // 2. Build Sleek Cybernetic Character Rig
     this.characterMesh = new THREE.Group();
 
-    // Body / tunic (Vibrant Ghibli terracotta red #E53935)
-    const torsoGeom = new THREE.CapsuleGeometry(0.32, 0.55, 4, 8);
-    const torsoMat = new THREE.MeshLambertMaterial({ color: 0xe53935 });
-    this.torsoMesh = new THREE.Mesh(torsoGeom, torsoMat);
+    // Armored Torso (Matte Carbon Armor with Glowing Chest Circuit Inlay)
+    const torsoGeom = new THREE.CapsuleGeometry(0.3, 0.58, 4, 8);
+    const armorMat = new THREE.MeshStandardMaterial({
+      color: 0x0c1220,
+      roughness: 0.25,
+      metalness: 0.75,
+    });
+    this.torsoMesh = new THREE.Mesh(torsoGeom, armorMat);
     this.torsoMesh.position.set(0, 0.85, 0);
     this.torsoMesh.castShadow = true;
     this.characterMesh.add(this.torsoMesh);
 
-    // Arms
-    const armMat = new THREE.MeshLambertMaterial({ color: 0xe53935 });
-    const skinMat = new THREE.MeshLambertMaterial({ color: 0xfde3ce });
-    const bracerMat = new THREE.MeshBasicMaterial({ color: 0x8ef0ff });
+    // Glowing Chest Circuit Emblem
+    const circuitMat = new THREE.MeshBasicMaterial({ color: 0x00f0ff });
+    const chestEmblem = new THREE.Mesh(new THREE.BoxGeometry(0.18, 0.18, 0.05), circuitMat);
+    chestEmblem.position.set(0, 0.95, 0.3);
+    this.characterMesh.add(chestEmblem);
 
-    // Left Arm
+    // Cyber Arms & Glowing Bracers
     this.leftArmMesh = new THREE.Group();
     this.leftArmMesh.position.set(-0.32, 1.05, -0.05);
-
-    const leftUpper = new THREE.Mesh(new THREE.CylinderGeometry(0.08, 0.07, 0.45, 6), armMat);
+    const leftUpper = new THREE.Mesh(new THREE.CylinderGeometry(0.08, 0.07, 0.45, 6), armorMat);
     leftUpper.position.set(-0.15, -0.15, -0.15);
     leftUpper.rotation.set(-0.6, 0, 0.4);
     this.leftArmMesh.add(leftUpper);
-
-    const leftForearm = new THREE.Mesh(new THREE.CylinderGeometry(0.07, 0.06, 0.4, 6), skinMat);
+    const leftForearm = new THREE.Mesh(new THREE.CylinderGeometry(0.07, 0.06, 0.4, 6), armorMat);
     leftForearm.position.set(-0.28, -0.28, -0.32);
     leftForearm.rotation.set(-0.7, 0, 0.25);
     this.leftArmMesh.add(leftForearm);
-
-    const leftBracer = new THREE.Mesh(new THREE.CylinderGeometry(0.082, 0.082, 0.09, 6), bracerMat);
+    const leftBracer = new THREE.Mesh(new THREE.CylinderGeometry(0.082, 0.082, 0.12, 6), circuitMat);
     leftBracer.position.set(-0.31, -0.33, -0.38);
     this.leftArmMesh.add(leftBracer);
-
     this.characterMesh.add(this.leftArmMesh);
 
-    // Right Arm
     this.rightArmMesh = new THREE.Group();
     this.rightArmMesh.position.set(0.32, 1.05, 0.05);
-
-    const rightUpper = new THREE.Mesh(new THREE.CylinderGeometry(0.08, 0.07, 0.45, 6), armMat);
+    const rightUpper = new THREE.Mesh(new THREE.CylinderGeometry(0.08, 0.07, 0.45, 6), armorMat);
     rightUpper.position.set(0.15, -0.15, 0.15);
     rightUpper.rotation.set(0.6, 0, -0.4);
     this.rightArmMesh.add(rightUpper);
-
-    const rightForearm = new THREE.Mesh(new THREE.CylinderGeometry(0.07, 0.06, 0.4, 6), skinMat);
+    const rightForearm = new THREE.Mesh(new THREE.CylinderGeometry(0.07, 0.06, 0.4, 6), armorMat);
     rightForearm.position.set(0.28, -0.28, 0.32);
     rightForearm.rotation.set(0.5, 0, -0.25);
     this.rightArmMesh.add(rightForearm);
-
-    const rightBracer = new THREE.Mesh(new THREE.CylinderGeometry(0.082, 0.082, 0.09, 6), bracerMat);
+    const rightBracer = new THREE.Mesh(new THREE.CylinderGeometry(0.082, 0.082, 0.12, 6), circuitMat);
     rightBracer.position.set(0.31, -0.33, 0.38);
     this.rightArmMesh.add(rightBracer);
-
     this.characterMesh.add(this.rightArmMesh);
 
-    // Legs
-    const legMat = new THREE.MeshLambertMaterial({ color: 0x2c3e50 });
-    const leftLeg = new THREE.Mesh(new THREE.CylinderGeometry(0.11, 0.09, 0.65, 6), legMat);
+    // Cyber Legs & Thruster Ankles
+    const leftLeg = new THREE.Mesh(new THREE.CylinderGeometry(0.1, 0.08, 0.65, 6), armorMat);
     leftLeg.position.set(-0.2, 0.35, -0.2);
     leftLeg.rotation.set(-0.2, 0, 0.15);
     this.characterMesh.add(leftLeg);
 
-    const rightLeg = new THREE.Mesh(new THREE.CylinderGeometry(0.11, 0.09, 0.65, 6), legMat);
+    const rightLeg = new THREE.Mesh(new THREE.CylinderGeometry(0.1, 0.08, 0.65, 6), armorMat);
     rightLeg.position.set(0.18, 0.35, 0.25);
     rightLeg.rotation.set(0.25, 0, -0.15);
     this.characterMesh.add(rightLeg);
 
-    // Head
-    const headGeom = new THREE.SphereGeometry(0.24, 8, 8);
-    const headMat = new THREE.MeshLambertMaterial({ color: 0xfde3ce });
-    const head = new THREE.Mesh(headGeom, headMat);
-    head.position.set(0, 1.35, 0.05);
-    this.characterMesh.add(head);
+    // Cyber Helmet & Glowing HUD Visor
+    const helmGeom = new THREE.SphereGeometry(0.25, 12, 12);
+    this.headMesh = new THREE.Mesh(helmGeom, armorMat);
+    this.headMesh.position.set(0, 1.38, 0.05);
+    this.characterMesh.add(this.headMesh);
 
-    // Character Face Details (Expressive dark eyes + Ghibli rosy cheek blush)
-    const eyeMat = new THREE.MeshBasicMaterial({ color: 0x1f2e3d });
-    const blushMat = new THREE.MeshBasicMaterial({ color: 0xef5350, transparent: true, opacity: 0.75 });
+    // Wide Curved Glowing Visor (Electric Cyan / Hot Magenta)
+    const visorGeom = new THREE.CylinderGeometry(0.26, 0.26, 0.18, 12, 1, false, -Math.PI * 0.4, Math.PI * 0.8);
+    const visorMat = new THREE.MeshBasicMaterial({ color: 0x00f0ff, side: THREE.DoubleSide });
+    this.visorMesh = new THREE.Mesh(visorGeom, visorMat);
+    this.visorMesh.position.set(0, 1.39, 0.06);
+    this.visorMesh.rotation.y = Math.PI / 2;
+    this.characterMesh.add(this.visorMesh);
 
-    const cLeftEye = new THREE.Mesh(new THREE.SphereGeometry(0.035, 6, 6), eyeMat);
-    cLeftEye.position.set(-0.08, 1.37, 0.26);
-    this.characterMesh.add(cLeftEye);
-
-    const cRightEye = new THREE.Mesh(new THREE.SphereGeometry(0.035, 6, 6), eyeMat);
-    cRightEye.position.set(0.08, 1.37, 0.26);
-    this.characterMesh.add(cRightEye);
-
-    const cLeftBlush = new THREE.Mesh(new THREE.SphereGeometry(0.045, 6, 6), blushMat);
-    cLeftBlush.position.set(-0.12, 1.32, 0.24);
-    this.characterMesh.add(cLeftBlush);
-
-    const cRightBlush = new THREE.Mesh(new THREE.SphereGeometry(0.045, 6, 6), blushMat);
-    cRightBlush.position.set(0.12, 1.32, 0.24);
-    this.characterMesh.add(cRightBlush);
-
-    // Wide brim straw hat (#F59E0B)
-    const hatGeom = new THREE.ConeGeometry(0.65, 0.22, 12);
-    const hatMat = new THREE.MeshLambertMaterial({ color: 0xf59e0b });
-    this.hatMesh = new THREE.Mesh(hatGeom, hatMat);
-    this.hatMesh.position.set(0, 1.5, 0.05);
-    this.characterMesh.add(this.hatMesh);
-
-    // Desert Nomad Cowl
-    const hoodGeom = new THREE.SphereGeometry(0.32, 8, 8);
-    const hoodMat = new THREE.MeshLambertMaterial({ color: 0xd8c2a4 });
-    this.hoodMesh = new THREE.Mesh(hoodGeom, hoodMat);
-    this.hoodMesh.position.set(0, 1.38, 0.02);
-    this.hoodMesh.visible = false;
-    this.characterMesh.add(this.hoodMesh);
-
-    // Acorn-leaf cap
-    this.acornCapMesh = new THREE.Group();
-    const acornDomeMat = new THREE.MeshLambertMaterial({ color: 0x6b4a2f });
-    const acornLeafMat = new THREE.MeshLambertMaterial({ color: 0x4d8a4f });
-    const acornDome = new THREE.Mesh(new THREE.SphereGeometry(0.34, 8, 8, 0, Math.PI * 2, 0, Math.PI * 0.55), acornDomeMat);
-    acornDome.rotation.x = Math.PI;
-    this.acornCapMesh.add(acornDome);
-    const acornStem = new THREE.Mesh(new THREE.CylinderGeometry(0.04, 0.04, 0.16, 5), acornDomeMat);
-    acornStem.position.y = 0.18;
-    this.acornCapMesh.add(acornStem);
-    const acornLeaf = new THREE.Mesh(new THREE.ConeGeometry(0.12, 0.28, 4), acornLeafMat);
-    acornLeaf.position.set(0.1, 0.2, 0);
-    acornLeaf.rotation.z = 0.9;
-    this.acornCapMesh.add(acornLeaf);
-    this.acornCapMesh.position.set(0, 1.5, 0.05);
-    this.acornCapMesh.visible = false;
-    this.characterMesh.add(this.acornCapMesh);
-
-    // Wind-swept flowing emerald cape / scarf (#10B981)
-    const capeGeom = new THREE.PlaneGeometry(0.6, 1.3, 3, 5);
-    capeGeom.translate(0, -0.65, 0);
-    const capeMat = new THREE.MeshLambertMaterial({
-      color: 0x10b981,
+    // Energy Scarf / Segmented Light-Trail Tail
+    const capeGeom = new THREE.PlaneGeometry(0.45, 1.1, 2, 4);
+    capeGeom.translate(0, -0.55, 0);
+    const capeMat = new THREE.MeshBasicMaterial({
+      color: 0x00f0ff,
       side: THREE.DoubleSide,
+      transparent: true,
+      opacity: 0.85,
     });
     this.capeMesh = new THREE.Mesh(capeGeom, capeMat);
-    this.capeMesh.position.set(0, 1.15, -0.25);
+    this.capeMesh.position.set(0, 1.18, -0.24);
     this.characterMesh.add(this.capeMesh);
 
     this.group.add(this.characterMesh);
 
-    // Whisperwood Soot Sprite Companion — cute black spirit ball with big white eyes & soft spirit aura glow
-    this.sootSpriteMesh = new THREE.Group();
-    const sootBodyMat = new THREE.MeshLambertMaterial({ color: 0x181818 });
-    const sootEyeWhiteMat = new THREE.MeshBasicMaterial({ color: 0xffffff });
-    const sootPupilMat = new THREE.MeshBasicMaterial({ color: 0x111111 });
+    // 3. Autonomous Cyber Drone Companion (Replaces Soot Sprite)
+    this.cyberDroneMesh = new THREE.Group();
+    const droneBodyMat = new THREE.MeshStandardMaterial({ color: 0x0a101d, metalness: 0.9, roughness: 0.2 });
+    const droneSphere = new THREE.Mesh(new THREE.SphereGeometry(0.22, 12, 12), droneBodyMat);
+    this.cyberDroneMesh.add(droneSphere);
 
-    // Soft Spirit Aura Glow Halo
-    const auraMat = new THREE.SpriteMaterial({
-      map: createDustParticleTexture(),
-      transparent: true,
-      opacity: 0.65,
-      blending: THREE.AdditiveBlending,
-      depthWrite: false,
-    });
-    const auraSprite = new THREE.Sprite(auraMat);
-    auraSprite.scale.set(0.95, 0.95, 1.0);
-    this.sootSpriteMesh.add(auraSprite);
+    // Glowing Optical Scanner Lens Eye
+    const droneEyeMat = new THREE.MeshBasicMaterial({ color: 0x00f0ff });
+    const droneEye = new THREE.Mesh(new THREE.CylinderGeometry(0.08, 0.08, 0.1, 8), droneEyeMat);
+    droneEye.rotateX(Math.PI / 2);
+    droneEye.position.set(0, 0, 0.18);
+    this.cyberDroneMesh.add(droneEye);
 
-    const sootBody = new THREE.Mesh(new THREE.IcosahedronGeometry(0.28, 2), sootBodyMat);
-    this.sootSpriteMesh.add(sootBody);
+    // Rotating Magnetic Ring
+    const droneRing = new THREE.Mesh(new THREE.TorusGeometry(0.32, 0.03, 6, 16), droneEyeMat);
+    this.cyberDroneMesh.add(droneRing);
 
-    // Left Eye
-    const leftEyeWhite = new THREE.Mesh(new THREE.SphereGeometry(0.08, 8, 8), sootEyeWhiteMat);
-    leftEyeWhite.position.set(-0.11, 0.04, 0.23);
-    this.sootSpriteMesh.add(leftEyeWhite);
-    const leftPupil = new THREE.Mesh(new THREE.SphereGeometry(0.04, 6, 6), sootPupilMat);
-    leftPupil.position.set(-0.11, 0.04, 0.29);
-    this.sootSpriteMesh.add(leftPupil);
+    this.cyberDroneMesh.position.set(1.6, 2.0, -0.8);
+    this.group.add(this.cyberDroneMesh);
 
-    // Right Eye
-    const rightEyeWhite = new THREE.Mesh(new THREE.SphereGeometry(0.08, 8, 8), sootEyeWhiteMat);
-    rightEyeWhite.position.set(0.11, 0.04, 0.23);
-    this.sootSpriteMesh.add(rightEyeWhite);
-    const rightPupil = new THREE.Mesh(new THREE.SphereGeometry(0.04, 6, 6), sootPupilMat);
-    rightPupil.position.set(0.11, 0.04, 0.29);
-    this.sootSpriteMesh.add(rightPupil);
-
-    this.sootSpriteMesh.visible = false;
-    this.group.add(this.sootSpriteMesh);
-
-    // 2.5 Hoverboard Shield Bubble (Subway Surfers Invulnerability)
-    const shieldGeom = new THREE.SphereGeometry(1.5, 16, 16);
+    // 4. Holo-Shield Bubble
+    const shieldGeom = new THREE.SphereGeometry(1.55, 16, 16);
     const shieldMat = new THREE.MeshBasicMaterial({
-      color: 0x64e8ff,
+      color: 0x00ffaa,
       transparent: true,
-      opacity: 0.38,
+      opacity: 0.42,
       wireframe: true,
     });
     this.shieldMesh = new THREE.Mesh(shieldGeom, shieldMat);
-    this.shieldMesh.position.set(0, 1.0, 0);
+    this.shieldMesh.position.set(0, 0.9, 0);
     this.shieldMesh.visible = false;
     this.group.add(this.shieldMesh);
 
-    // 3. GPU Board Ribbon Trail
-    const totalVerts = this.maxTrailPoints * 2;
-    this.trailPositions = new Float32Array(totalVerts * 3);
-    this.trailUvs = new Float32Array(totalVerts * 2);
-    this.trailProgress = new Float32Array(totalVerts);
+    // 5. High-Voltage Laser Trail Ribbon
+    this.initTrailRibbon();
+    this.initParticleSystems();
+  }
 
+  private initTrailRibbon() {
     this.trailGeometry = new THREE.BufferGeometry();
-    this.trailGeometry.setAttribute('position', new THREE.BufferAttribute(this.trailPositions, 3));
-    this.trailGeometry.setAttribute('uv', new THREE.BufferAttribute(this.trailUvs, 2));
-    this.trailGeometry.setAttribute('aProgress', new THREE.BufferAttribute(this.trailProgress, 1));
-
+    const maxVertices = this.maxTrailPoints * 2;
+    const positions = new Float32Array(maxVertices * 3);
+    const uvs = new Float32Array(maxVertices * 2);
+    const progresses = new Float32Array(maxVertices);
     const indices: number[] = [];
+
     for (let i = 0; i < this.maxTrailPoints - 1; i++) {
-      const a = i * 2;
-      const b = i * 2 + 1;
-      const c = (i + 1) * 2;
-      const d = (i + 1) * 2 + 1;
-      indices.push(a, b, c, c, b, d);
+      const v0 = i * 2;
+      const v1 = i * 2 + 1;
+      const v2 = (i + 1) * 2;
+      const v3 = (i + 1) * 2 + 1;
+      indices.push(v0, v1, v2);
+      indices.push(v2, v1, v3);
     }
+
+    this.trailGeometry.setAttribute('position', new THREE.BufferAttribute(positions, 3));
+    this.trailGeometry.setAttribute('uv', new THREE.BufferAttribute(uvs, 2));
+    this.trailGeometry.setAttribute('aProgress', new THREE.BufferAttribute(progresses, 1));
     this.trailGeometry.setIndex(indices);
 
     this.trailMaterial = new THREE.ShaderMaterial({
       vertexShader: BoardTrailShader.vertexShader,
       fragmentShader: BoardTrailShader.fragmentShader,
       uniforms: {
-        uColorA: { value: new THREE.Color('#10B981') },
-        uColorB: { value: new THREE.Color('#F59E0B') },
-        uOpacity: { value: 0.85 },
+        uColorA: { value: new THREE.Color('#00F0FF') }, // Electric Cyan
+        uColorB: { value: new THREE.Color('#FF007F') }, // Hot Magenta
+        uOpacity: { value: 0.9 },
+        uTime: { value: 0 },
       },
       transparent: true,
       depthWrite: false,
+      blending: THREE.AdditiveBlending,
       side: THREE.DoubleSide,
     });
 
     this.trailMesh = new THREE.Mesh(this.trailGeometry, this.trailMaterial);
     this.trailMesh.frustumCulled = false;
     this.scene.add(this.trailMesh);
+  }
 
-    // 4. Pooled Dust & Petal Particles
+  private initParticleSystems() {
     this.dustTexture = createDustParticleTexture();
+    this.petalTexture = createPetalParticleTexture();
+
     const dustMat = new THREE.SpriteMaterial({
       map: this.dustTexture,
       transparent: true,
-      opacity: 0.85,
+      opacity: 0.8,
+      blending: THREE.AdditiveBlending,
       depthWrite: false,
     });
-    for (let i = 0; i < 20; i++) {
-      const sp = new THREE.Sprite(dustMat);
-      sp.visible = false;
-      this.scene.add(sp);
-      this.dustParticles.push({
-        mesh: sp,
-        active: false,
-        life: 0,
-        maxLife: 0.5,
-        vel: new THREE.Vector3(),
-      });
+
+    for (let i = 0; i < 24; i++) {
+      const s = new THREE.Sprite(dustMat.clone());
+      s.visible = false;
+      this.scene.add(s);
+      this.dustParticles.push({ mesh: s, vel: new THREE.Vector3(), life: 0, maxLife: 1 });
     }
 
-    this.petalTexture = createWindPetalTexture();
-    const petalMat = new THREE.SpriteMaterial({
+    const sparkMat = new THREE.SpriteMaterial({
       map: this.petalTexture,
+      color: 0x00f0ff,
       transparent: true,
       opacity: 0.9,
+      blending: THREE.AdditiveBlending,
       depthWrite: false,
     });
-    for (let i = 0; i < 15; i++) {
-      const sp = new THREE.Sprite(petalMat);
-      sp.scale.set(0.65, 0.65, 1);
-      sp.visible = false;
-      this.scene.add(sp);
-      this.petalParticles.push({
-        mesh: sp,
-        active: false,
-        life: 0,
-        vel: new THREE.Vector3(),
-      });
-    }
-  }
 
-  emitJumpDust(pos: THREE.Vector3, count = 4) {
-    let spawned = 0;
-    for (let i = 0; i < this.dustParticles.length && spawned < count; i++) {
-      const p = this.dustParticles[i];
-      if (!p.active) {
-        p.active = true;
-        p.life = 0;
-        p.maxLife = 0.4 + Math.random() * 0.25;
-        p.mesh.position.copy(pos);
-        p.mesh.scale.set(1.2, 1.2, 1);
-        p.mesh.visible = true;
-        p.vel.set(
-          (Math.random() - 0.5) * 4,
-          1.5 + Math.random() * 2.5,
-          (Math.random() - 0.5) * 4
-        );
-        spawned++;
-      }
-    }
-  }
-
-  emitWindPetals(pos: THREE.Vector3, count = 3) {
-    let spawned = 0;
-    for (let i = 0; i < this.petalParticles.length && spawned < count; i++) {
-      const p = this.petalParticles[i];
-      if (!p.active) {
-        p.active = true;
-        p.life = 0;
-        p.mesh.position.set(
-          pos.x + (Math.random() - 0.5) * 6,
-          pos.y + Math.random() * 3,
-          pos.z + 5 + Math.random() * 10
-        );
-        p.mesh.visible = true;
-        p.vel.set(
-          (Math.random() - 0.5) * 2,
-          (Math.random() - 0.5) * 1.5,
-          -10 - Math.random() * 5
-        );
-        spawned++;
-      }
+    for (let i = 0; i < 20; i++) {
+      const s = new THREE.Sprite(sparkMat.clone());
+      s.visible = false;
+      this.scene.add(s);
+      this.petalParticles.push({ mesh: s, vel: new THREE.Vector3(), life: 0, maxLife: 1, rotSpeed: 5 });
     }
   }
 
   applyCosmetics(config: CosmeticsConfig) {
     this.currentCosmetics = { ...config };
 
-    if (this.boardDeckMesh && this.boardFoilMesh) {
-      if (config.boardId === 'sakura-foil') {
-        (this.boardDeckMesh.material as THREE.MeshStandardMaterial).color.set('#FCE7F3');
-        (this.boardFoilMesh.material as THREE.MeshBasicMaterial).color.set('#F472B6');
-      } else if (config.boardId === 'dune-glider') {
-        (this.boardDeckMesh.material as THREE.MeshStandardMaterial).color.set('#FEF3C7');
-        (this.boardFoilMesh.material as THREE.MeshBasicMaterial).color.set('#F59E0B');
-      } else if (config.boardId === 'celestia-blade') {
-        (this.boardDeckMesh.material as THREE.MeshStandardMaterial).color.set('#E0F2FE');
-        (this.boardFoilMesh.material as THREE.MeshBasicMaterial).color.set('#38BDF8');
-      } else if (config.boardId === 'forest-spirit') {
-        (this.boardDeckMesh.material as THREE.MeshStandardMaterial).color.set('#D7E8C8');
-        (this.boardFoilMesh.material as THREE.MeshBasicMaterial).color.set('#8BC34A');
-      } else {
-        (this.boardDeckMesh.material as THREE.MeshStandardMaterial).color.set('#faeed7');
-        (this.boardFoilMesh.material as THREE.MeshBasicMaterial).color.set('#6de4a2');
-      }
-    }
+    // Update Visor & Underglow Neon Palette
+    if (this.visorMesh && this.underglowMesh && this.boardFoilMesh) {
+      const glowColor =
+        config.trailId === 'hot-magenta'
+          ? '#FF007F'
+          : config.trailId === 'acid-green'
+          ? '#00FF66'
+          : config.trailId === 'plasma-rainbow'
+          ? '#FF00AA'
+          : '#00F0FF';
 
-    if (this.capeMesh) {
-      (this.capeMesh.material as THREE.MeshLambertMaterial).color.set(config.capeColor);
-    }
-
-    const isForestWanderer = config.characterStyle === 'forest-wanderer';
-    const isNomad = !isForestWanderer && (config.characterStyle === 'desert-nomad' || this.stats.currentBiome === 'dunes');
-    if (this.hatMesh && this.hoodMesh && this.acornCapMesh) {
-      this.hatMesh.visible = !isNomad && !isForestWanderer;
-      this.hoodMesh.visible = isNomad;
-      this.acornCapMesh.visible = isForestWanderer;
-    }
-    if (this.torsoMesh) {
-      const torsoColor = isForestWanderer ? '#388e3c' : isNomad ? '#ad4b29' : '#e53935';
-      (this.torsoMesh.material as THREE.MeshLambertMaterial).color.set(torsoColor);
-    }
-    if (this.sootSpriteMesh) {
-      this.sootSpriteMesh.visible = isForestWanderer || config.boardId === 'forest-spirit';
+      (this.visorMesh.material as THREE.MeshBasicMaterial).color.set(config.visorColor || glowColor);
+      (this.underglowMesh.material as THREE.MeshBasicMaterial).color.set(config.underglowColor || glowColor);
+      (this.boardFoilMesh.material as THREE.MeshBasicMaterial).color.set(glowColor);
+      (this.capeMesh.material as THREE.MeshBasicMaterial).color.set(glowColor);
     }
 
     this.updateTrailColors();
@@ -540,7 +446,7 @@ export class PlayerManager {
     this.isUpright = upright;
   }
 
-  // --- Subway Surfers Core Control Actions ---
+  // --- Cyber Controls & Subway Surfers Actions ---
 
   switchLane(direction: -1 | 1, audioManager?: AudioManager | null) {
     const nextLane = (this.currentLane + direction) as LaneIndex;
@@ -553,12 +459,11 @@ export class PlayerManager {
 
   triggerSlide(audioManager?: AudioManager | null) {
     if (!this.isGrounded && this.jumpVelocity > -10) {
-      // Fast fall / dive ground pound down to earth!
-      this.jumpVelocity = -22.0;
+      this.jumpVelocity = -24.0; // Cyber fast-fall dive
     }
     this.isSliding = true;
     this.slideTimer = 0.65;
-    this.emitJumpDust(this.position, 4);
+    this.emitJumpDust(this.position, 6);
   }
 
   activateHoverboardShield(audioManager?: AudioManager | null) {
@@ -572,20 +477,39 @@ export class PlayerManager {
     this.activePowerUps.hoverboardShield = false;
     this.stats.activePowerUps.hoverboardShield = false;
     if (this.shieldMesh) this.shieldMesh.visible = false;
-    this.emitJumpDust(this.position, 12);
-    this.emitWindPetals(this.position, 8);
+    this.emitJumpDust(this.position, 14);
+  }
+
+  applyBoostGateHit(audioManager?: AudioManager | null) {
+    this.boostTimer = 1.4;
+    this.stats.isBoosting = true;
+    this.velocity.z = Math.min(this.velocity.z + 16.0, 52.0);
+    this.overdriveMeter = Math.min(100, this.overdriveMeter + 35.0);
+    if (audioManager) audioManager.playBoostGate();
+    this.emitJumpDust(this.position, 10);
+  }
+
+  setGrinding(grinding: boolean, audioManager?: AudioManager | null) {
+    if (grinding !== this.isGrinding) {
+      this.isGrinding = grinding;
+      this.stats.isGrinding = grinding;
+      if (audioManager) {
+        if (grinding) audioManager.startGrindSound();
+        else audioManager.stopGrindSound();
+      }
+    }
   }
 
   applyPowerUp(type: PowerUpType, audioManager?: AudioManager | null) {
-    if (type === 'magnet') {
+    if (type === 'quantum-magnet' || type === 'magnet') {
       this.activePowerUps.magnetTimer = 12.0;
-    } else if (type === 'jetpack') {
+    } else if (type === 'sonic-jetpack' || type === 'jetpack') {
       this.activePowerUps.jetpackTimer = 8.5;
-      this.jumpVelocity = 14.0;
+      this.jumpVelocity = 15.0;
       this.isGrounded = false;
-    } else if (type === 'multiplier2x') {
+    } else if (type === 'overdrive-2x' || type === 'multiplier2x') {
       this.activePowerUps.multiplierTimer = 15.0;
-    } else if (type === 'hoverboard-shield') {
+    } else if (type === 'holo-shield' || type === 'hoverboard-shield') {
       this.activateHoverboardShield(audioManager);
     }
     if (audioManager) audioManager.playOrbChime();
@@ -596,16 +520,20 @@ export class PlayerManager {
     this.currentLane = 0;
     this.targetLaneX = 0;
     this.position.set(0, h + this.hoverHeight, 0);
-    this.velocity.set(0, 0, 18);
+    this.velocity.set(0, 0, 24);
     this.jumpVelocity = 0;
     this.isGrounded = true;
     this.isSliding = false;
     this.slideTimer = 0;
+    this.boostTimer = 0;
+    this.isGrinding = false;
+    this.overdriveMeter = 25.0;
     this.activePowerUps = { magnetTimer: 0, jetpackTimer: 0, hoverboardShield: false, multiplierTimer: 0 };
     if (this.shieldMesh) this.shieldMesh.visible = false;
     this.stats.score = 0;
     this.stats.distance = 0;
     this.stats.windOrbsCollected = 0;
+    this.stats.dataShardsCollected = 0;
     this.stats.gameState = 'playing';
     this.stats.combo = 0;
     this.group.position.copy(this.position);
@@ -616,12 +544,13 @@ export class PlayerManager {
     this.stats.gameState = 'gameover';
     this.velocity.set(0, 0, 0);
     this.jumpVelocity = 0;
+    this.setGrinding(false);
   }
 
   revive() {
     this.gameState = 'playing';
     this.stats.gameState = 'playing';
-    this.velocity.set(0, 0, 20);
+    this.velocity.set(0, 0, 26);
     this.jumpVelocity = 0;
     this.isGrounded = true;
     this.isSliding = false;
@@ -630,15 +559,16 @@ export class PlayerManager {
   }
 
   addCoins(amount: number) {
+    this.stats.dataShardsCollected += amount;
     this.stats.windOrbsCollected += amount;
-    this.stats.score += amount * 100 * this.scoreMultiplier;
-    this.stats.styleMeter = Math.min(100, this.stats.styleMeter + amount * 3);
+    this.stats.score += amount * 120 * this.scoreMultiplier;
+    this.overdriveMeter = Math.min(100, this.overdriveMeter + amount * 3.5);
     this.stats.highScore = Math.max(this.stats.highScore, this.stats.score);
   }
 
   triggerTrick(trick: TrickType, audioManager?: AudioManager | null): boolean {
     if (this.isGrounded && this.jumpVelocity === 0) {
-      this.jumpVelocity = 12.0;
+      this.jumpVelocity = 13.5;
       this.isGrounded = false;
       this.stats.airTime = 0.01;
     }
@@ -649,22 +579,22 @@ export class PlayerManager {
     this.stats.slowMoActive = true;
 
     const trickNames: Record<TrickType, string> = {
-      spin: 'Ghibli Corkscrew 360°',
-      flip: 'Skyward Backflip',
-      grab: 'Zephyr Rail Grab',
-      pose: 'Zen Cloud Glide',
+      spin: 'Cyber Corkscrew 360°',
+      flip: 'Laser Invert Backflip',
+      grab: 'Neon Rail Grab',
+      pose: 'Sonic Air Glide',
     };
 
     this.stats.activeTrickName = trickNames[trick];
-    this.stats.combo = Math.min(6, this.stats.combo + 1);
-    this.stats.score += 250 * this.stats.combo;
-    this.stats.styleMeter = Math.min(100, this.stats.styleMeter + 16);
+    this.stats.combo = Math.min(8, this.stats.combo + 1);
+    this.stats.score += 350 * this.stats.combo;
+    this.overdriveMeter = Math.min(100, this.overdriveMeter + 16);
 
     if (audioManager) {
       audioManager.playTrickSound(this.stats.activeTrickName, this.stats.combo);
     }
 
-    this.emitWindPetals(this.position, 4);
+    this.emitJumpDust(this.position, 6);
     return true;
   }
 
@@ -693,6 +623,8 @@ export class PlayerManager {
     this.stats.currentBiome = currentBiome;
     this.stats.currentFriction = friction;
 
+    const effectiveDt = Math.min(dt, 0.05) * (this.stats.slowMoActive ? 0.7 : 1.0);
+
     if (this.slowMoTimer > 0) {
       this.slowMoTimer -= dt;
       this.stats.slowMoActive = true;
@@ -700,28 +632,34 @@ export class PlayerManager {
       this.stats.slowMoActive = false;
     }
 
-    // 1. Subway Surfers Lane Switching
-    if (input.laneLeft) {
-      this.switchLane(-1, audioManager);
-    } else if (input.laneRight) {
-      this.switchLane(1, audioManager);
+    // Boost & Grind Timers
+    if (this.boostTimer > 0) {
+      this.boostTimer -= effectiveDt;
+      this.stats.isBoosting = true;
+    } else {
+      this.stats.isBoosting = false;
     }
 
-    // 2. Subway Surfers Slide / Roll
-    if (input.slide) {
-      this.triggerSlide(audioManager);
-    }
-
-    const effectiveDt = Math.min(dt, 0.05) * (this.stats.slowMoActive ? 0.7 : 1.0);
-
-    if (this.slideTimer > 0) {
-      this.slideTimer -= effectiveDt;
-      if (this.slideTimer <= 0) {
-        this.isSliding = false;
+    if (this.isGrinding) {
+      this.overdriveMeter = Math.min(100, this.overdriveMeter + 28 * effectiveDt);
+      this.grindSparkTimer += effectiveDt;
+      if (this.grindSparkTimer > 0.08) {
+        this.grindSparkTimer = 0;
+        this.emitJumpDust(this.position, 3);
       }
     }
 
-    // 3. Power-Up Timers
+    // Lane switching & Slide
+    if (input.laneLeft) this.switchLane(-1, audioManager);
+    else if (input.laneRight) this.switchLane(1, audioManager);
+    if (input.slide) this.triggerSlide(audioManager);
+
+    if (this.slideTimer > 0) {
+      this.slideTimer -= effectiveDt;
+      if (this.slideTimer <= 0) this.isSliding = false;
+    }
+
+    // Power-Up Timers
     if (this.activePowerUps.magnetTimer > 0) {
       this.activePowerUps.magnetTimer -= effectiveDt;
     }
@@ -732,12 +670,13 @@ export class PlayerManager {
       this.scoreMultiplier = 1;
     }
 
-    // Shield mesh spinning
+    // Shield spinning
     if (this.shieldMesh && this.shieldMesh.visible) {
-      this.shieldMesh.rotation.y += effectiveDt * 2.5;
-      this.shieldMesh.rotation.x += effectiveDt * 1.2;
+      this.shieldMesh.rotation.y += effectiveDt * 3.0;
+      this.shieldMesh.rotation.x += effectiveDt * 1.5;
     }
 
+    // Tricks
     if (input.trickSpin) this.triggerTrick('spin', audioManager);
     else if (input.trickFlip) this.triggerTrick('flip', audioManager);
     else if (input.trickGrab) this.triggerTrick('grab', audioManager);
@@ -745,292 +684,145 @@ export class PlayerManager {
 
     if (this.trickTimer > 0) {
       this.trickTimer -= effectiveDt;
-      if (this.trickTimer <= 0) {
-        this.activeTrick = null;
-      }
+      if (this.trickTimer <= 0) this.activeTrick = null;
     } else if (this.isGrounded) {
       this.stats.activeTrickName = null;
     }
 
-    // Smooth snappy slide into active 3-lane position
+    // Smooth snappy 3-Lane interpolation
     this.targetLaneX = getLaneX(this.currentLane);
-    this.position.x = THREE.MathUtils.lerp(this.position.x, this.targetLaneX, 16.0 * effectiveDt);
-    this.carveAngle = THREE.MathUtils.lerp(this.carveAngle, (this.targetLaneX - this.position.x) * 0.14, 14.0 * effectiveDt);
+    this.position.x = THREE.MathUtils.lerp(this.position.x, this.targetLaneX, 18.0 * effectiveDt);
+    this.carveAngle = THREE.MathUtils.lerp(this.carveAngle, (this.targetLaneX - this.position.x) * 0.16, 16.0 * effectiveDt);
 
-    let targetSpeed = 24.0;
-    if (input.forward) targetSpeed = 36.0;
-    if (input.drift) targetSpeed *= 0.85;
+    // Target Velocity calculation
+    let targetSpeed = 26.0;
+    if (input.forward) targetSpeed = 38.0;
+    if (this.stats.isBoosting) targetSpeed = 48.0;
+    if (this.isGrinding) targetSpeed = 36.0;
 
-    const styleBonus = (this.stats.styleMeter / 100) * 9.0;
-    targetSpeed += styleBonus;
+    const overdriveBonus = (this.overdriveMeter / 100) * 8.0;
+    targetSpeed += overdriveBonus;
 
-    if (currentBiome === 'dunes') targetSpeed += 2.5;
-    if (this.activePowerUps.jetpackTimer > 0) targetSpeed += 6.0;
+    this.velocity.z = THREE.MathUtils.lerp(this.velocity.z, targetSpeed, 4.0 * effectiveDt);
 
-    this.velocity.z = THREE.MathUtils.lerp(this.velocity.z, targetSpeed, 3.5 * effectiveDt);
-
-    if (terrainManager && terrainManager.updraftsList) {
-      for (const up of terrainManager.updraftsList) {
-        const dist = Math.hypot(this.position.x - up.x, this.position.z - up.z);
-        if (dist < up.radius && this.position.y < up.y + 12.0) {
-          if (this.jumpVelocity < 20.0) {
-            this.jumpVelocity = 22.5;
-            this.isGrounded = false;
-            this.stats.airTime = 0.01;
-            this.emitJumpDust(this.position, 8);
-            this.emitWindPetals(this.position, 6);
-            if (audioManager) audioManager.playUpdraftSound();
-          }
-        }
-      }
-    }
-
+    // Jump / Air dynamics
     if (input.jump && this.isGrounded) {
-      this.jumpVelocity = 15.0;
+      this.jumpVelocity = 15.5;
       this.isGrounded = false;
       this.stats.airTime = 0.01;
       this.emitJumpDust(this.position, 6);
     }
 
-    const gravityRate = this.stats.slowMoActive ? 19.5 : 28.0;
+    const gravityRate = this.stats.slowMoActive ? 22.0 : 30.0;
     if (!this.isGrounded) {
       this.jumpVelocity -= gravityRate * effectiveDt;
       this.position.y += this.jumpVelocity * effectiveDt;
       this.stats.airTime += effectiveDt;
 
-      if (this.activeTrick === 'spin') {
-        this.spinAngle += effectiveDt * 14.0;
-      } else if (this.activeTrick === 'flip') {
-        this.flipAngle += effectiveDt * 12.0;
-      } else if (this.activeTrick === 'grab') {
-        this.grabPoseWeight = THREE.MathUtils.lerp(this.grabPoseWeight, 1.0, 15 * effectiveDt);
-      } else if (this.activeTrick === 'pose') {
-        this.zenPoseWeight = THREE.MathUtils.lerp(this.zenPoseWeight, 1.0, 15 * effectiveDt);
-      } else {
-        this.spinAngle += effectiveDt * 4.0;
-        this.flipAngle = Math.sin(this.stats.airTime * 3.5) * 0.25;
-      }
+      if (this.activeTrick === 'spin') this.spinAngle += effectiveDt * 14.0;
+      else if (this.activeTrick === 'flip') this.flipAngle += effectiveDt * 12.0;
+      else if (this.activeTrick === 'grab') this.grabPoseWeight = Math.min(1.0, this.grabPoseWeight + effectiveDt * 6);
+      else if (this.activeTrick === 'pose') this.grabPoseWeight = Math.min(1.0, this.grabPoseWeight + effectiveDt * 4);
     } else {
-      this.spinAngle = THREE.MathUtils.lerp(this.spinAngle, 0, 12 * effectiveDt);
-      this.flipAngle = THREE.MathUtils.lerp(this.flipAngle, 0, 12 * effectiveDt);
-      this.grabPoseWeight = THREE.MathUtils.lerp(this.grabPoseWeight, 0, 14 * effectiveDt);
-      this.zenPoseWeight = THREE.MathUtils.lerp(this.zenPoseWeight, 0, 14 * effectiveDt);
+      this.spinAngle = THREE.MathUtils.lerp(this.spinAngle, 0, 10 * effectiveDt);
+      this.flipAngle = THREE.MathUtils.lerp(this.flipAngle, 0, 10 * effectiveDt);
+      this.grabPoseWeight = THREE.MathUtils.lerp(this.grabPoseWeight, 0, 12 * effectiveDt);
     }
 
-    this.position.x += this.velocity.x * effectiveDt;
+    // Forward translation
     this.position.z += this.velocity.z * effectiveDt;
 
-    let groundHeight = getTerrainHeight(this.position.x, this.position.z);
-    let isOnIsland = false;
+    // Ground snap
+    const groundH = getTerrainHeight(this.position.x, this.position.z);
+    const minHoverY = groundH + this.hoverHeight;
 
-    if (terrainManager) {
-      const surf = terrainManager.getSurfaceHeight(this.position.x, this.position.z, this.position.y);
-      groundHeight = surf.height;
-      isOnIsland = surf.isOnIsland;
-    }
-
-    this.stats.isOnFloatingIsland = isOnIsland;
-    let targetY = groundHeight + this.hoverHeight;
-
-    // Jetpack Sky Corridor Flight
-    if (this.activePowerUps.jetpackTimer > 0) {
-      targetY = groundHeight + 11.5;
-      this.position.y = THREE.MathUtils.lerp(this.position.y, targetY, 7.0 * effectiveDt);
-      this.isGrounded = false;
-      this.emitWindPetals(this.position, 2);
-    } else if (this.position.y <= targetY) {
-      if (!this.isGrounded && this.jumpVelocity < -2) {
-        this.emitJumpDust(this.position, 8);
-        const trickBonus = Math.floor(this.stats.airTime * 280) + (this.activeTrick ? 350 : 0);
-        if (trickBonus > 50) {
-          this.stats.score += trickBonus;
-          this.stats.styleMeter = Math.min(100, this.stats.styleMeter + 15);
-        }
+    if (this.position.y <= minHoverY) {
+      this.position.y = minHoverY;
+      if (!this.isGrounded && this.jumpVelocity < -2.0) {
+        if (audioManager) audioManager.playLanding();
+        this.emitJumpDust(this.position, 5);
       }
-      this.position.y = targetY;
       this.jumpVelocity = 0;
       this.isGrounded = true;
-      this.activeTrick = null;
+      this.stats.airTime = 0;
     }
 
-    let hFront = getTerrainHeight(this.position.x, this.position.z + 1.2);
-    let hBack = getTerrainHeight(this.position.x, this.position.z - 1.2);
-    if (terrainManager) {
-      hFront = terrainManager.getSurfaceHeight(this.position.x, this.position.z + 1.2, this.position.y).height;
-      hBack = terrainManager.getSurfaceHeight(this.position.x, this.position.z - 1.2, this.position.y).height;
-    }
-    const calculatedPitch = Math.atan2(hFront - hBack, 2.4);
-    this.pitchAngle = THREE.MathUtils.lerp(this.pitchAngle, calculatedPitch, 14 * effectiveDt);
-
-    const currentGroundNormal = getTerrainNormal(this.position.x, this.position.z);
-    this.targetNormal.copy(currentGroundNormal);
+    // Rotations & Visuals
+    const groundNormal = getTerrainNormal(this.position.x, this.position.z);
+    this.targetNormal.copy(groundNormal);
     this.normal.lerp(this.targetNormal, 14 * effectiveDt);
 
     this.group.position.copy(this.position);
 
-    this.boardMesh.rotation.z = -this.carveAngle * 1.4;
+    this.boardMesh.rotation.z = -this.carveAngle * 1.5;
     this.boardMesh.rotation.x = this.pitchAngle + (this.activeTrick === 'flip' ? this.flipAngle : 0);
     this.boardMesh.rotation.y = this.spinAngle;
 
-    // Subway Surfers Crouch / Duck under barriers pose
-    const slideCrouchY = this.isSliding ? -0.52 : -this.grabPoseWeight * 0.25;
-    const slidePitch = this.isSliding ? 0.62 : (this.flipAngle - this.grabPoseWeight * 0.5);
+    // Underglow real-time breathing light
+    if (this.underglowMesh) {
+      const underglowPulse = sinPulse(time * 6.0) * 0.15 + 0.85;
+      (this.underglowMesh.material as THREE.MeshBasicMaterial).opacity = underglowPulse;
+    }
+
+    // Cyber Crouch / Duck under barriers pose
+    const slideCrouchY = this.isSliding ? -0.55 : -this.grabPoseWeight * 0.25;
+    const slidePitch = this.isSliding ? 0.65 : (this.flipAngle - this.grabPoseWeight * 0.5);
 
     this.characterMesh.rotation.z = -this.carveAngle * 0.9;
     this.characterMesh.rotation.x = slidePitch;
     this.characterMesh.rotation.y = -this.carveAngle * 0.4 + (this.isGrounded ? 0.35 : this.spinAngle);
     this.characterMesh.position.y = slideCrouchY;
 
-    // Sync Subway Surfers Stats
+    // Cyber Recon Drone Companion Orbit
+    this.cyberDroneTime += effectiveDt;
+    const dtT = this.cyberDroneTime;
+    const droneOrbitRadius = 1.7;
+    this.cyberDroneMesh.position.set(
+      Math.sin(dtT * 1.5) * droneOrbitRadius,
+      1.9 + Math.sin(dtT * 2.5) * 0.2,
+      -0.8 + Math.cos(dtT * 1.5) * 0.6
+    );
+    this.cyberDroneMesh.rotation.y = Math.sin(dtT * 1.2) * 0.4;
+
+    // Overdrive & Combo Tiers calculation
+    let odTier: OverdriveTier = 'Dormant';
+    if (this.overdriveMeter >= 99.0) odTier = 'Max-Velocity';
+    else if (this.overdriveMeter >= 70.0) odTier = 'Overdrive';
+    else if (this.overdriveMeter >= 25.0) odTier = 'Charged';
+
+    let cTier: ComboTier = 'blue';
+    if (this.stats.combo >= 5) cTier = 'white-hot';
+    else if (this.stats.combo >= 3) cTier = 'magenta';
+    else if (this.stats.combo === 2) cTier = 'cyan';
+
+    this.stats.overdriveMeter = this.overdriveMeter;
+    this.stats.overdriveTier = odTier;
+    this.stats.comboTier = cTier;
+    this.stats.styleMeter = this.overdriveMeter;
+    this.stats.speed = Math.round(this.velocity.z * 3.6); // km/h
+    this.stats.distance += Math.round(this.velocity.z * effectiveDt * 1.5);
+    this.stats.score += Math.round(this.velocity.z * effectiveDt * 4.0 * this.scoreMultiplier);
+    this.stats.highScore = Math.max(this.stats.highScore, this.stats.score);
     this.stats.currentLane = this.currentLane;
     this.stats.isSliding = this.isSliding;
     this.stats.slideTimer = this.slideTimer;
     this.stats.activePowerUps = { ...this.activePowerUps };
     this.stats.scoreMultiplier = this.scoreMultiplier;
     this.stats.gameState = this.gameState;
-    this.stats.distance += Math.round(this.velocity.z * effectiveDt * 1.5);
-    this.stats.score += Math.round(this.velocity.z * effectiveDt * 3.5 * this.scoreMultiplier);
-    this.stats.highScore = Math.max(this.stats.highScore, this.stats.score);
-
-    const capeWind = Math.sin(time * 14.0 + this.position.z * 0.2) * (0.35 + (this.velocity.z / 30) * 0.4);
-    this.capeMesh.rotation.x = 0.5 + capeWind;
-    this.capeMesh.rotation.z = this.carveAngle * 0.6;
-
-    if (this.leftArmMesh && this.rightArmMesh) {
-      this.leftArmMesh.rotation.z = THREE.MathUtils.lerp(this.leftArmMesh.rotation.z, -this.carveAngle * 0.8, 8 * effectiveDt);
-      this.rightArmMesh.rotation.z = THREE.MathUtils.lerp(this.rightArmMesh.rotation.z, -this.carveAngle * 0.8, 8 * effectiveDt);
-
-      if (this.grabPoseWeight > 0.05) {
-        this.rightArmMesh.position.y = 1.05 - this.grabPoseWeight * 0.45;
-        this.rightArmMesh.rotation.x = 0.6 + this.grabPoseWeight * 0.6;
-      } else {
-        this.rightArmMesh.position.y = 1.05;
-        this.rightArmMesh.rotation.x = 0.6;
-      }
-    }
-
-    // Soot Sprite Companion — orbits playfully and reacts to tricks & landings
-    if (this.sootSpriteMesh.visible) {
-      this.sootSpriteTime += effectiveDt;
-      const orbitRadius = 1.85;
-      const t = this.sootSpriteTime;
-      const bounce = this.activeTrick ? Math.sin(t * 12.0) * 0.4 : 0;
-      this.sootSpriteMesh.position.set(
-        Math.sin(t * 1.2) * orbitRadius,
-        2.1 + Math.sin(t * 2.0) * 0.3 + bounce,
-        -1.0 + Math.cos(t * 1.2) * (orbitRadius * 0.5)
-      );
-      this.sootSpriteMesh.rotation.y = Math.sin(t * 0.8) * 0.2;
-    }
 
     this.updateTrailRibbon(effectiveDt);
 
-    // Cinematic Storyteller Camera (handheld breathing drift + establishing pull-back on biome shift)
-    const driftX = Math.sin(time * 1.2) * 0.22 + Math.cos(time * 0.7) * 0.12;
-    const driftY = Math.cos(time * 0.9) * 0.18 + Math.sin(time * 1.5) * 0.08;
-
-    let biomePullBackZ = 0;
-    let biomePullBackY = 0;
-    if (this.biomeTransitionTimer > 0) {
-      this.biomeTransitionTimer -= effectiveDt;
-      const pullProgress = Math.sin((1.0 - this.biomeTransitionTimer / 2.5) * Math.PI);
-      biomePullBackZ = -pullProgress * 5.5; // Wide dramatic pull-back
-      biomePullBackY = pullProgress * 2.8;
-      this.stats.isBiomeTransitioning = true;
-    } else {
-      this.stats.isBiomeTransitioning = false;
-    }
-
-    if (this.isUpright) {
-      const targetCameraTilt = -this.carveAngle * 0.18;
-      this.cameraTilt = THREE.MathUtils.lerp(this.cameraTilt, targetCameraTilt, 8 * effectiveDt);
-
-      const airZoom = this.isGrounded ? 0 : Math.min(this.stats.airTime * 1.5, 3.2);
-      const slowMoZoom = this.stats.slowMoActive ? -1.2 : 0.0;
-
-      const targetCamX = this.position.x - this.carveAngle * 2.2 + driftX;
-      const targetCamY = this.position.y + 4.2 + (this.isGrounded ? 0 : 1.4) + driftY + biomePullBackY;
-      const targetCamZ = this.position.z - 8.2 - (this.velocity.z / 25) * 2.2 - airZoom + slowMoZoom + biomePullBackZ;
-
-      this.cameraPos.x = THREE.MathUtils.lerp(this.cameraPos.x, targetCamX, 6.0 * effectiveDt);
-      this.cameraPos.y = THREE.MathUtils.lerp(this.cameraPos.y, targetCamY, 7.0 * effectiveDt);
-      this.cameraPos.z = THREE.MathUtils.lerp(this.cameraPos.z, targetCamZ, 8.0 * effectiveDt);
-
-      this.cameraLookAt.x = THREE.MathUtils.lerp(this.cameraLookAt.x, this.position.x + this.carveAngle * 1.6, 8 * effectiveDt);
-      this.cameraLookAt.y = THREE.MathUtils.lerp(this.cameraLookAt.y, this.position.y + 2.0, 8 * effectiveDt);
-      this.cameraLookAt.z = THREE.MathUtils.lerp(this.cameraLookAt.z, this.position.z + 12.0, 8 * effectiveDt);
-    } else {
-      const targetCameraTilt = -this.carveAngle * 0.35;
-      this.cameraTilt = THREE.MathUtils.lerp(this.cameraTilt, targetCameraTilt, 8 * effectiveDt);
-
-      const airZoom = this.isGrounded ? 0 : Math.min(this.stats.airTime * 1.5, 3.0);
-      const slowMoZoom = this.stats.slowMoActive ? -1.0 : 0.0;
-
-      const targetCamX = this.position.x - this.carveAngle * 3.5 + driftX;
-      const targetCamY = this.position.y + 3.8 + (this.isGrounded ? 0 : 1.2) + driftY + biomePullBackY;
-      const targetCamZ = this.position.z - 7.5 - (this.velocity.z / 25) * 2.0 - airZoom + slowMoZoom + biomePullBackZ;
-
-      this.cameraPos.x = THREE.MathUtils.lerp(this.cameraPos.x, targetCamX, 6.0 * effectiveDt);
-      this.cameraPos.y = THREE.MathUtils.lerp(this.cameraPos.y, targetCamY, 7.0 * effectiveDt);
-      this.cameraPos.z = THREE.MathUtils.lerp(this.cameraPos.z, targetCamZ, 8.0 * effectiveDt);
-
-      this.cameraLookAt.x = THREE.MathUtils.lerp(this.cameraLookAt.x, this.position.x + this.carveAngle * 2.0, 8 * effectiveDt);
-      this.cameraLookAt.y = THREE.MathUtils.lerp(this.cameraLookAt.y, this.position.y + 1.2, 8 * effectiveDt);
-      this.cameraLookAt.z = THREE.MathUtils.lerp(this.cameraLookAt.z, this.position.z + 10.0, 8 * effectiveDt);
-    }
-
-    // Particle Lifecycle
-    for (const p of this.dustParticles) {
-      if (p.active) {
-        p.life += effectiveDt;
-        p.mesh.position.addScaledVector(p.vel, effectiveDt);
-        const progress = p.life / p.maxLife;
-        p.mesh.scale.setScalar(1.2 + progress * 1.5);
-        if (progress >= 1.0) {
-          p.active = false;
-          p.mesh.visible = false;
-        }
-      }
-    }
-
-    for (const p of this.petalParticles) {
-      if (p.active) {
-        p.life += effectiveDt;
-        p.mesh.position.addScaledVector(p.vel, effectiveDt);
-        if (p.mesh.position.z < this.position.z - 15 || p.life > 2.5) {
-          p.active = false;
-          p.mesh.visible = false;
-        }
-      }
-    }
-
-    if (Math.random() < 0.2) {
-      this.emitWindPetals(this.position, 1);
-    }
-
-    this.stats.speed = this.velocity.z;
-    this.stats.distance = Math.floor(this.position.z);
-    this.stats.isGrounded = this.isGrounded;
-
-    if (Math.abs(this.carveAngle) > 0.15 || !this.isGrounded || this.activeTrick) {
-      this.stats.styleMeter = Math.min(100, this.stats.styleMeter + effectiveDt * 9);
-    } else {
-      this.stats.styleMeter = Math.max(5, this.stats.styleMeter - effectiveDt * 2);
-    }
-
-    if (this.stats.styleMeter >= 80) this.stats.styleTier = 'Transcendent';
-    else if (this.stats.styleMeter >= 55) this.stats.styleTier = 'Flow';
-    else if (this.stats.styleMeter >= 30) this.stats.styleTier = 'Breeze';
-    else this.stats.styleTier = 'Chill';
-
-    this.updateTrailColors();
+    // Camera follow
+    const camOffset = this.isUpright ? new THREE.Vector3(0, 3.2, -6.0) : new THREE.Vector3(0, 3.8, -7.5);
+    this.cameraPos.copy(this.position).add(camOffset);
+    this.cameraLookAt.copy(this.position).add(new THREE.Vector3(0, 1.4, 8.0));
   }
 
-  private updateTrailRibbon(dt: number) {
+  private updateTrailRibbon(effectiveDt: number) {
     const boardWorld = new THREE.Vector3();
     this.boardMesh.getWorldPosition(boardWorld);
 
-    const ribbonWidth = 0.55;
+    const ribbonWidth = 0.6;
     const rightDir = new THREE.Vector3(1, 0, 0)
       .applyAxisAngle(new THREE.Vector3(0, 0, 1), -this.carveAngle)
       .multiplyScalar(ribbonWidth * 0.5);
@@ -1068,24 +860,39 @@ export class PlayerManager {
   }
 
   private updateTrailColors() {
-    const tier = this.stats.styleTier;
     const custom = this.currentCosmetics.trailId;
 
-    if (custom === 'rainbow' || tier === 'Transcendent') {
-      this.trailMaterial.uniforms.uColorA.value.set('#F472B6');
-      this.trailMaterial.uniforms.uColorB.value.set('#38BDF8');
-    } else if (custom === 'solar-flare' || tier === 'Flow') {
-      this.trailMaterial.uniforms.uColorA.value.set('#F59E0B');
-      this.trailMaterial.uniforms.uColorB.value.set('#FDE68A');
-    } else if (custom === 'aurora') {
-      this.trailMaterial.uniforms.uColorA.value.set('#818CF8');
-      this.trailMaterial.uniforms.uColorB.value.set('#34D399');
-    } else if (tier === 'Breeze') {
-      this.trailMaterial.uniforms.uColorA.value.set('#48DE80');
-      this.trailMaterial.uniforms.uColorB.value.set('#A3F5B8');
+    if (custom === 'hot-magenta') {
+      this.trailMaterial.uniforms.uColorA.value.set('#FF007F');
+      this.trailMaterial.uniforms.uColorB.value.set('#7928CA');
+    } else if (custom === 'acid-green') {
+      this.trailMaterial.uniforms.uColorA.value.set('#00FF66');
+      this.trailMaterial.uniforms.uColorB.value.set('#00F0FF');
+    } else if (custom === 'plasma-rainbow') {
+      this.trailMaterial.uniforms.uColorA.value.set('#FF00AA');
+      this.trailMaterial.uniforms.uColorB.value.set('#00FFFF');
     } else {
-      this.trailMaterial.uniforms.uColorA.value.set('#39C5BB');
-      this.trailMaterial.uniforms.uColorB.value.set('#8EEAC8');
+      this.trailMaterial.uniforms.uColorA.value.set('#00F0FF'); // Electric Cyan
+      this.trailMaterial.uniforms.uColorB.value.set('#FF007F');
+    }
+  }
+
+  private emitJumpDust(pos: THREE.Vector3, count = 4) {
+    let spawned = 0;
+    for (const p of this.dustParticles) {
+      if (spawned >= count) break;
+      if (p.life <= 0) {
+        p.life = 0.45;
+        p.maxLife = 0.45;
+        p.mesh.position.set(
+          pos.x + (Math.random() - 0.5) * 1.5,
+          pos.y + 0.1,
+          pos.z + (Math.random() - 0.5) * 1.5
+        );
+        p.mesh.visible = true;
+        p.vel.set((Math.random() - 0.5) * 3, Math.random() * 2, -Math.random() * 3);
+        spawned++;
+      }
     }
   }
 
@@ -1094,12 +901,13 @@ export class PlayerManager {
     for (const orb of orbs) {
       if (!orb.collected) {
         const dist = Math.hypot(this.position.x - orb.x, this.position.y - orb.y, this.position.z - orb.z);
-        if (dist < 2.4) {
+        if (dist < 2.5) {
           orb.collected = true;
           if (orb.mesh) orb.mesh.visible = false;
+          this.stats.dataShardsCollected += 1;
           this.stats.windOrbsCollected += 1;
           this.stats.score += 200;
-          this.stats.styleMeter = Math.min(100, this.stats.styleMeter + 20);
+          this.overdriveMeter = Math.min(100, this.overdriveMeter + 10);
           this.emitJumpDust(new THREE.Vector3(orb.x, orb.y, orb.z), 5);
           collectedCount++;
         }
@@ -1118,4 +926,8 @@ export class PlayerManager {
     this.dustTexture.dispose();
     this.petalTexture.dispose();
   }
+}
+
+function sinPulse(x: number): number {
+  return Math.sin(x) * 0.5 + 0.5;
 }

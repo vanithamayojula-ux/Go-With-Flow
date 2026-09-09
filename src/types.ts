@@ -1,17 +1,53 @@
-export type LightingMode = 'golden-hour' | 'morning' | 'bright-day';
+export type LightingMode =
+  | 'midnight-cyan'
+  | 'synthwave-magenta'
+  | 'toxic-matrix'
+  | 'solar-amber'
+  | 'golden-hour'
+  | 'morning'
+  | 'bright-day';
 
 export type QualityPreset = 'desktop-full' | 'mobile-opt' | 'webgl-min';
 
-export type BiomeType = 'meadow' | 'dunes' | 'sky-islands' | 'forest';
+export type BiomeType =
+  | 'neon-undercity'
+  | 'orbital-ring'
+  | 'the-grid'
+  | 'derelict-station'
+  | 'meadow'
+  | 'dunes'
+  | 'sky-islands'
+  | 'forest';
 
 export type TrickType = 'spin' | 'flip' | 'grab' | 'pose';
 
 export interface CosmeticsConfig {
-  boardId: 'ivory-drift' | 'sakura-foil' | 'dune-glider' | 'celestia-blade' | 'forest-spirit';
-  trailId: 'verdant-breeze' | 'solar-flare' | 'aurora' | 'rainbow';
+  boardId:
+    | 'cyber-phantom'
+    | 'laser-edge'
+    | 'grid-runner'
+    | 'tokyo-neon'
+    | 'void-stalker'
+    | 'ivory-drift'
+    | 'sakura-foil'
+    | 'dune-glider'
+    | 'celestia-blade'
+    | 'forest-spirit';
+  trailId:
+    | 'electric-cyan'
+    | 'hot-magenta'
+    | 'acid-green'
+    | 'plasma-rainbow'
+    | 'verdant-breeze'
+    | 'solar-flare'
+    | 'aurora'
+    | 'rainbow';
   capeColor: string;
   poseId: 'standard' | 'zen' | 'dancer';
-  characterStyle?: 'ghibli-voyager' | 'desert-nomad' | 'forest-wanderer';
+  armorVariant?: 'carbon-fiber' | 'titanium-white' | 'onyx-stealth' | 'crimson-cyborg';
+  visorColor?: string;
+  underglowColor?: string;
+  characterStyle?: 'ghibli-voyager' | 'desert-nomad' | 'forest-wanderer' | 'cyber-runner';
 }
 
 export interface SessionGoal {
@@ -37,6 +73,10 @@ export interface ShaderParams {
   speedLineIntensity?: number;
   heatShimmerIntensity?: number;
   rainIntensity?: number;
+  chromaticAberration?: number;
+  scanlineIntensity?: number;
+  glitchIntensity?: number;
+  wetRoadReflections?: number;
 }
 
 export interface GraphicsConfig {
@@ -52,9 +92,27 @@ export interface GraphicsConfig {
 
 export type LaneIndex = -1 | 0 | 1;
 
-export type ObstacleType = 'low-hurdle' | 'high-barrier' | 'spirit-train' | 'spirit-train-ramp';
+export type ObstacleType =
+  | 'laser-barrier'
+  | 'overhead-conduit'
+  | 'maglev-hauler'
+  | 'maglev-ramp'
+  | 'grind-rail'
+  | 'boost-gate'
+  | 'low-hurdle'
+  | 'high-barrier'
+  | 'spirit-train'
+  | 'spirit-train-ramp';
 
-export type PowerUpType = 'magnet' | 'jetpack' | 'hoverboard-shield' | 'multiplier2x';
+export type PowerUpType =
+  | 'quantum-magnet'
+  | 'sonic-jetpack'
+  | 'holo-shield'
+  | 'overdrive-2x'
+  | 'magnet'
+  | 'jetpack'
+  | 'hoverboard-shield'
+  | 'multiplier2x';
 
 export type GameState = 'playing' | 'crashed' | 'game-over';
 
@@ -65,6 +123,9 @@ export interface ActivePowerUps {
   multiplierTimer: number;
 }
 
+export type OverdriveTier = 'Dormant' | 'Charged' | 'Overdrive' | 'Max-Velocity';
+export type ComboTier = 'blue' | 'cyan' | 'magenta' | 'white-hot';
+
 export interface PlayerStats {
   speed: number;
   maxSpeed: number;
@@ -73,10 +134,14 @@ export interface PlayerStats {
   highScore: number;
   styleMeter: number; // 0 to 100
   styleTier: 'Chill' | 'Breeze' | 'Flow' | 'Transcendent';
+  overdriveMeter: number; // 0 to 100
+  overdriveTier: OverdriveTier;
+  comboTier: ComboTier;
   airTime: number;
   isGrounded: boolean;
   combo: number;
   windOrbsCollected: number;
+  dataShardsCollected: number;
   currentBiome: BiomeType;
   currentFriction: number;
   activeTrickName: string | null;
@@ -85,10 +150,13 @@ export interface PlayerStats {
   isBiomeTransitioning?: boolean;
   weather?: 'clear' | 'light-rain' | 'pollen-drift';
 
-  // Subway Surfers Additions
+  // Cyber Navigation & Rail Grinding
   currentLane: LaneIndex;
   isSliding: boolean;
   slideTimer: number;
+  isGrinding: boolean;
+  isBoosting: boolean;
+  boostEnergy: number;
   activePowerUps: ActivePowerUps;
   scoreMultiplier: number;
   gameState: GameState;
