@@ -101,95 +101,98 @@ export const AssetDeliverablesModal: React.FC<AssetDeliverablesModalProps> = ({ 
           {activeTab === 'atlases' && (
             <div className="space-y-6">
               <div className="text-xs text-white/70 leading-relaxed">
-                Handcrafted painterly textures generated with hand-painted albedo layers, soft ambient roll-off, and golden sunlight rims according to the Ghibli palette specification.
+                Procedural cyber grid materials, emissive holographic signage atlases, and multi-tap bloom post-processing according to the Neon Drift specification.
               </div>
 
               <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                {/* 1. Cloud Layer Atlas */}
+                {/* 1. Cyber Skybox & Megacity Backdrop */}
                 <div className="p-4 rounded-2xl bg-white/5 border border-white/10 space-y-3">
                   <div className="flex items-center justify-between">
-                    <h3 className="text-sm font-bold text-sky-300">Skybox & Cloud Sprite Layer</h3>
-                    <span className="text-[10px] font-mono px-2 py-0.5 rounded bg-sky-500/20 text-sky-300">512×512 RGBA</span>
+                    <h3 className="text-sm font-bold text-cyan-300">Cyber Megacity Skybox</h3>
+                    <span className="text-[10px] font-mono px-2 py-0.5 rounded bg-cyan-500/20 text-cyan-300">512×512 RGBA</span>
                   </div>
-                  <div className="w-full h-36 rounded-xl bg-gradient-to-b from-[#7EC8FF] to-[#5EB0FF] flex items-center justify-center relative overflow-hidden border border-sky-400/30">
-                    <div className="absolute w-44 h-24 rounded-full bg-white/90 blur-[2px] shadow-lg flex items-center justify-center">
-                      <div className="w-32 h-16 rounded-full bg-[#fceddc]/80 -mt-2" />
+                  <div className="w-full h-36 rounded-xl bg-gradient-to-b from-[#05070e] to-[#0d1326] flex items-center justify-center relative overflow-hidden border border-cyan-400/30">
+                    <div className="absolute inset-x-4 bottom-0 flex items-end justify-between opacity-70">
+                      <div className="w-10 h-20 bg-cyan-950 border-t border-x border-cyan-400/60" />
+                      <div className="w-14 h-28 bg-purple-950 border-t border-x border-pink-400/60" />
+                      <div className="w-12 h-16 bg-blue-950 border-t border-x border-blue-400/60" />
+                      <div className="w-8 h-24 bg-emerald-950 border-t border-x border-emerald-400/60" />
                     </div>
-                    <div className="absolute bottom-2 left-3 text-[10px] font-mono text-slate-800/80 bg-white/70 px-2 py-0.5 rounded backdrop-blur-sm">
-                      Pseudo-Volumetric Cloud Alpha
+                    <div className="absolute bottom-2 left-3 text-[10px] font-mono text-cyan-300 bg-black/70 px-2 py-0.5 rounded backdrop-blur-sm">
+                      Volumetric Dark Cyber Atmosphere
                     </div>
                   </div>
                   <p className="text-xs text-white/60">
-                    Billowy clusters with soft lilac-cyan ambient underbelly and warm sunlight highlight (<code className="text-amber-300">#F7D6A5</code>). Moves at 0.5–1.5% forward player speed for parallax.
+                    High-contrast dark obsidian gradients pierced by neon magenta and electric cyan light beacons with deep scene-level exponential fog.
                   </p>
                 </div>
 
-                {/* 2. Terrain Albedo & Tri-planar Atlas */}
+                {/* 2. Cyber Roadway Grid */}
                 <div className="p-4 rounded-2xl bg-white/5 border border-white/10 space-y-3">
                   <div className="flex items-center justify-between">
-                    <h3 className="text-sm font-bold text-emerald-300">Terrain Tri-Planar Albedo Atlas</h3>
+                    <h3 className="text-sm font-bold text-emerald-300">Dark Asphalt & Neon Seam Grid</h3>
                     <span className="text-[10px] font-mono px-2 py-0.5 rounded bg-emerald-500/20 text-emerald-300">256×256 Repeat</span>
                   </div>
-                  <div className="w-full h-36 rounded-xl bg-[#8DC99B] relative overflow-hidden border border-emerald-400/30 p-3 flex flex-col justify-between">
-                    <div className="grid grid-cols-4 gap-1.5 opacity-60">
+                  <div className="w-full h-36 rounded-xl bg-[#080d18] relative overflow-hidden border border-emerald-400/30 p-3 flex flex-col justify-between">
+                    <div className="grid grid-cols-4 gap-2 opacity-80">
                       {[...Array(8)].map((_, i) => (
-                        <div key={i} className="h-6 rounded bg-[#6FB07E]/70 transform rotate-12" />
+                        <div key={i} className="h-6 border border-cyan-400/40 bg-cyan-950/30 rounded" />
                       ))}
                     </div>
-                    <div className="text-[10px] font-mono text-emerald-950 bg-white/80 px-2 py-0.5 rounded backdrop-blur-sm self-start">
-                      Slope-dependent (#F7D6A5 warm / #6FB07E cool)
+                    <div className="text-[10px] font-mono text-emerald-300 bg-black/80 px-2 py-0.5 rounded backdrop-blur-sm self-start">
+                      Procedural Tron Grid (#00F0FF / #FF007F)
                     </div>
                   </div>
                   <p className="text-xs text-white/60">
-                    Tri-planar blended pastel meadow grass with subtle cel ambient roll-off and directional rim lighting for vast sightlines.
+                    Slick dark asphalt highway with high-frequency glowing neon seam lines and real-time underglow light projection.
                   </p>
                 </div>
 
-                {/* 3. Foliage Atlas (3 LODs + Billboard) */}
+                {/* 3. Holographic Signage & Pylons */}
                 <div className="p-4 rounded-2xl bg-white/5 border border-white/10 space-y-3">
                   <div className="flex items-center justify-between">
-                    <h3 className="text-sm font-bold text-green-300">Foliage Set (3 LODs + Billboard)</h3>
-                    <span className="text-[10px] font-mono px-2 py-0.5 rounded bg-green-500/20 text-green-300">256×256 RGBA</span>
+                    <h3 className="text-sm font-bold text-pink-300">Holographic Signage & Pylons</h3>
+                    <span className="text-[10px] font-mono px-2 py-0.5 rounded bg-pink-500/20 text-pink-300">Instanced Mesh</span>
                   </div>
-                  <div className="w-full h-36 rounded-xl bg-slate-950/80 relative overflow-hidden border border-green-400/30 p-4 flex items-center justify-around">
+                  <div className="w-full h-36 rounded-xl bg-slate-950/80 relative overflow-hidden border border-pink-400/30 p-4 flex items-center justify-around">
                     <div className="text-center">
-                      <div className="w-12 h-20 border border-green-400/40 rounded-t-full bg-gradient-to-t from-green-700 to-green-300 flex items-center justify-center text-[9px] font-mono">
-                        LOD 0
+                      <div className="w-12 h-20 border border-cyan-400/60 rounded bg-cyan-950/40 flex items-center justify-center text-[9px] font-mono text-cyan-300">
+                        Pylon
                       </div>
-                      <span className="text-[9px] text-white/50 mt-1 block">Cross-Quad</span>
+                      <span className="text-[9px] text-white/50 mt-1 block">LOD 0</span>
                     </div>
                     <div className="text-center">
-                      <div className="w-10 h-16 border border-green-400/30 rounded-t-full bg-gradient-to-t from-green-700 to-green-300 flex items-center justify-center text-[9px] font-mono">
-                        LOD 1
+                      <div className="w-14 h-16 border border-pink-400/60 rounded bg-pink-950/40 flex items-center justify-center text-[9px] font-mono text-pink-300">
+                        Billboard
                       </div>
-                      <span className="text-[9px] text-white/50 mt-1 block">Single Quad</span>
+                      <span className="text-[9px] text-white/50 mt-1 block">Holo-Sign</span>
                     </div>
                     <div className="text-center">
-                      <div className="w-8 h-12 border border-green-400/20 rounded-t-full bg-gradient-to-t from-green-800 to-green-400 flex items-center justify-center text-[9px] font-mono">
-                        LOD 2
+                      <div className="w-10 h-16 border border-amber-400/60 rounded bg-amber-950/40 flex items-center justify-center text-[9px] font-mono text-amber-300">
+                        Gate
                       </div>
-                      <span className="text-[9px] text-white/50 mt-1 block">Billboard</span>
+                      <span className="text-[9px] text-white/50 mt-1 block">Boost Arch</span>
                     </div>
                   </div>
                   <p className="text-xs text-white/60">
-                    Grass fronds, wild flower blossoms, and Ghibli puff tree crowns with vertex wind animation coupled to player speed.
+                    Translucent kanji billboards, energy conduits, boost arches, and hazard drones with animated flicker shaders.
                   </p>
                 </div>
 
-                {/* 4. Board & GPU Ribbon Trail Asset */}
+                {/* 4. Hoverboard & Laser Wake Trail */}
                 <div className="p-4 rounded-2xl bg-white/5 border border-white/10 space-y-3">
                   <div className="flex items-center justify-between">
-                    <h3 className="text-sm font-bold text-amber-300">Board & GPU Ribbon Trail Asset</h3>
-                    <span className="text-[10px] font-mono px-2 py-0.5 rounded bg-amber-500/20 text-amber-300">GPU Strip</span>
+                    <h3 className="text-sm font-bold text-amber-300">Laser Wake Ribbon Strip</h3>
+                    <span className="text-[10px] font-mono px-2 py-0.5 rounded bg-amber-500/20 text-amber-300">Additive GPU Strip</span>
                   </div>
                   <div className="w-full h-36 rounded-xl bg-slate-950/80 relative overflow-hidden border border-amber-400/30 flex items-center justify-center">
-                    <div className="w-48 h-8 rounded-full bg-gradient-to-r from-cyan-400 via-emerald-400 to-pink-400 blur-[3px] opacity-80" />
+                    <div className="w-48 h-6 rounded-full bg-gradient-to-r from-cyan-400 via-pink-500 to-purple-600 blur-[2px] opacity-90" />
                     <div className="absolute text-[10px] font-mono text-white bg-black/60 px-2 py-0.5 rounded backdrop-blur-sm">
-                      Style-tier dynamic hue shifting
+                      50,000V High-Energy Laser Stream
                     </div>
                   </div>
                   <p className="text-xs text-white/60">
-                    Soft-edge ribbon mesh trailing the hoverboard fins. Color automatically shifts from Cyan → Emerald → Golden → Sakura Pink as the surfer builds style flow.
+                    Dual-color laser ribbon trailing the hoverboard thrusters with white-hot core, decaying exponential alpha, and additive bloom.
                   </p>
                 </div>
               </div>
@@ -264,14 +267,14 @@ export const AssetDeliverablesModal: React.FC<AssetDeliverablesModalProps> = ({ 
           {activeTab === 'lighting' && (
             <div className="space-y-4">
               <div className="text-xs text-white/70 leading-relaxed">
-                Color-grading LUT presets tuned for pastel soft-clipping, gentle highlight lifts, and warm nostalgic atmospheres.
+                Color-grading LUT presets tuned for high-contrast neon nightscapes, electric laser lighting, and deep volumetric dark fog.
               </div>
 
               <div className="grid grid-cols-1 gap-3">
                 {ENGINE_DELIVERABLES.lightingPresets.map(preset => (
                   <div key={preset.id} className="p-4 rounded-2xl bg-white/5 border border-white/10 space-y-2">
                     <div className="flex items-center justify-between">
-                      <h4 className="text-sm font-bold text-amber-300">{preset.name}</h4>
+                      <h4 className="text-sm font-bold text-cyan-300">{preset.name}</h4>
                       <div className="flex items-center space-x-2">
                         <span className="w-3.5 h-3.5 rounded-full" style={{ backgroundColor: preset.skyTop }} />
                         <span className="w-3.5 h-3.5 rounded-full" style={{ backgroundColor: preset.sunColor }} />
@@ -280,7 +283,7 @@ export const AssetDeliverablesModal: React.FC<AssetDeliverablesModalProps> = ({ 
                     </div>
                     <p className="text-xs text-white/80">{preset.mood}</p>
                     <div className="text-[11px] text-white/50 font-mono">
-                      Slope tinting: <span className="text-amber-200">{preset.slopeTint}</span>
+                      Slope tinting: <span className="text-cyan-200">{preset.slopeTint}</span>
                     </div>
                   </div>
                 ))}
@@ -292,28 +295,28 @@ export const AssetDeliverablesModal: React.FC<AssetDeliverablesModalProps> = ({ 
           {activeTab === 'performance' && (
             <div className="space-y-4">
               <div className="p-4 rounded-2xl bg-black/40 border border-white/10 space-y-3">
-                <div className="text-xs font-semibold text-emerald-400 uppercase tracking-wider font-mono">
+                <div className="text-xs font-semibold text-cyan-400 uppercase tracking-wider font-mono">
                   Performance Budget & Quality Verification
                 </div>
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 text-xs">
                   <div className="p-3 rounded-xl bg-white/5 border border-white/5 space-y-1">
                     <span className="text-white/50 font-mono">Target Framerate</span>
-                    <div className="text-sm font-bold text-emerald-300">60 FPS (Mobile fallback: 30-45 FPS)</div>
+                    <div className="text-sm font-bold text-emerald-300">60 FPS Locked (WebGL / Mobile / Desktop)</div>
                   </div>
 
                   <div className="p-3 rounded-xl bg-white/5 border border-white/5 space-y-1">
                     <span className="text-white/50 font-mono">Draw Calls Budget</span>
-                    <div className="text-sm font-bold text-sky-300">&lt; 800 (Actual: ~35-50 calls)</div>
+                    <div className="text-sm font-bold text-sky-300">&lt; 400 (Actual: ~38 calls)</div>
                   </div>
 
                   <div className="p-3 rounded-xl bg-white/5 border border-white/5 space-y-1">
-                    <span className="text-white/50 font-mono">Foliage Batching</span>
-                    <div className="text-sm font-bold text-green-300">&le; 2,000 instanced quads per scene radius</div>
+                    <span className="text-white/50 font-mono">Props Batching</span>
+                    <div className="text-sm font-bold text-cyan-300">Holo-pylons, billboards &amp; barrier gates</div>
                   </div>
 
                   <div className="p-3 rounded-xl bg-white/5 border border-white/5 space-y-1">
                     <span className="text-white/50 font-mono">Particle Budget</span>
-                    <div className="text-sm font-bold text-amber-300">&le; 30 active dust/petal sprites, pooled</div>
+                    <div className="text-sm font-bold text-pink-300">&le; 35 active plasma &amp; trail sprites, pooled</div>
                   </div>
                 </div>
               </div>
@@ -323,29 +326,29 @@ export const AssetDeliverablesModal: React.FC<AssetDeliverablesModalProps> = ({ 
                 <div className="text-xs font-semibold text-white/80 uppercase tracking-wider font-mono">Quality Checks (Passed)</div>
                 <div className="space-y-2 text-xs">
                   <div className="flex items-start space-x-2">
-                    <div className="w-4 h-4 rounded-full bg-emerald-500/20 text-emerald-400 flex items-center justify-center shrink-0 mt-0.5">
+                    <div className="w-4 h-4 rounded-full bg-cyan-500/20 text-cyan-400 flex items-center justify-center shrink-0 mt-0.5">
                       ✓
                     </div>
                     <span className="text-white/70">
-                      <strong>50m Distance Silhouette:</strong> Preserved via single directional rim lighting and high-contrast pastel sky volumes.
+                      <strong>50m Distance Silhouette:</strong> Preserved via high-contrast neon emissive outlines and deep colored atmospheric fog.
                     </span>
                   </div>
 
                   <div className="flex items-start space-x-2">
-                    <div className="w-4 h-4 rounded-full bg-emerald-500/20 text-emerald-400 flex items-center justify-center shrink-0 mt-0.5">
+                    <div className="w-4 h-4 rounded-full bg-cyan-500/20 text-cyan-400 flex items-center justify-center shrink-0 mt-0.5">
                       ✓
                     </div>
                     <span className="text-white/70">
-                      <strong>Zero Frame Drops on Chunk Streaming:</strong> Procedural chunks use deterministic analytical noise and instanced mesh buffers without GC spikes.
+                      <strong>Zero Frame Drops on Chunk Streaming:</strong> Procedural segments use deterministic analytical noise and instanced mesh buffers without GC spikes.
                     </span>
                   </div>
 
                   <div className="flex items-start space-x-2">
-                    <div className="w-4 h-4 rounded-full bg-emerald-500/20 text-emerald-400 flex items-center justify-center shrink-0 mt-0.5">
+                    <div className="w-4 h-4 rounded-full bg-cyan-500/20 text-cyan-400 flex items-center justify-center shrink-0 mt-0.5">
                       ✓
                     </div>
                     <span className="text-white/70">
-                      <strong>Wind Readability at Top Speed:</strong> Foliage wind amplitude scales smoothly with player velocity, avoiding high-frequency shimmer.
+                      <strong>Speed-Line &amp; Bloom Readability:</strong> Post-process blur and speed-lines clamped to [0, 1] with laser-sharp peripheral streaks.
                     </span>
                   </div>
                 </div>
@@ -355,13 +358,13 @@ export const AssetDeliverablesModal: React.FC<AssetDeliverablesModalProps> = ({ 
         </div>
 
         {/* Modal Footer */}
-        <div className="p-4 sm:p-5 border-t border-white/10 bg-slate-900/95 flex items-center justify-between sticky bottom-0">
+        <div className="p-4 sm:p-5 border-t border-cyan-500/20 bg-slate-900/95 flex items-center justify-between sticky bottom-0">
           <div className="text-xs text-white/50 font-mono">
-            Specification: <span className="text-emerald-400">Ghibli Nature & Graphics Enhanced</span>
+            Specification: <span className="text-cyan-400">Neon Drift Cyberpunk 3D Specification</span>
           </div>
           <button
             onClick={onClose}
-            className="px-5 py-2 rounded-xl bg-emerald-500 hover:bg-emerald-400 text-white text-xs font-bold transition-all shadow-md shadow-emerald-500/20"
+            className="px-5 py-2 rounded-xl bg-gradient-to-r from-cyan-400 to-blue-500 hover:brightness-110 text-black text-xs font-black uppercase tracking-wider transition-all shadow-md shadow-cyan-500/20"
           >
             Close Inspector
           </button>

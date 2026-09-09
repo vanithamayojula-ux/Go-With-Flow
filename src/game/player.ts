@@ -35,10 +35,14 @@ export class PlayerManager {
   boardDeckMesh: THREE.Mesh;
   boardFoilMesh: THREE.Mesh;
   underglowMesh: THREE.Mesh;
+  underglowLight!: THREE.PointLight;
 
   // Cyber Recon Drone Companion
   cyberDroneMesh: THREE.Group;
+  droneEyeMesh?: THREE.Mesh;
+  droneRingMesh?: THREE.Mesh;
   cyberDroneTime = Math.random() * Math.PI * 2;
+  stumbleTimer = 0;
 
   // Mid-Air Trick & Slow-Motion Window
   activeTrick: TrickType | null = null;
@@ -209,118 +213,122 @@ export class PlayerManager {
     this.underglowMesh.position.set(0, -0.16, 0);
     this.boardMesh.add(this.underglowMesh);
 
+    // Real-Time Underglow Point Light (Genuinely illuminates road and obstacles beneath the hoverboard)
+    this.underglowLight = new THREE.PointLight(0x00f0ff, 2.0, 7.5, 1.8);
+    this.underglowLight.position.set(0, -0.22, 0);
+    this.boardMesh.add(this.underglowLight);
+
     this.group.add(this.boardMesh);
 
-    // 2. Build Sleek Cybernetic Character Rig
+    // 2. Build Sleek Cybernetic Character Rig (Athletic Carving Stance)
     this.characterMesh = new THREE.Group();
 
-    // Armored Torso (Matte Carbon Armor with Glowing Chest Circuit Inlay)
-    const torsoGeom = new THREE.CapsuleGeometry(0.3, 0.58, 4, 8);
+    // Armored Torso with angled chest carapace
+    const torsoGeom = new THREE.CapsuleGeometry(0.28, 0.55, 4, 8);
     const armorMat = new THREE.MeshStandardMaterial({
       color: 0x0c1220,
-      roughness: 0.25,
-      metalness: 0.75,
+      roughness: 0.22,
+      metalness: 0.85,
     });
     this.torsoMesh = new THREE.Mesh(torsoGeom, armorMat);
-    this.torsoMesh.position.set(0, 0.85, 0);
+    this.torsoMesh.position.set(0, 0.82, 0);
     this.torsoMesh.castShadow = true;
     this.characterMesh.add(this.torsoMesh);
 
-    // Glowing Chest Circuit Emblem
+    // Glowing Chest Circuit Inlay
     const circuitMat = new THREE.MeshBasicMaterial({ color: 0x00f0ff });
-    const chestEmblem = new THREE.Mesh(new THREE.BoxGeometry(0.18, 0.18, 0.05), circuitMat);
-    chestEmblem.position.set(0, 0.95, 0.3);
-    this.characterMesh.add(chestEmblem);
+    const chestPlate = new THREE.Mesh(new THREE.BoxGeometry(0.2, 0.22, 0.08), circuitMat);
+    chestPlate.position.set(0, 0.92, 0.24);
+    this.characterMesh.add(chestPlate);
 
-    // Cyber Arms & Glowing Bracers
+    // Athletic Surfer Arms (Counterbalance Carve Stance)
     this.leftArmMesh = new THREE.Group();
-    this.leftArmMesh.position.set(-0.32, 1.05, -0.05);
-    const leftUpper = new THREE.Mesh(new THREE.CylinderGeometry(0.08, 0.07, 0.45, 6), armorMat);
-    leftUpper.position.set(-0.15, -0.15, -0.15);
-    leftUpper.rotation.set(-0.6, 0, 0.4);
+    this.leftArmMesh.position.set(-0.32, 1.02, -0.05);
+    const leftUpper = new THREE.Mesh(new THREE.CylinderGeometry(0.075, 0.065, 0.42, 6), armorMat);
+    leftUpper.position.set(-0.16, -0.14, -0.15);
+    leftUpper.rotation.set(-0.55, 0, 0.45);
     this.leftArmMesh.add(leftUpper);
-    const leftForearm = new THREE.Mesh(new THREE.CylinderGeometry(0.07, 0.06, 0.4, 6), armorMat);
-    leftForearm.position.set(-0.28, -0.28, -0.32);
-    leftForearm.rotation.set(-0.7, 0, 0.25);
+    const leftForearm = new THREE.Mesh(new THREE.CylinderGeometry(0.065, 0.055, 0.38, 6), armorMat);
+    leftForearm.position.set(-0.28, -0.26, -0.32);
+    leftForearm.rotation.set(-0.65, 0, 0.3);
     this.leftArmMesh.add(leftForearm);
-    const leftBracer = new THREE.Mesh(new THREE.CylinderGeometry(0.082, 0.082, 0.12, 6), circuitMat);
-    leftBracer.position.set(-0.31, -0.33, -0.38);
+    const leftBracer = new THREE.Mesh(new THREE.CylinderGeometry(0.075, 0.075, 0.12, 6), circuitMat);
+    leftBracer.position.set(-0.31, -0.3, -0.38);
     this.leftArmMesh.add(leftBracer);
     this.characterMesh.add(this.leftArmMesh);
 
     this.rightArmMesh = new THREE.Group();
-    this.rightArmMesh.position.set(0.32, 1.05, 0.05);
-    const rightUpper = new THREE.Mesh(new THREE.CylinderGeometry(0.08, 0.07, 0.45, 6), armorMat);
-    rightUpper.position.set(0.15, -0.15, 0.15);
-    rightUpper.rotation.set(0.6, 0, -0.4);
+    this.rightArmMesh.position.set(0.32, 1.02, 0.05);
+    const rightUpper = new THREE.Mesh(new THREE.CylinderGeometry(0.075, 0.065, 0.42, 6), armorMat);
+    rightUpper.position.set(0.16, -0.14, 0.15);
+    rightUpper.rotation.set(0.55, 0, -0.45);
     this.rightArmMesh.add(rightUpper);
-    const rightForearm = new THREE.Mesh(new THREE.CylinderGeometry(0.07, 0.06, 0.4, 6), armorMat);
-    rightForearm.position.set(0.28, -0.28, 0.32);
-    rightForearm.rotation.set(0.5, 0, -0.25);
+    const rightForearm = new THREE.Mesh(new THREE.CylinderGeometry(0.065, 0.055, 0.38, 6), armorMat);
+    rightForearm.position.set(0.28, -0.26, 0.32);
+    rightForearm.rotation.set(0.5, 0, -0.3);
     this.rightArmMesh.add(rightForearm);
-    const rightBracer = new THREE.Mesh(new THREE.CylinderGeometry(0.082, 0.082, 0.12, 6), circuitMat);
-    rightBracer.position.set(0.31, -0.33, 0.38);
+    const rightBracer = new THREE.Mesh(new THREE.CylinderGeometry(0.075, 0.075, 0.12, 6), circuitMat);
+    rightBracer.position.set(0.31, -0.3, 0.38);
     this.rightArmMesh.add(rightBracer);
     this.characterMesh.add(this.rightArmMesh);
 
-    // Cyber Legs & Thruster Ankles
-    const leftLeg = new THREE.Mesh(new THREE.CylinderGeometry(0.1, 0.08, 0.65, 6), armorMat);
-    leftLeg.position.set(-0.2, 0.35, -0.2);
-    leftLeg.rotation.set(-0.2, 0, 0.15);
+    // Deep Carving Surf Stance Legs (Bent knees, angled feet)
+    const leftLeg = new THREE.Mesh(new THREE.CylinderGeometry(0.095, 0.075, 0.62, 6), armorMat);
+    leftLeg.position.set(-0.18, 0.32, -0.22);
+    leftLeg.rotation.set(-0.25, 0, 0.18);
     this.characterMesh.add(leftLeg);
 
-    const rightLeg = new THREE.Mesh(new THREE.CylinderGeometry(0.1, 0.08, 0.65, 6), armorMat);
-    rightLeg.position.set(0.18, 0.35, 0.25);
-    rightLeg.rotation.set(0.25, 0, -0.15);
+    const rightLeg = new THREE.Mesh(new THREE.CylinderGeometry(0.095, 0.075, 0.62, 6), armorMat);
+    rightLeg.position.set(0.16, 0.32, 0.22);
+    rightLeg.rotation.set(0.28, 0, -0.18);
     this.characterMesh.add(rightLeg);
 
-    // Cyber Helmet & Glowing HUD Visor
-    const helmGeom = new THREE.SphereGeometry(0.25, 12, 12);
+    // Aerodynamic Cyber Helmet
+    const helmGeom = new THREE.SphereGeometry(0.24, 12, 12);
     this.headMesh = new THREE.Mesh(helmGeom, armorMat);
-    this.headMesh.position.set(0, 1.38, 0.05);
+    this.headMesh.position.set(0, 1.35, 0.04);
     this.characterMesh.add(this.headMesh);
 
-    // Wide Curved Glowing Visor (Electric Cyan / Hot Magenta)
-    const visorGeom = new THREE.CylinderGeometry(0.26, 0.26, 0.18, 12, 1, false, -Math.PI * 0.4, Math.PI * 0.8);
-    const visorMat = new THREE.MeshBasicMaterial({ color: 0x00f0ff, side: THREE.DoubleSide });
+    // Thin Glowing Laser Visor Line
+    const visorGeom = new THREE.BoxGeometry(0.38, 0.045, 0.22);
+    const visorMat = new THREE.MeshBasicMaterial({ color: 0x00f0ff });
     this.visorMesh = new THREE.Mesh(visorGeom, visorMat);
-    this.visorMesh.position.set(0, 1.39, 0.06);
-    this.visorMesh.rotation.y = Math.PI / 2;
+    this.visorMesh.position.set(0, 1.38, 0.18);
     this.characterMesh.add(this.visorMesh);
 
-    // Energy Scarf / Segmented Light-Trail Tail
-    const capeGeom = new THREE.PlaneGeometry(0.45, 1.1, 2, 4);
-    capeGeom.translate(0, -0.55, 0);
+    // Short Glowing Energy-Trail Cape / Scarf
+    const capeGeom = new THREE.PlaneGeometry(0.42, 0.95, 2, 4);
+    capeGeom.translate(0, -0.48, 0);
     const capeMat = new THREE.MeshBasicMaterial({
       color: 0x00f0ff,
       side: THREE.DoubleSide,
       transparent: true,
-      opacity: 0.85,
+      opacity: 0.88,
     });
     this.capeMesh = new THREE.Mesh(capeGeom, capeMat);
-    this.capeMesh.position.set(0, 1.18, -0.24);
+    this.capeMesh.position.set(0, 1.15, -0.22);
     this.characterMesh.add(this.capeMesh);
 
     this.group.add(this.characterMesh);
 
-    // 3. Autonomous Cyber Drone Companion (Replaces Soot Sprite)
+    // 3. Autonomous Cyber Drone Companion (Stable Hovering Recon Drone)
     this.cyberDroneMesh = new THREE.Group();
-    const droneBodyMat = new THREE.MeshStandardMaterial({ color: 0x0a101d, metalness: 0.9, roughness: 0.2 });
-    const droneSphere = new THREE.Mesh(new THREE.SphereGeometry(0.22, 12, 12), droneBodyMat);
-    this.cyberDroneMesh.add(droneSphere);
+    const droneBodyMat = new THREE.MeshStandardMaterial({ color: 0x080e1a, metalness: 0.9, roughness: 0.2 });
+    const droneBody = new THREE.Mesh(new THREE.OctahedronGeometry(0.22), droneBodyMat);
+    this.cyberDroneMesh.add(droneBody);
 
     // Glowing Optical Scanner Lens Eye
     const droneEyeMat = new THREE.MeshBasicMaterial({ color: 0x00f0ff });
-    const droneEye = new THREE.Mesh(new THREE.CylinderGeometry(0.08, 0.08, 0.1, 8), droneEyeMat);
-    droneEye.rotateX(Math.PI / 2);
-    droneEye.position.set(0, 0, 0.18);
-    this.cyberDroneMesh.add(droneEye);
+    this.droneEyeMesh = new THREE.Mesh(new THREE.CylinderGeometry(0.08, 0.08, 0.06, 8), droneEyeMat);
+    this.droneEyeMesh.rotateX(Math.PI / 2);
+    this.droneEyeMesh.position.set(0, 0, 0.16);
+    this.cyberDroneMesh.add(this.droneEyeMesh);
 
-    // Rotating Magnetic Ring
-    const droneRing = new THREE.Mesh(new THREE.TorusGeometry(0.32, 0.03, 6, 16), droneEyeMat);
-    this.cyberDroneMesh.add(droneRing);
+    // Magnetic Stabilization Ring
+    this.droneRingMesh = new THREE.Mesh(new THREE.TorusGeometry(0.3, 0.02, 6, 16), droneEyeMat);
+    this.cyberDroneMesh.add(this.droneRingMesh);
 
-    this.cyberDroneMesh.position.set(1.6, 2.0, -0.8);
+    this.cyberDroneMesh.position.set(1.25, 1.75, -0.5);
     this.group.add(this.cyberDroneMesh);
 
     // 4. Holo-Shield Bubble
@@ -437,6 +445,55 @@ export class PlayerManager {
       (this.underglowMesh.material as THREE.MeshBasicMaterial).color.set(config.underglowColor || glowColor);
       (this.boardFoilMesh.material as THREE.MeshBasicMaterial).color.set(glowColor);
       (this.capeMesh.material as THREE.MeshBasicMaterial).color.set(glowColor);
+
+      if (this.underglowLight) {
+        this.underglowLight.color.set(config.underglowColor || glowColor);
+      }
+    }
+
+    // Board Deck Material
+    if (this.boardDeckMesh) {
+      const deckColor =
+        config.boardId === 'laser-edge'
+          ? '#1a0b16'
+          : config.boardId === 'grid-runner'
+          ? '#081a10'
+          : config.boardId === 'tokyo-neon'
+          ? '#201104'
+          : config.boardId === 'void-stalker'
+          ? '#06060c'
+          : '#090e18';
+      (this.boardDeckMesh.material as THREE.MeshStandardMaterial).color.set(deckColor);
+    }
+
+    // Armor Variant
+    if (this.torsoMesh && this.headMesh) {
+      const armorColor =
+        config.armorVariant === 'titanium-white'
+          ? '#d4d8e8'
+          : config.armorVariant === 'onyx-stealth'
+          ? '#05070c'
+          : config.armorVariant === 'crimson-cyborg'
+          ? '#2a0a14'
+          : '#0c1220';
+      (this.torsoMesh.material as THREE.MeshStandardMaterial).color.set(armorColor);
+      (this.headMesh.material as THREE.MeshStandardMaterial).color.set(armorColor);
+    }
+
+    // Optional Companion Drone per Outfit (Fixes hardcoded-visible bug)
+    if (this.cyberDroneMesh) {
+      this.cyberDroneMesh.visible = config.companionEnabled !== false;
+      const glowColor =
+        config.visorColor ||
+        (config.trailId === 'hot-magenta'
+          ? '#FF007F'
+          : config.trailId === 'acid-green'
+          ? '#00FF66'
+          : config.trailId === 'plasma-rainbow'
+          ? '#FF00AA'
+          : '#00F0FF');
+      if (this.droneEyeMesh) (this.droneEyeMesh.material as THREE.MeshBasicMaterial).color.set(glowColor);
+      if (this.droneRingMesh) (this.droneRingMesh.material as THREE.MeshBasicMaterial).color.set(glowColor);
     }
 
     this.updateTrailColors();
@@ -537,6 +594,16 @@ export class PlayerManager {
     this.stats.gameState = 'playing';
     this.stats.combo = 0;
     this.group.position.copy(this.position);
+  }
+
+  stumble(audioManager?: AudioManager | null) {
+    if (this.stumbleTimer > 0) return;
+    this.stumbleTimer = 0.75;
+    this.stats.stumbleTimer = 0.75;
+    this.velocity.z = Math.max(16.0, this.velocity.z - 9.0);
+    this.overdriveMeter = Math.max(0, this.overdriveMeter - 20.0);
+    this.emitJumpDust(this.position, 10);
+    if (audioManager) audioManager.playCrashSound();
   }
 
   crash() {
@@ -764,25 +831,29 @@ export class PlayerManager {
       (this.underglowMesh.material as THREE.MeshBasicMaterial).opacity = underglowPulse;
     }
 
-    // Cyber Crouch / Duck under barriers pose
-    const slideCrouchY = this.isSliding ? -0.55 : -this.grabPoseWeight * 0.25;
-    const slidePitch = this.isSliding ? 0.65 : (this.flipAngle - this.grabPoseWeight * 0.5);
+    // Cyber Crouch / Duck under barriers pose & stumble recoil
+    if (this.stumbleTimer > 0) {
+      this.stumbleTimer -= effectiveDt;
+      this.stats.stumbleTimer = this.stumbleTimer;
+    }
+    const stumbleOffset = this.stumbleTimer > 0 ? Math.sin(this.stumbleTimer * 28.0) * 0.12 : 0;
+    const slideCrouchY = this.isSliding ? -0.55 : (-this.grabPoseWeight * 0.25 + stumbleOffset);
+    const slidePitch = this.isSliding ? 0.65 : (this.flipAngle - this.grabPoseWeight * 0.5 + (this.stumbleTimer > 0 ? 0.18 : 0));
 
     this.characterMesh.rotation.z = -this.carveAngle * 0.9;
     this.characterMesh.rotation.x = slidePitch;
     this.characterMesh.rotation.y = -this.carveAngle * 0.4 + (this.isGrounded ? 0.35 : this.spinAngle);
     this.characterMesh.position.y = slideCrouchY;
 
-    // Cyber Recon Drone Companion Orbit
+    // Cyber Recon Drone Companion stable hover/bob beside player shoulder (No yaw-spin-away bug)
     this.cyberDroneTime += effectiveDt;
     const dtT = this.cyberDroneTime;
-    const droneOrbitRadius = 1.7;
     this.cyberDroneMesh.position.set(
-      Math.sin(dtT * 1.5) * droneOrbitRadius,
-      1.9 + Math.sin(dtT * 2.5) * 0.2,
-      -0.8 + Math.cos(dtT * 1.5) * 0.6
+      1.25,
+      1.75 + Math.sin(dtT * 3.0) * 0.12,
+      -0.45 + Math.cos(dtT * 1.5) * 0.08
     );
-    this.cyberDroneMesh.rotation.y = Math.sin(dtT * 1.2) * 0.4;
+    this.cyberDroneMesh.rotation.set(0, 0, 0); // Stays facing forward, stable observation angle!
 
     // Overdrive & Combo Tiers calculation
     let odTier: OverdriveTier = 'Dormant';

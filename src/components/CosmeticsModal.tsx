@@ -1,5 +1,5 @@
 import React from 'react';
-import { X, Zap, Cpu, Palette, Shield, Sparkles, Activity } from 'lucide-react';
+import { X, Zap, Cpu, Palette, Shield, Sparkles, Activity, Bot } from 'lucide-react';
 import { CosmeticsConfig } from '../types';
 
 interface CosmeticsModalProps {
@@ -112,6 +112,24 @@ export const CosmeticsModal: React.FC<CosmeticsModalProps> = ({
     { name: 'Solar Amber', hex: '#ff8800' },
     { name: 'Blinding White', hex: '#ffffff' },
     { name: 'Deep Violet', hex: '#7928ca' },
+  ];
+
+  const COMPANION_MODELS = [
+    {
+      id: 'recon-orb' as const,
+      name: 'Reconnaissance Orb',
+      desc: 'Spherical optic sensor pod with pulse ring and laser telemetry scanner.',
+    },
+    {
+      id: 'stealth-hex' as const,
+      name: 'Hex-Wing Stealth UAV',
+      desc: 'Angular stealth chassis coated in radar-absorbent obsidian nanoweave.',
+    },
+    {
+      id: 'neon-wasp' as const,
+      name: 'Neon Wasp Interceptor',
+      desc: 'Agile high-mobility twin-thruster drone built for high-speed drafting.',
+    },
   ];
 
   return (
@@ -287,6 +305,62 @@ export const CosmeticsModal: React.FC<CosmeticsModalProps> = ({
                 );
               })}
             </div>
+          </div>
+
+          {/* Section 5: Autonomous Recon Drone Companion */}
+          <div>
+            <div className="flex items-center justify-between mb-3">
+              <div className="flex items-center space-x-2">
+                <Bot className="w-4 h-4 text-cyan-400" />
+                <h3 className="text-xs font-black tracking-widest uppercase text-cyan-400">AUTONOMOUS RECON DRONE</h3>
+              </div>
+              <button
+                type="button"
+                onClick={() =>
+                  onUpdateCosmetics({
+                    ...cosmetics,
+                    companionEnabled: cosmetics.companionEnabled === false ? true : false,
+                  })
+                }
+                className={`px-3 py-1 rounded-full text-[10px] font-black uppercase tracking-wider transition-all border ${
+                  cosmetics.companionEnabled !== false
+                    ? 'bg-cyan-500/20 text-cyan-300 border-cyan-400 shadow-[0_0_10px_rgba(0,240,255,0.3)]'
+                    : 'bg-white/5 text-white/40 border-white/10'
+                }`}
+              >
+                {cosmetics.companionEnabled !== false ? '● ACTIVE RECON' : '○ DECOMMISSIONED'}
+              </button>
+            </div>
+
+            {cosmetics.companionEnabled !== false && (
+              <div className="grid grid-cols-1 sm:grid-cols-3 gap-2.5 animate-in fade-in duration-150">
+                {COMPANION_MODELS.map(model => {
+                  const isSelected =
+                    cosmetics.companionStyle === model.id || (!cosmetics.companionStyle && model.id === 'recon-orb');
+                  return (
+                    <button
+                      key={model.id}
+                      onClick={() => onUpdateCosmetics({ ...cosmetics, companionStyle: model.id })}
+                      className={`p-3 rounded-xl border text-left transition-all relative ${
+                        isSelected
+                          ? 'bg-cyan-950/40 border-cyan-400 shadow-[0_0_15px_rgba(0,240,255,0.25)]'
+                          : 'bg-white/5 border-white/10 hover:bg-white/10 hover:border-cyan-500/30'
+                      }`}
+                    >
+                      <div className="flex items-center justify-between">
+                        <span className="font-bold text-xs text-white">{model.name}</span>
+                        {isSelected && (
+                          <span className="text-[9px] px-1.5 py-0.5 rounded bg-cyan-500/20 text-cyan-300 border border-cyan-400/40 font-mono">
+                            SYNCED
+                          </span>
+                        )}
+                      </div>
+                      <p className="text-[11px] text-white/60 mt-1 leading-relaxed">{model.desc}</p>
+                    </button>
+                  );
+                })}
+              </div>
+            )}
           </div>
         </div>
 

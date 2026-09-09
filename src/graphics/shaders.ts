@@ -124,8 +124,8 @@ export const TerrainShader = {
       vec3 N = normalize(vNormal);
       vec3 V = normalize(uCameraPos - vWorldPosition);
 
-      // Deep dark asphalt base (~88% black)
-      vec3 tarmacBase = vec3(0.02, 0.025, 0.035);
+      // Deep dark asphalt base (~90% black)
+      vec3 tarmacBase = vec3(0.015, 0.02, 0.03);
 
       // Procedural asphalt micro-roughness & wet sheen
       float noiseVal = hash21(floor(vWorldPosition.xz * 18.0));
@@ -150,10 +150,9 @@ export const TerrainShader = {
       vec3 curbColor = vec3(0.0, 0.95, 1.0); // Electric Cyan
       vec3 dividerColor = vec3(1.0, 0.0, 0.55); // Hot Magenta
 
-      vec3 emissiveLines = curbColor * curbLines * 2.2 + dividerColor * dividerLines * 1.8;
+      vec3 emissiveLines = curbColor * curbLines * 2.5 + dividerColor * dividerLines * 2.0;
 
       // --- Blade Runner Wet-Street Reflection Trick ---
-      // Vertical streaking specular reflections of passing billboards & neon signage
       float reflectionStreak = sin(roadX * 3.5 + uTime * 2.0) * cos(roadX * 1.8);
       reflectionStreak = pow(max(0.0, reflectionStreak), 4.0);
       vec3 neonReflection = mix(vec3(0.0, 0.8, 1.0), vec3(1.0, 0.1, 0.6), sin(roadZ * 0.05) * 0.5 + 0.5);
@@ -166,7 +165,7 @@ export const TerrainShader = {
         float gridZ = abs(fract(roadZ * 0.5 - uTime * 0.5) - 0.5);
         float tronGrid = smoothstep(0.42, 0.48, max(1.0 - gridX * 2.0, 1.0 - gridZ * 2.0));
         vec3 tronColor = mix(vec3(0.0, 1.0, 0.8), vec3(1.0, 0.0, 0.8), sin(roadZ * 0.02) * 0.5 + 0.5);
-        tarmacBase = mix(vec3(0.005, 0.008, 0.015), tronColor * 1.8, tronGrid * uGridMode);
+        tarmacBase = mix(vec3(0.005, 0.008, 0.015), tronColor * 2.0, tronGrid * uGridMode);
       }
 
       vec3 finalCol = tarmacBase + emissiveLines + wetStreaks;
@@ -174,6 +173,12 @@ export const TerrainShader = {
       // High-contrast rim light from ambient neon environment
       float rim = pow(1.0 - max(dot(V, N), 0.0), 4.0);
       finalCol += vec3(0.0, 0.6, 1.0) * rim * 0.35;
+
+      // Distance Atmospheric Fade into Dark Fog
+      float dist = length(uCameraPos - vWorldPosition);
+      float fogFactor = 1.0 - exp(-dist * 0.0032);
+      vec3 fogCol = vec3(0.01, 0.025, 0.05);
+      finalCol = mix(finalCol, fogCol, clamp(fogFactor, 0.0, 0.95));
 
       gl_FragColor = vec4(finalCol, 1.0);
     }
@@ -201,7 +206,7 @@ export const FoliageShader = {
       // Cyber neon prop shader (holographic billboards, light pylons, conduits)
       float pulse = sin(uTime * 4.0 + vWorldPosition.z * 0.1) * 0.2 + 0.8;
       vec3 col = mix(vec3(0.0, 0.9, 1.0), vec3(1.0, 0.0, 0.6), sin(vWorldPosition.z * 0.05) * 0.5 + 0.5);
-      gl_FragColor = vec4(col * pulse * 1.4, 1.0);
+      gl_FragColor = vec4(col * pulse * 1.5, 1.0);
     }
   `
 };
@@ -239,7 +244,7 @@ export const BoardTrailShader = {
       float pulse = sin(vProgress * 24.0 - uTime * 20.0) * 0.2 + 0.8;
 
       vec3 neonHue = mix(uColorA, uColorB, vProgress);
-      vec3 finalCol = mix(neonHue * 2.0, vec3(1.0, 1.0, 1.0) * 2.5, core);
+      vec3 finalCol = mix(neonHue * 2.2, vec3(1.0, 1.0, 1.0) * 2.8, core);
 
       float alpha = glow * lengthFade * uOpacity * pulse;
       gl_FragColor = vec4(finalCol, clamp(alpha, 0.0, 1.0));
@@ -274,70 +279,81 @@ export const PostProcessShader = {
     void main() {
       vec2 uv = vUv;
 
-      // 1. Digital Glitch Horizontal Tear (Strictly on Crash / Game Over)
-      if (uGlitch > 0.5) {
-        float glitchSlice = floor(uv.y * 24.0);
-        float glitchNoise = hash(vec2(glitchSlice, floor(uTime * 12.0)));
-        if (glitchNoise > 0.7) {
-          float offset = (hash(vec2(glitchSlice, uTime)) - 0.5) * 0.03 * uGlitch;
+      // 1. Digital Glitch Horizontal Tear (Active during boost burst, combos, or collision stumble)
+      if (uGlitch > 0.02) {
+        float glitchSlice = floor(uv.y * 36.0);
+        float glitchNoise = hash(vec2(glitchSlice, floor(uTime * 24.0)));
+        if (glitchNoise > (1.0 - uGlitch * 0.4)) {
+          float offset = (hash(vec2(glitchSlice, uTime)) - 0.5) * 0.05 * uGlitch;
           uv.x += offset;
         }
       }
 
-      // 2. Crystal-Clear Scene Texture Sampling (No radial blur smearing)
+      // 2. Crystal-Clear Scene Texture Sampling
       vec3 sceneCol = texture2D(tDiffuse, uv).rgb;
 
-      // 3. Subtle Clean Chromatic Aberration at Screen Edges (Optional)
+      // 3. Chromatic Aberration (RGB Channel Fringing)
       if (uChromaticAberration > 0.0001) {
         float dist = length(uv - 0.5);
-        vec2 caOffset = (uv - 0.5) * (uChromaticAberration * dist * 1.5);
+        vec2 caOffset = (uv - 0.5) * (uChromaticAberration * (dist * 1.8 + 0.2));
         sceneCol.r = texture2D(tDiffuse, uv - caOffset).r;
         sceneCol.b = texture2D(tDiffuse, uv + caOffset).b;
       }
 
-      // 4. Razor-Sharp Targeted Neon Bloom (Only ultra-bright emissive lights)
-      if (uBloom > 0.05) {
+      // 4. Genuine Neon Bloom Halo (Emissive materials genuinely bleed light into surrounding dark pixels)
+      if (uBloom > 0.02) {
         vec3 bloomAccum = vec3(0.0);
         vec2 texel = 1.0 / uResolution;
-        float bMul = uBloom * 2.0;
-        float r1 = 3.0 * bMul;
-        float r2 = 7.0 * bMul;
-        float threshold = 0.68; // High threshold preserves pitch-black sky and sharp textures
+        float bMul = uBloom * 2.6;
+        float r1 = 2.5 * bMul;
+        float r2 = 6.0 * bMul;
+        float r3 = 12.0 * bMul;
+        float r4 = 20.0 * bMul;
+        float threshold = 0.48; // Emissive rails and signs halo richly into dark surroundings
 
-        bloomAccum += max(texture2D(tDiffuse, uv + vec2(-r1, 0.0) * texel).rgb - threshold, vec3(0.0)) * 0.3;
-        bloomAccum += max(texture2D(tDiffuse, uv + vec2(r1, 0.0) * texel).rgb - threshold, vec3(0.0)) * 0.3;
-        bloomAccum += max(texture2D(tDiffuse, uv + vec2(0.0, -r1) * texel).rgb - threshold, vec3(0.0)) * 0.3;
-        bloomAccum += max(texture2D(tDiffuse, uv + vec2(0.0, r1) * texel).rgb - threshold, vec3(0.0)) * 0.3;
+        // Cross taps (tight core bloom)
+        bloomAccum += max(texture2D(tDiffuse, uv + vec2(-r1, 0.0) * texel).rgb - threshold, vec3(0.0)) * 0.25;
+        bloomAccum += max(texture2D(tDiffuse, uv + vec2(r1, 0.0) * texel).rgb - threshold, vec3(0.0)) * 0.25;
+        bloomAccum += max(texture2D(tDiffuse, uv + vec2(0.0, -r1) * texel).rgb - threshold, vec3(0.0)) * 0.25;
+        bloomAccum += max(texture2D(tDiffuse, uv + vec2(0.0, r1) * texel).rgb - threshold, vec3(0.0)) * 0.25;
 
-        bloomAccum += max(texture2D(tDiffuse, uv + vec2(-r2, -r2) * texel).rgb - threshold, vec3(0.0)) * 0.2;
-        bloomAccum += max(texture2D(tDiffuse, uv + vec2(r2, r2) * texel).rgb - threshold, vec3(0.0)) * 0.2;
+        // Diagonal taps (mid halo)
+        bloomAccum += max(texture2D(tDiffuse, uv + vec2(-r2, -r2) * texel).rgb - threshold, vec3(0.0)) * 0.18;
+        bloomAccum += max(texture2D(tDiffuse, uv + vec2(r2, r2) * texel).rgb - threshold, vec3(0.0)) * 0.18;
+        bloomAccum += max(texture2D(tDiffuse, uv + vec2(-r2, r2) * texel).rgb - threshold, vec3(0.0)) * 0.18;
+        bloomAccum += max(texture2D(tDiffuse, uv + vec2(r2, -r2) * texel).rgb - threshold, vec3(0.0)) * 0.18;
 
-        sceneCol += bloomAccum * (0.6 * uBloom);
+        // Wide taps (outer neon aura)
+        bloomAccum += max(texture2D(tDiffuse, uv + vec2(-r3, 0.0) * texel).rgb - threshold, vec3(0.0)) * 0.12;
+        bloomAccum += max(texture2D(tDiffuse, uv + vec2(r3, 0.0) * texel).rgb - threshold, vec3(0.0)) * 0.12;
+        bloomAccum += max(texture2D(tDiffuse, uv + vec2(0.0, -r4) * texel).rgb - threshold, vec3(0.0)) * 0.08;
+        bloomAccum += max(texture2D(tDiffuse, uv + vec2(0.0, r4) * texel).rgb - threshold, vec3(0.0)) * 0.08;
+
+        sceneCol += bloomAccum * (0.85 * uBloom);
       }
 
-      // 5. Subtle High-Speed Anime Peripheral Streaks (Only at extreme velocities > 120km/h)
-      if (uSpeedLines > 0.6) {
+      // 5. Digital High-Speed Peripheral Laser Rays (Sharp & high-contrast, not blurry)
+      if (uSpeedLines > 0.05) {
         vec2 center = vec2(0.5, 0.45);
         vec2 dir = uv - center;
         float dist = length(dir);
-        // Only show at screen outer border, keeping center razor-sharp
-        if (dist > 0.45) {
+        if (dist > 0.32) {
           float angle = atan(dir.y, dir.x);
-          float linePattern = sin(angle * 72.0 + uTime * 28.0);
-          linePattern = smoothstep(0.7, 0.98, linePattern);
-          float mask = smoothstep(0.45, 0.9, dist) * (uSpeedLines - 0.6) * 2.0;
-          vec3 speedLineColor = mix(vec3(0.0, 0.95, 1.0), vec3(1.0, 1.0, 1.0), 0.8);
-          sceneCol += speedLineColor * linePattern * mask * 0.4;
+          float linePattern = sin(angle * 96.0 + uTime * 32.0);
+          linePattern = smoothstep(0.78, 0.99, linePattern);
+          float mask = smoothstep(0.32, 0.92, dist) * uSpeedLines;
+          vec3 speedLineColor = mix(vec3(0.0, 0.95, 1.0), vec3(1.0, 1.0, 1.0), 0.7);
+          sceneCol += speedLineColor * linePattern * mask * 0.65;
         }
       }
 
-      // 6. Optional Scanlines (Only if enabled)
-      if (uScanlines > 0.1) {
+      // 6. Optional Scanlines
+      if (uScanlines > 0.05) {
         float scanline = sin(uv.y * uResolution.y * 0.5) * 0.5 + 0.5;
-        sceneCol *= mix(1.0, 0.94 + 0.06 * scanline, uScanlines);
+        sceneCol *= mix(1.0, 0.92 + 0.08 * scanline, uScanlines);
       }
 
-      // 7. Punchy 4K Cyberpunk Tone Curve (Rich contrast & vibrant neon)
+      // 7. Cyberpunk Contrast & Color Curve
       sceneCol = pow(sceneCol, vec3(1.06));
       sceneCol = sceneCol * (1.05 * sceneCol + 0.02) / (sceneCol * 1.02 + 0.05);
 

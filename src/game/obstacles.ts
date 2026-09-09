@@ -23,6 +23,8 @@ export interface ObstacleInstance {
   rampStartZ?: number;
   isGrindRail?: boolean;
   isBoostGate?: boolean;
+  baseX?: number;
+  nearMissAwarded?: boolean;
   cleared: boolean;
 }
 
@@ -79,6 +81,15 @@ export class ObstacleManager {
   private grindRailGeom = new THREE.CylinderGeometry(0.14, 0.14, 22, 8);
   private grindRailMat = new THREE.MeshBasicMaterial({ color: 0xff007f });
 
+  // Drone Hazard & Energy Fence Materials
+  private droneBodyGeom = new THREE.OctahedronGeometry(0.5);
+  private droneEyeGeom = new THREE.SphereGeometry(0.2, 8, 8);
+  private droneHazardMat = new THREE.MeshBasicMaterial({ color: 0xff0033 });
+  private droneChassisMat = new THREE.MeshStandardMaterial({ color: 0x090e1a, metalness: 0.9, roughness: 0.2 });
+
+  private fenceBarGeom = new THREE.BoxGeometry(3.8, 0.4, 0.15);
+  private fenceMat = new THREE.MeshBasicMaterial({ color: 0xffaa00 });
+
   constructor(scene: THREE.Scene) {
     this.scene = scene;
     this.grindRailGeom.rotateX(Math.PI / 2);
@@ -113,18 +124,30 @@ export class ObstacleManager {
   private spawnSection(z: number) {
     const roll = Math.random();
 
-    if (roll < 0.22) {
+    if (roll < 0.18) {
       // Grind Rail along lane divider or center lane
       const lane: LaneIndex = (Math.floor(Math.random() * 3) - 1) as LaneIndex;
       this.spawnGrindRail(lane, z);
       this.spawnDataShardArc(lane, z, 6);
-    } else if (roll < 0.42) {
+    } else if (roll < 0.34) {
       // Boost Gate on one lane + Data Shards corridor
       const lane: LaneIndex = (Math.floor(Math.random() * 3) - 1) as LaneIndex;
       this.spawnBoostGate(lane, z);
       this.spawnDataShardLine(lane, z - 8, 5);
       this.spawnDataShardLine(lane, z + 6, 6);
+    } else if (roll < 0.48) {
+      // Drifting Drone Hazard patrolling a lane
+      const droneLane: LaneIndex = (Math.floor(Math.random() * 3) - 1) as LaneIndex;
+      this.spawnDroneHazard(droneLane, z);
+      const safeLane: LaneIndex = (droneLane === 0 ? 1 : 0) as LaneIndex;
+      this.spawnDataShardLine(safeLane, z - 4, 4);
     } else if (roll < 0.62) {
+      // Low Energy-Fence requiring jump
+      const fenceLane: LaneIndex = (Math.floor(Math.random() * 3) - 1) as LaneIndex;
+      this.spawnEnergyFence(fenceLane, z);
+      const safeLane: LaneIndex = (fenceLane === 0 ? -1 : 0) as LaneIndex;
+      this.spawnDataShardLine(safeLane, z - 4, 4);
+    } else if (roll < 0.82) {
       // Laser Barrier (Jump over) + Overhead Conduit (Slide under) on adjacent lanes
       const safeLane: LaneIndex = (Math.floor(Math.random() * 3) - 1) as LaneIndex;
       const otherLanes: LaneIndex[] = ([-1, 0, 1] as LaneIndex[]).filter(l => l !== safeLane);
@@ -138,23 +161,81 @@ export class ObstacleManager {
       if (Math.random() < 0.28) {
         this.spawnPowerUp(safeLane, z + 6);
       }
-    } else if (roll < 0.82) {
+    } else {
       // Mag-Lev Hover Train with Sloped Aerodynamic Ramp
       const trainLane: LaneIndex = (Math.floor(Math.random() * 3) - 1) as LaneIndex;
       this.spawnMaglevTrain(trainLane, z, true);
-    } else {
-      // Double Laser Barrier requiring high jump or lane switch
-      const openLane: LaneIndex = (Math.floor(Math.random() * 3) - 1) as LaneIndex;
-      ([-1, 0, 1] as LaneIndex[]).forEach(l => {
-        if (l !== openLane) {
-          this.spawnLaserBarrier(l, z);
-        }
-      });
-      this.spawnDataShardLine(openLane, z - 6, 5);
     }
   }
 
   // --- Cyberpunk Spawn Primitives ---
+
+  private spawnDroneHazard(lane: LaneIndex, z: number) {
+    const x = getLaneX(lane);
+    const y = getTerrainHeight(x, z) + 1.2;
+
+    const group = new THREE.Group();
+    const body = new THREE.Mesh(this.droneBodyGeom, this.droneChassisMat);
+    group.add(body);
+
+    const eye = new THREE.Mesh(this.droneEyeGeom, this.droneHazardMat);
+    eye.position.set(0, 0, 0.25);
+    group.add(eye);
+
+    group.position.set(x, y, z);
+    this.scene.add(group);
+
+    this.obstacles.push({
+      id: `drone_${this.nextObstacleId++}`,
+      type: 'drone-hazard',
+      lane,
+      x,
+      y,
+      z,
+      baseX: x,
+      width: 2.0,
+      height: 1.8,
+      depth: 1.8,
+      mesh: group,
+      cleared: false,
+    });
+  }
+
+  private spawnEnergyFence(lane: LaneIndex, z: number) {
+    const x = getLaneX(lane);
+    const y = getTerrainHeight(x, z);
+
+    const group = new THREE.Group();
+
+    const p1 = new THREE.Mesh(this.pylonGeom, this.pylonMat);
+    p1.position.set(-1.8, 0.5, 0);
+    group.add(p1);
+
+    const p2 = new THREE.Mesh(this.pylonGeom, this.pylonMat);
+    p2.position.set(1.8, 0.5, 0);
+    group.add(p2);
+
+    const fenceBar = new THREE.Mesh(this.fenceBarGeom, this.fenceMat);
+    fenceBar.position.set(0, 0.55, 0);
+    group.add(fenceBar);
+
+    group.position.set(x, y, z);
+    this.scene.add(group);
+
+    this.obstacles.push({
+      id: `fence_${this.nextObstacleId++}`,
+      type: 'energy-fence',
+      lane,
+      x,
+      y,
+      z,
+      width: 3.6,
+      height: 0.95,
+      depth: 0.8,
+      mesh: group,
+      cleared: false,
+    });
+  }
 
   private spawnLaserBarrier(lane: LaneIndex, z: number) {
     const x = getLaneX(lane);
@@ -458,6 +539,8 @@ export class ObstacleManager {
     collectedPowerUp?: PowerUpType;
   } {
     let hasCrashed = false;
+    let hasStumbled = false;
+    let nearMiss = false;
     let crashedObstacle: ObstacleInstance | undefined;
     let isGrinding = false;
     let hitBoostGate = false;
@@ -501,10 +584,22 @@ export class ObstacleManager {
 
       const halfDepth = obs.depth / 2 + 0.8;
       const dz = playerPos.z - obs.z;
-      if (Math.abs(dz) > halfDepth) continue;
+      if (Math.abs(dz) > halfDepth + 1.5) continue;
 
       const halfWidth = obs.width / 2 + 0.5;
       const dx = playerPos.x - obs.x;
+
+      // Near-Miss Style Bonus detection (passing close without hitting)
+      if (!obs.nearMissAwarded && !obs.isGrindRail && !obs.isBoostGate) {
+        if (Math.abs(dz) < halfDepth + 0.8) {
+          const edgeDist = Math.abs(dx) - halfWidth;
+          if (edgeDist > 0 && edgeDist < 2.2) {
+            obs.nearMissAwarded = true;
+            nearMiss = true;
+          }
+        }
+      }
+
       if (Math.abs(dx) > halfWidth) continue;
 
       // Handle Grind Rails
@@ -525,39 +620,47 @@ export class ObstacleManager {
         continue;
       }
 
-      // Handle Laser Barrier (Jump over)
-      if (obs.type === 'laser-barrier' || obs.type === 'low-hurdle') {
+      // Handle Laser Barrier & Low Energy Fence (Jump over)
+      if (obs.type === 'laser-barrier' || obs.type === 'energy-fence' || obs.type === 'low-hurdle') {
         const barrierTop = obs.y + obs.height;
         if (playerPos.y > barrierTop + 0.15) {
           obs.cleared = true;
         } else {
-          hasCrashed = true;
+          hasStumbled = true;
           crashedObstacle = obs;
+          obs.cleared = true;
           break;
         }
       } else if (obs.type === 'overhead-conduit' || obs.type === 'high-barrier') {
         if (isSliding) {
           obs.cleared = true; // Safely slid underneath!
         } else {
-          hasCrashed = true;
+          hasStumbled = true;
           crashedObstacle = obs;
+          obs.cleared = true;
           break;
         }
+      } else if (obs.type === 'drone-hazard') {
+        hasStumbled = true;
+        crashedObstacle = obs;
+        obs.cleared = true;
+        break;
       } else if (obs.type === 'maglev-hauler' || obs.type === 'maglev-ramp' || obs.type === 'spirit-train' || obs.type === 'spirit-train-ramp') {
         const trainTop = obs.y + obs.height;
         if (playerPos.y >= trainTop - 0.3) {
           // Skating along roof!
         } else if (obs.hasRamp && dz < 0 && dz > -obs.depth / 2 - 7.5) {
-          // Riding up front cowcatcher ramp!
+          // Riding up front ramp!
         } else {
-          hasCrashed = true;
+          hasStumbled = true;
           crashedObstacle = obs;
+          obs.cleared = true;
           break;
         }
       }
     }
 
-    return { hasCrashed, crashedObstacle, isGrinding, hitBoostGate, collectedCoins, collectedPowerUp };
+    return { hasCrashed, hasStumbled, nearMiss, crashedObstacle, isGrinding, hitBoostGate, collectedCoins, collectedPowerUp };
   }
 
   // Magnet effect: attract nearby data shards

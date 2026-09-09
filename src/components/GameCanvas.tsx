@@ -398,6 +398,8 @@ export const GameCanvas: React.FC<GameCanvasProps> = ({
     let fpsAccum = 0;
     let currentFps = 60;
     let foliageTimer = 0;
+    let boostGlitchTimer = 0;
+    let stumbleGlitchTimer = 0;
 
     const animate = (now: number) => {
       animationFrameId = requestAnimationFrame(animate);
@@ -418,7 +420,7 @@ export const GameCanvas: React.FC<GameCanvasProps> = ({
       // Update Player with terrainManager and audioManager
       playerMgr.update(dt, keysRef.current, timeSeconds, terrainMgr, audio);
 
-      // Subway Surfers Obstacles, Pickups & Collision Loop
+      // Obstacles, Pickups & Collision Loop
       if (playerMgr.gameState === 'playing') {
         obstacleMgr.update(playerMgr.position.z, timeSeconds);
 
@@ -431,7 +433,16 @@ export const GameCanvas: React.FC<GameCanvasProps> = ({
         // Boost Gate acceleration
         if (collision.hitBoostGate) {
           playerMgr.applyBoostGateHit(audio);
+          boostGlitchTimer = 0.55;
           onNotification('⚡ BOOST ARCH CHARGED! SONIC ACCELERATION! ⚡');
+        }
+
+        // Near-Miss Style Bonus
+        if (collision.nearMiss) {
+          playerMgr.addCoins(3);
+          playerMgr.overdriveMeter = Math.min(100, playerMgr.overdriveMeter + 10);
+          audio.playTrickSound('Near Miss', 2);
+          onNotification('⚡ NEAR MISS! +300 Style Bonus');
         }
 
         // Rail Grinding
@@ -458,7 +469,8 @@ export const GameCanvas: React.FC<GameCanvasProps> = ({
           onNotification(pNames[collision.collectedPowerUp] || 'Power-Up Collected!');
         }
 
-        if (collision.hasCrashed) {
+        // Obstacle Impact & Stumble Reaction (Preserves endless-flow feeling)
+        if (collision.hasStumbled) {
           if (playerMgr.activePowerUps.hoverboardShield) {
             playerMgr.absorbShieldHit();
             audio.playCarveWhoosh();
@@ -467,12 +479,21 @@ export const GameCanvas: React.FC<GameCanvasProps> = ({
               obstacleMgr.removeObstacle(collision.crashedObstacle);
             }
           } else {
-            playerMgr.crash();
-            audio.playCrashSound();
-            onNotification('💥 SYSTEM CRASH! NEURAL DESYNC DETECTED');
-            if (onGameOver) {
-              onGameOver();
+            playerMgr.stumble(audio);
+            stumbleGlitchTimer = 0.6;
+            onNotification('⚠️ OBSTACLE IMPACT! STUMBLED (-20 OVERDRIVE)');
+            if (collision.crashedObstacle) {
+              obstacleMgr.removeObstacle(collision.crashedObstacle);
             }
+          }
+        }
+
+        if (collision.hasCrashed) {
+          playerMgr.crash();
+          audio.playCrashSound();
+          onNotification('💥 SYSTEM CRASH! NEURAL DESYNC DETECTED');
+          if (onGameOver) {
+            onGameOver();
           }
         }
       }
@@ -571,19 +592,42 @@ export const GameCanvas: React.FC<GameCanvasProps> = ({
 
       // Render Scene
       if (graphicsConfig.enablePostProcess && rt && postScene && postCamera && postMaterial) {
-        // High speed radial motion blur factor & anime speed lines
-        const blurFactor = Math.min(1.0, Math.max(0, (playerMgr.stats.speed - 26) / 60));
-        const speedLinesFactor = Math.min(1.0, Math.max(0, (playerMgr.stats.speed - 28) / 55));
-        const heatShimmerFactor = currentBiome === 'orbital-ring' || currentBiome === 'dunes' ? 1.0 : 0.0;
+        // Step 0 fix: strictly clamp both blurFactor and speedLinesFactor to [0, 1]
+        const blurFactor = Math.min(1.0, Math.max(0.0, (playerMgr.stats.speed - 26) / 50));
+        const speedLinesFactor = Math.min(1.0, Math.max(0.0, (playerMgr.stats.speed - 28) / 45));
+        const heatShimmerFactor = currentBiome === 'orbital-ring' ? 1.0 : 0.0;
+
+        // Glitch and chromatic aberration pulse during boost, combos, or stumble
+        let glitchIntensity = shaderParams.glitchIntensity ?? 0.0;
+        let chromaticAberration = shaderParams.chromaticAberration ?? 0.0005;
+
+        if (boostGlitchTimer > 0) {
+          boostGlitchTimer -= dt;
+          glitchIntensity = Math.max(glitchIntensity, boostGlitchTimer * 0.85);
+          chromaticAberration = Math.max(chromaticAberration, boostGlitchTimer * 0.008);
+        }
+        if (stumbleGlitchTimer > 0) {
+          stumbleGlitchTimer -= dt;
+          glitchIntensity = Math.max(glitchIntensity, stumbleGlitchTimer * 0.7);
+          chromaticAberration = Math.max(chromaticAberration, stumbleGlitchTimer * 0.006);
+        }
+        if (playerMgr.stats.isBoosting || playerMgr.boostTimer > 0) {
+          chromaticAberration = Math.max(chromaticAberration, 0.0035);
+        }
+        if (playerMgr.stats.combo >= 3) {
+          chromaticAberration = Math.max(chromaticAberration, 0.002);
+        }
+        if (playerMgr.gameState === 'gameover') {
+          glitchIntensity = 0.85;
+          chromaticAberration = 0.008;
+        }
 
         if (postMaterial.uniforms.uTime) postMaterial.uniforms.uTime.value = timeSeconds;
         if (postMaterial.uniforms.uHighSpeedBlur) postMaterial.uniforms.uHighSpeedBlur.value = 0.0;
-        if (postMaterial.uniforms.uBloom) postMaterial.uniforms.uBloom.value = shaderParams.bloomIntensity ?? 0.35;
-        if (postMaterial.uniforms.uChromaticAberration) postMaterial.uniforms.uChromaticAberration.value = shaderParams.chromaticAberration ?? 0.0005;
+        if (postMaterial.uniforms.uBloom) postMaterial.uniforms.uBloom.value = shaderParams.bloomIntensity ?? 0.55;
+        if (postMaterial.uniforms.uChromaticAberration) postMaterial.uniforms.uChromaticAberration.value = chromaticAberration;
         if (postMaterial.uniforms.uScanlines) postMaterial.uniforms.uScanlines.value = shaderParams.scanlineIntensity ?? 0.0;
-        if (postMaterial.uniforms.uGlitch) {
-          postMaterial.uniforms.uGlitch.value = playerMgr.gameState === 'gameover' ? 0.85 : (shaderParams.glitchIntensity ?? 0.0);
-        }
+        if (postMaterial.uniforms.uGlitch) postMaterial.uniforms.uGlitch.value = glitchIntensity;
         if (postMaterial.uniforms.uSpeedLines) {
           postMaterial.uniforms.uSpeedLines.value = playerMgr.stats.isBoosting ? 1.0 : speedLinesFactor;
         }

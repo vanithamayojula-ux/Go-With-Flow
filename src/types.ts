@@ -1,8 +1,11 @@
 export type LightingMode =
+  | 'neon-night'
+  | 'deep-space'
+  | 'storm-grid'
+  | 'solar-amber'
   | 'midnight-cyan'
   | 'synthwave-magenta'
   | 'toxic-matrix'
-  | 'solar-amber'
   | 'golden-hour'
   | 'morning'
   | 'bright-day';
@@ -13,11 +16,7 @@ export type BiomeType =
   | 'neon-undercity'
   | 'orbital-ring'
   | 'the-grid'
-  | 'derelict-station'
-  | 'meadow'
-  | 'dunes'
-  | 'sky-islands'
-  | 'forest';
+  | 'derelict-station';
 
 export type TrickType = 'spin' | 'flip' | 'grab' | 'pose';
 
@@ -27,27 +26,20 @@ export interface CosmeticsConfig {
     | 'laser-edge'
     | 'grid-runner'
     | 'tokyo-neon'
-    | 'void-stalker'
-    | 'ivory-drift'
-    | 'sakura-foil'
-    | 'dune-glider'
-    | 'celestia-blade'
-    | 'forest-spirit';
+    | 'void-stalker';
   trailId:
     | 'electric-cyan'
     | 'hot-magenta'
     | 'acid-green'
-    | 'plasma-rainbow'
-    | 'verdant-breeze'
-    | 'solar-flare'
-    | 'aurora'
-    | 'rainbow';
+    | 'plasma-rainbow';
   capeColor: string;
   poseId: 'standard' | 'zen' | 'dancer';
   armorVariant?: 'carbon-fiber' | 'titanium-white' | 'onyx-stealth' | 'crimson-cyborg';
   visorColor?: string;
   underglowColor?: string;
-  characterStyle?: 'ghibli-voyager' | 'desert-nomad' | 'forest-wanderer' | 'cyber-runner';
+  characterStyle?: 'cyber-runner' | 'net-stalker' | 'void-drifter' | 'grid-phantom';
+  companionEnabled?: boolean;
+  companionStyle?: 'recon-orb' | 'stealth-hex' | 'neon-wasp';
 }
 
 export interface SessionGoal {
@@ -95,6 +87,8 @@ export type LaneIndex = -1 | 0 | 1;
 export type ObstacleType =
   | 'laser-barrier'
   | 'overhead-conduit'
+  | 'drone-hazard'
+  | 'energy-fence'
   | 'maglev-hauler'
   | 'maglev-ramp'
   | 'grind-rail'
@@ -160,6 +154,8 @@ export interface PlayerStats {
   activePowerUps: ActivePowerUps;
   scoreMultiplier: number;
   gameState: GameState;
+  stumbleTimer?: number;
+  nearMissCount?: number;
 }
 
 export interface FloatingIslandData {

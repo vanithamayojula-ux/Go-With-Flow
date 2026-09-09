@@ -624,4 +624,105 @@ export function createCyberBillboardTexture(
   return texture;
 }
 
+/**
+ * Metal-Grid Surface with Glowing Emissive Seam Lines (Cyberpunk Ground Material)
+ */
+export function createCyberGridTexture(primaryColor = '#00f0ff', secondaryColor = '#ff007f'): THREE.CanvasTexture {
+  const canvas = document.createElement('canvas');
+  canvas.width = 512;
+  canvas.height = 512;
+  const ctx = canvas.getContext('2d')!;
+
+  // Dark brushed metal/asphalt plate
+  ctx.fillStyle = '#060810';
+  ctx.fillRect(0, 0, 512, 512);
+
+  // Micro-texture noise for metal roughness
+  ctx.fillStyle = '#0a0f1d';
+  for (let i = 0; i < 400; i++) {
+    const x = Math.random() * 512;
+    const y = Math.random() * 512;
+    ctx.fillRect(x, y, 2, 2);
+  }
+
+  // Major glowing circuit seam grid
+  const cellSize = 64;
+  ctx.strokeStyle = primaryColor;
+  ctx.lineWidth = 3;
+  ctx.shadowColor = primaryColor;
+  ctx.shadowBlur = 8;
+
+  for (let x = 0; x <= 512; x += cellSize) {
+    ctx.beginPath();
+    ctx.moveTo(x, 0);
+    ctx.lineTo(x, 512);
+    ctx.stroke();
+  }
+
+  for (let y = 0; y <= 512; y += cellSize) {
+    ctx.beginPath();
+    ctx.moveTo(0, y);
+    ctx.lineTo(512, y);
+    ctx.stroke();
+  }
+
+  // High-intensity cross nodes
+  ctx.shadowBlur = 12;
+  ctx.fillStyle = '#ffffff';
+  for (let x = 0; x <= 512; x += cellSize) {
+    for (let y = 0; y <= 512; y += cellSize) {
+      ctx.fillRect(x - 2, y - 2, 4, 4);
+    }
+  }
+
+  // Secondary diagonal data traces
+  ctx.shadowBlur = 0;
+  ctx.strokeStyle = secondaryColor;
+  ctx.lineWidth = 1;
+  ctx.globalAlpha = 0.45;
+  for (let i = 0; i < 8; i++) {
+    ctx.beginPath();
+    const sx = (i * 64) % 512;
+    ctx.moveTo(sx, 0);
+    ctx.lineTo(sx + 128, 512);
+    ctx.stroke();
+  }
+
+  const texture = new THREE.CanvasTexture(canvas);
+  texture.wrapS = THREE.RepeatWrapping;
+  texture.wrapT = THREE.RepeatWrapping;
+  texture.repeat.set(4, 16);
+  return texture;
+}
+
+/**
+ * High-Intensity Emissive Strip Texture
+ */
+export function createEmissiveStripTexture(glowColor = '#00f0ff'): THREE.CanvasTexture {
+  const canvas = document.createElement('canvas');
+  canvas.width = 128;
+  canvas.height = 512;
+  const ctx = canvas.getContext('2d')!;
+
+  ctx.fillStyle = '#05070d';
+  ctx.fillRect(0, 0, 128, 512);
+
+  // Intense glowing center laser stripe with white core
+  const grad = ctx.createLinearGradient(0, 0, 128, 0);
+  grad.addColorStop(0, 'rgba(0,0,0,0)');
+  grad.addColorStop(0.35, glowColor);
+  grad.addColorStop(0.5, '#ffffff');
+  grad.addColorStop(0.65, glowColor);
+  grad.addColorStop(1, 'rgba(0,0,0,0)');
+
+  ctx.fillStyle = grad;
+  ctx.fillRect(0, 0, 128, 512);
+
+  const texture = new THREE.CanvasTexture(canvas);
+  texture.wrapS = THREE.RepeatWrapping;
+  texture.wrapT = THREE.RepeatWrapping;
+  return texture;
+}
+
+
 

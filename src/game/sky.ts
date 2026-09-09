@@ -12,12 +12,13 @@ export interface LightingPresetConfig {
   slopeWarm: string;
   slopeCool: string;
   hazeDensity: number;
+  fogColor: string;
 }
 
 export const LIGHTING_PRESETS: Record<LightingMode, LightingPresetConfig> = {
-  'midnight-cyan': {
-    skyTop: '#01030a',
-    skyMid: '#030d1f',
+  'neon-night': {
+    skyTop: '#01040a',
+    skyMid: '#030c1c',
     skyHorizon: '#00f0ff',
     sunColor: '#00f0ff',
     sunPosition: [40, 80, -160],
@@ -25,55 +26,48 @@ export const LIGHTING_PRESETS: Record<LightingMode, LightingPresetConfig> = {
     slopeWarm: '#00e5ff',
     slopeCool: '#02182b',
     hazeDensity: 0.9,
+    fogColor: '#020714',
   },
-  'synthwave-magenta': {
-    skyTop: '#090114',
-    skyMid: '#1a0328',
+  'deep-space': {
+    skyTop: '#05010b',
+    skyMid: '#12021e',
     skyHorizon: '#ff007f',
     sunColor: '#ff00aa',
     sunPosition: [-60, 75, -150],
-    ambientColor: '#120222',
+    ambientColor: '#0c0218',
     slopeWarm: '#ff007f',
     slopeCool: '#1f0438',
     hazeDensity: 0.95,
+    fogColor: '#0a0216',
   },
-  'toxic-matrix': {
-    skyTop: '#000803',
-    skyMid: '#011809',
+  'storm-grid': {
+    skyTop: '#000603',
+    skyMid: '#011409',
     skyHorizon: '#00ff66',
     sunColor: '#00ff77',
     sunPosition: [0, 90, -140],
-    ambientColor: '#001408',
+    ambientColor: '#001006',
     slopeWarm: '#00ff66',
     slopeCool: '#00260f',
     hazeDensity: 0.85,
+    fogColor: '#000c05',
   },
   'solar-amber': {
-    skyTop: '#0c0500',
-    skyMid: '#1e0c01',
+    skyTop: '#070200',
+    skyMid: '#160700',
     skyHorizon: '#ff7700',
     sunColor: '#ff8800',
     sunPosition: [70, 60, -130],
-    ambientColor: '#180a02',
+    ambientColor: '#140701',
     slopeWarm: '#ff8800',
     slopeCool: '#2d1200',
     hazeDensity: 0.88,
+    fogColor: '#0f0401',
   },
-  // Backward compatibility keys aliased to cyberpunk presets
-  'golden-hour': {
-    skyTop: '#090114',
-    skyMid: '#1a0328',
-    skyHorizon: '#ff007f',
-    sunColor: '#ff00aa',
-    sunPosition: [-60, 75, -150],
-    ambientColor: '#120222',
-    slopeWarm: '#ff007f',
-    slopeCool: '#1f0438',
-    hazeDensity: 0.95,
-  },
-  'morning': {
-    skyTop: '#01030a',
-    skyMid: '#030d1f',
+  // Aliases for compatibility
+  'midnight-cyan': {
+    skyTop: '#01040a',
+    skyMid: '#030c1c',
     skyHorizon: '#00f0ff',
     sunColor: '#00f0ff',
     sunPosition: [40, 80, -160],
@@ -81,17 +75,67 @@ export const LIGHTING_PRESETS: Record<LightingMode, LightingPresetConfig> = {
     slopeWarm: '#00e5ff',
     slopeCool: '#02182b',
     hazeDensity: 0.9,
+    fogColor: '#020714',
   },
-  'bright-day': {
-    skyTop: '#000803',
-    skyMid: '#011809',
+  'synthwave-magenta': {
+    skyTop: '#05010b',
+    skyMid: '#12021e',
+    skyHorizon: '#ff007f',
+    sunColor: '#ff00aa',
+    sunPosition: [-60, 75, -150],
+    ambientColor: '#0c0218',
+    slopeWarm: '#ff007f',
+    slopeCool: '#1f0438',
+    hazeDensity: 0.95,
+    fogColor: '#0a0216',
+  },
+  'toxic-matrix': {
+    skyTop: '#000603',
+    skyMid: '#011409',
     skyHorizon: '#00ff66',
     sunColor: '#00ff77',
     sunPosition: [0, 90, -140],
-    ambientColor: '#001408',
+    ambientColor: '#001006',
     slopeWarm: '#00ff66',
     slopeCool: '#00260f',
     hazeDensity: 0.85,
+    fogColor: '#000c05',
+  },
+  'golden-hour': {
+    skyTop: '#05010b',
+    skyMid: '#12021e',
+    skyHorizon: '#ff007f',
+    sunColor: '#ff00aa',
+    sunPosition: [-60, 75, -150],
+    ambientColor: '#0c0218',
+    slopeWarm: '#ff007f',
+    slopeCool: '#1f0438',
+    hazeDensity: 0.95,
+    fogColor: '#0a0216',
+  },
+  'morning': {
+    skyTop: '#01040a',
+    skyMid: '#030c1c',
+    skyHorizon: '#00f0ff',
+    sunColor: '#00f0ff',
+    sunPosition: [40, 80, -160],
+    ambientColor: '#040b18',
+    slopeWarm: '#00e5ff',
+    slopeCool: '#02182b',
+    hazeDensity: 0.9,
+    fogColor: '#020714',
+  },
+  'bright-day': {
+    skyTop: '#000603',
+    skyMid: '#011409',
+    skyHorizon: '#00ff66',
+    sunColor: '#00ff77',
+    sunPosition: [0, 90, -140],
+    ambientColor: '#001006',
+    slopeWarm: '#00ff66',
+    slopeCool: '#00260f',
+    hazeDensity: 0.85,
+    fogColor: '#000c05',
   },
 };
 
@@ -221,6 +265,9 @@ export class SkyManager {
     this.ambientLight.color.set(preset.ambientColor);
 
     (this.holoRingMesh.material as THREE.MeshBasicMaterial).color.set(preset.sunColor);
+
+    // Real scene-level atmospheric cyberpunk fog (fades all meshes, props & character into darkness)
+    this.scene.fog = new THREE.FogExp2(new THREE.Color(preset.fogColor), 0.0032);
   }
 
   setGridMode(gridMode: number) {
