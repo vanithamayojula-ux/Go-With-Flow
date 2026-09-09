@@ -117,6 +117,8 @@ export class TerrainManager {
         uCelRampHardness: { value: 0.35 },
         uRimLightIntensity: { value: 0.6 },
         uCameraPos: { value: new THREE.Vector3() },
+        uTime: { value: 0 },
+        uRainSheen: { value: 0 },
       },
     });
 
