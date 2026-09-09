@@ -18,17 +18,34 @@ export function createPainterlyGroundTexture(): THREE.CanvasTexture {
   ctx.fillStyle = '#38A852';
   ctx.fillRect(0, 0, 512, 512);
 
-  // 2. Hand-painted sloped hill contour bands (kazuo oga style terraced hill stripes)
-  for (let y = 0; y < 512; y += 16) {
-    const bandColor = y % 32 === 0 ? 'rgba(118, 215, 60, 0.35)' : 'rgba(38, 115, 59, 0.30)';
-    ctx.fillStyle = bandColor;
+  // 2. Hand-painted soft organic light-and-shadow dabs (Soft noise-blended Kazuo Oga meadow)
+  for (let i = 0; i < 40; i++) {
+    const cx = Math.random() * 512;
+    const cy = Math.random() * 512;
+    const rx = 60 + Math.random() * 120;
+    const ry = 40 + Math.random() * 80;
+    const rot = (Math.random() - 0.5) * 1.2;
+    const isHighlight = i % 2 === 0;
+
+    const dabGrad = ctx.createRadialGradient(cx, cy, rx * 0.1, cx, cy, rx);
+    if (isHighlight) {
+      dabGrad.addColorStop(0, 'rgba(140, 220, 70, 0.38)');
+      dabGrad.addColorStop(0.7, 'rgba(100, 195, 55, 0.18)');
+      dabGrad.addColorStop(1, 'rgba(56, 168, 82, 0.0)');
+    } else {
+      dabGrad.addColorStop(0, 'rgba(30, 95, 48, 0.42)');
+      dabGrad.addColorStop(0.7, 'rgba(42, 115, 56, 0.20)');
+      dabGrad.addColorStop(1, 'rgba(56, 168, 82, 0.0)');
+    }
+
+    ctx.save();
+    ctx.translate(cx, cy);
+    ctx.rotate(rot);
+    ctx.fillStyle = dabGrad;
     ctx.beginPath();
-    ctx.moveTo(0, y);
-    ctx.bezierCurveTo(128, y + Math.sin(y * 0.05) * 20, 384, y - Math.sin(y * 0.05) * 20, 512, y);
-    ctx.lineTo(512, y + 16);
-    ctx.lineTo(0, y + 16);
-    ctx.closePath();
+    ctx.ellipse(0, 0, rx, ry, 0, 0, Math.PI * 2);
     ctx.fill();
+    ctx.restore();
   }
 
   // 3. Painterly grass dabs (600+ multi-toned brushstrokes)
