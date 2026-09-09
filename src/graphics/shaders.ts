@@ -132,21 +132,22 @@ export const TerrainShader = {
       vec4 col3 = texture2D(uGroundTexture, coord3);
       vec3 texColor = (col1 * blending.x + col2 * blending.y + col3 * blending.z).rgb;
 
-      // Soft 3-Band Ghibli Cel Ramp Lighting
-      float NdotL = dot(N, L);
-      float shadowToMid = smoothstep(-0.25, 0.15 + 0.1 * uCelRampHardness, NdotL);
-      float midToSun = smoothstep(0.15 + 0.1 * uCelRampHardness, 0.65, NdotL);
+      // Soft Painterly Ghibli Cel Ramp Lighting with Noise Perturbation
+      float noisePerturb = (cloudShadowNoise(vWorldPosition.xz * 0.08 + vec2(uTime * 0.005)) - 0.5) * 0.08;
+      float NdotL = dot(N, L) + noisePerturb;
+      float shadowToMid = smoothstep(-0.35, 0.15 + 0.1 * uCelRampHardness, NdotL);
+      float midToSun = smoothstep(0.15 + 0.1 * uCelRampHardness, 0.70, NdotL);
       float celFactor = shadowToMid * 0.5 + midToSun * 0.5;
 
       // Drifting Cloud Shadow Projection
       vec2 shadowUv = vWorldPosition.xz * 0.015 + vec2(uTime * 0.012, uTime * 0.008);
       float cloudVal = cloudShadowNoise(shadowUv);
       float cloudShadow = smoothstep(0.35, 0.75, cloudVal);
-      celFactor *= (1.0 - cloudShadow * 0.35);
+      celFactor *= (1.0 - cloudShadow * 0.30);
 
       // Multiplicative color splitting (preserves 100% of painterly grass/flower detail!)
-      vec3 sunlitTex = texColor * uSlopeWarmColor * 1.35;
-      vec3 shadedTex = texColor * uSlopeCoolColor * 0.88;
+      vec3 sunlitTex = texColor * uSlopeWarmColor * 1.30;
+      vec3 shadedTex = texColor * uSlopeCoolColor * 0.90;
       vec3 baseLit = mix(shadedTex, sunlitTex, celFactor);
 
       // Rain Sheen / Wet Surface Reflection
@@ -161,13 +162,16 @@ export const TerrainShader = {
       rim = smoothstep(0.48, 0.92, rim) * max(dot(N, L), 0.1);
       vec3 rimColor = uSunColor * (rim * uRimLightIntensity * 0.60);
 
-      // Distance Depth Fog
+      // Soft Ghibli Volumetric Atmospheric Depth Fog (seamless transition to sky)
       float dist = length(vWorldPosition - uCameraPos);
-      float fogFactor = smoothstep(120.0, 480.0, dist);
-      vec3 fogColor = mix(uAmbientColor, uSlopeWarmColor, 0.4);
+      float heightFog = exp(-max(vWorldPosition.y + 10.0, 0.0) * 0.035);
+      float distFog = smoothstep(80.0, 520.0, dist);
+      float totalFog = clamp(distFog * 0.65 + heightFog * 0.20, 0.0, 0.85);
+
+      vec3 fogColor = mix(uAmbientColor, uSlopeWarmColor, 0.45);
 
       vec3 finalColor = baseLit * (uAmbientColor + uSunColor * celFactor) + rimColor;
-      finalColor = mix(finalColor, fogColor, fogFactor * 0.45);
+      finalColor = mix(finalColor, fogColor, totalFog);
 
       gl_FragColor = vec4(finalColor, 1.0);
     }
