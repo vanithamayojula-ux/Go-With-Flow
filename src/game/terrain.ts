@@ -19,13 +19,13 @@ export function getBiomeAt(z: number): BiomeType {
 export function getBiomeFriction(biome: BiomeType): number {
   switch (biome) {
     case 'dunes':
-      return 0.02; // Master prompt: dune surface low µ ~ 0.02
+      return 0.02;
     case 'meadow':
-      return 0.08; // Master prompt: grass plate medium µ ~ 0.08
+      return 0.08;
     case 'sky-islands':
       return 0.04;
     case 'forest':
-      return 0.06; // Soft moss & needle-carpeted floor of Whisperwood
+      return 0.06;
   }
 }
 
@@ -33,18 +33,15 @@ export function getTerrainHeight(x: number, z: number): number {
   const biome = getBiomeAt(z);
 
   if (biome === 'dunes') {
-    // Sweeping parabolic dunes and smooth surfing berms
     const broadDunes = fractalNoise(x * 0.005, z * 0.005, 2, 2.0, 0.4) * 18.0;
     const sandRidges = Math.sin(x * 0.04 + z * 0.02) * 6.5 + Math.cos(z * 0.03) * 3.5;
     const windRipples = Math.sin(x * 0.12 - z * 0.08) * 0.6;
     return broadDunes + sandRidges + windRipples - 2.0;
   } else if (biome === 'sky-islands') {
-    // Lower cloud basin with rolling lower floor
     const broadFloor = fractalNoise(x * 0.006, z * 0.006, 2, 2.0, 0.45) * 14.0;
     const basin = Math.sin(x * 0.02) * Math.cos(z * 0.02) * 5.0;
     return broadFloor + basin - 12.0;
   } else if (biome === 'forest') {
-    // Whisperwood Forest: soft mossy hollows and gentle clearings beneath the canopy
     const broadFloor = fractalNoise(x * 0.006, z * 0.006, 3, 2.0, 0.5) * 12.0;
     const roots = Math.sin(x * 0.05 + z * 0.03) * 1.4 + Math.cos(z * 0.06) * 1.1;
     return broadFloor + roots - 4.0;
@@ -100,7 +97,6 @@ export class TerrainManager {
   orbGeometry: THREE.SphereGeometry;
   orbMaterial: THREE.MeshBasicMaterial;
 
-  // Reusable geometry for floating islands & updrafts
   floatingIslandsList: { x: number; y: number; z: number; radius: number }[] = [];
   updraftsList: UpdraftGeyser[] = [];
 
@@ -116,8 +112,8 @@ export class TerrainManager {
         uSunDirection: { value: new THREE.Vector3(0.5, 0.8, -0.3).normalize() },
         uSunColor: { value: new THREE.Color('#FFF1D0') },
         uAmbientColor: { value: new THREE.Color('#94BCE8') },
-        uSlopeWarmColor: { value: new THREE.Color('#F7D6A5') },
-        uSlopeCoolColor: { value: new THREE.Color('#6FB07E') },
+        uSlopeWarmColor: { value: new THREE.Color('#F9E4B7') },
+        uSlopeCoolColor: { value: new THREE.Color('#4E8B69') },
         uCelRampHardness: { value: 0.35 },
         uRimLightIntensity: { value: 0.6 },
         uCameraPos: { value: new THREE.Vector3() },
@@ -132,21 +128,16 @@ export class TerrainManager {
     });
   }
 
-  // Returns either floating island height or terrain height
   getSurfaceHeight(x: number, z: number, playerY: number): { height: number; isOnIsland: boolean } {
     const baseHeight = getTerrainHeight(x, z);
 
-    // Check if player is above or touching any floating island
     for (const isl of this.floatingIslandsList) {
       const dx = x - isl.x;
       const dz = z - isl.z;
       const distSq = dx * dx + dz * dz;
       if (distSq < isl.radius * isl.radius) {
-        // Player is within horizontal bounds of island
         const islandTop = isl.y;
-        // If player is hovering near or on top of island
         if (playerY >= islandTop - 2.5 && playerY <= islandTop + 6.0) {
-          // Slight dome curve towards center
           const dome = (1 - distSq / (isl.radius * isl.radius)) * 1.2;
           return { height: islandTop + dome, isOnIsland: true };
         }
@@ -162,7 +153,6 @@ export class TerrainManager {
 
     const neededKeys = new Set<string>();
 
-    // Generate grid around player (biased forward in surfing direction +Z)
     for (let dz = -1; dz <= viewDistance + 1; dz++) {
       for (let dx = -2; dx <= 2; dx++) {
         const cx = currentChunkX + dx;
@@ -176,28 +166,23 @@ export class TerrainManager {
       }
     }
 
-    // Cleanup far chunks
     for (const [key, chunk] of this.chunks.entries()) {
       if (!neededKeys.has(key)) {
         this.scene.remove(chunk.mesh);
         chunk.mesh.geometry.dispose();
 
-        // Remove orbs
         chunk.foliageInstances.orbs.forEach(orb => {
           if (orb.mesh) this.scene.remove(orb.mesh);
         });
 
-        // Remove floating islands
         chunk.foliageInstances.floatingIslands.forEach(isl => {
           if (isl.mesh) this.scene.remove(isl.mesh as THREE.Object3D);
         });
 
-        // Remove updrafts
         chunk.foliageInstances.updrafts.forEach(up => {
           this.scene.remove(up.mesh);
         });
 
-        // Remove reference decorations
         chunk.foliageInstances.decorations.forEach(dec => {
           this.scene.remove(dec);
         });
@@ -206,7 +191,6 @@ export class TerrainManager {
       }
     }
 
-    // Rebuild active floating islands & updrafts lists
     this.floatingIslandsList = [];
     this.updraftsList = [];
     for (const chunk of this.chunks.values()) {
@@ -227,15 +211,14 @@ export class TerrainManager {
       this.terrainMaterial.uniforms.uSlopeWarmColor.value.set('#FFE4D4');
       this.terrainMaterial.uniforms.uSlopeCoolColor.value.set('#6E93A6');
     } else if (currentBiome === 'forest') {
-      // Whisperwood Forest: dappled gold canopy light over deep moss shade
       this.terrainMaterial.uniforms.uSlopeWarmColor.value.set('#E8D98A');
       this.terrainMaterial.uniforms.uSlopeCoolColor.value.set('#2E5C3E');
     } else {
-      this.terrainMaterial.uniforms.uSlopeWarmColor.value.set('#F7D6A5');
-      this.terrainMaterial.uniforms.uSlopeCoolColor.value.set('#6FB07E');
+      this.terrainMaterial.uniforms.uSlopeWarmColor.value.set('#F9E4B7');
+      this.terrainMaterial.uniforms.uSlopeCoolColor.value.set('#4E8B69');
     }
 
-    // Gently bob & twinkle any active Whisperwood firefly swarms
+    // Gently bob & twinkle active Whisperwood firefly swarms
     for (const chunk of this.chunks.values()) {
       for (const dec of chunk.foliageInstances.decorations) {
         if (dec.userData.isFireflySwarm) {
@@ -283,7 +266,6 @@ export class TerrainManager {
 
     const biome = getBiomeAt(worldOffsetZ);
 
-    // Populate foliage, collectibles, floating islands & updrafts
     const grass: { x: number; y: number; z: number; scale: number; rot: number }[] = [];
     const trees: { x: number; y: number; z: number; scale: number }[] = [];
     const orbs: { id: string; x: number; y: number; z: number; collected: boolean; mesh?: THREE.Mesh }[] = [];
@@ -291,7 +273,7 @@ export class TerrainManager {
     const updrafts: UpdraftGeyser[] = [];
     const decorations: THREE.Object3D[] = [];
 
-    // 1. Grass clusters (adjusted by biome)
+    // 1. Grass clusters
     const grassCount = biome === 'dunes' ? 18 : biome === 'forest' ? 55 : 45;
     for (let g = 0; g < grassCount; g++) {
       const rx = (Math.random() - 0.5) * CHUNK_SIZE * 0.95;
@@ -308,7 +290,7 @@ export class TerrainManager {
       });
     }
 
-    // 2. Ghibli puff trees (more frequent in meadow & dense in the Whisperwood canopy)
+    // 2. Ghibli puff trees
     if ((biome === 'meadow' || biome === 'forest') && Math.random() > (biome === 'forest' ? 0.15 : 0.4)) {
       const treeCount = biome === 'forest' ? 3 + Math.floor(Math.random() * 4) : 1 + Math.floor(Math.random() * 3);
       for (let t = 0; t < treeCount; t++) {
@@ -326,7 +308,7 @@ export class TerrainManager {
       }
     }
 
-    // 3. Floating Islands (in Sky-Islands biome or occasional scenic peaks)
+    // 3. Floating Islands
     const shouldSpawnIsland = biome === 'sky-islands' ? Math.random() > 0.25 : Math.random() > 0.82;
     if (shouldSpawnIsland) {
       const islandX = worldOffsetX + (Math.random() - 0.5) * CHUNK_SIZE * 0.6;
@@ -337,7 +319,6 @@ export class TerrainManager {
       const islandGroup = new THREE.Group();
       islandGroup.position.set(islandX, islandY, islandZ);
 
-      // Top grassy plate
       const topPlateGeom = new THREE.CylinderGeometry(islandRadius, islandRadius * 0.9, 1.8, 12);
       const topPlateMat = new THREE.MeshStandardMaterial({
         color: biome === 'dunes' ? 0xe2c488 : 0x7eb08a,
@@ -346,7 +327,6 @@ export class TerrainManager {
       const topPlate = new THREE.Mesh(topPlateGeom, topPlateMat);
       islandGroup.add(topPlate);
 
-      // Inverted rocky underbelly cone
       const rockConeGeom = new THREE.ConeGeometry(islandRadius * 0.9, islandRadius * 0.8, 8);
       rockConeGeom.rotateX(Math.PI);
       rockConeGeom.translate(0, -islandRadius * 0.4 - 0.8, 0);
@@ -368,7 +348,7 @@ export class TerrainManager {
         mesh: islandGroup,
       });
 
-      // 4. Updraft Thermal Geyser (Launches player upwards towards the floating island!)
+      // 4. Updraft Thermal Geyser
       const updraftX = islandX - 8 + Math.random() * 16;
       const updraftZ = islandZ - 18 - Math.random() * 10;
       const updraftY = getTerrainHeight(updraftX, updraftZ);
@@ -376,7 +356,6 @@ export class TerrainManager {
       const updraftGroup = new THREE.Group();
       updraftGroup.position.set(updraftX, updraftY, updraftZ);
 
-      // Glowing wind base ring
       const ringGeom = new THREE.RingGeometry(1.2, 2.5, 16);
       ringGeom.rotateX(-Math.PI / 2);
       const ringMat = new THREE.MeshBasicMaterial({
@@ -388,7 +367,6 @@ export class TerrainManager {
       const ring = new THREE.Mesh(ringGeom, ringMat);
       updraftGroup.add(ring);
 
-      // Vertical wind column
       const colGeom = new THREE.CylinderGeometry(1.6, 2.4, 20, 8, 1, true);
       colGeom.translate(0, 10, 0);
       const colMat = new THREE.MeshBasicMaterial({
@@ -434,9 +412,8 @@ export class TerrainManager {
       });
     }
 
-    // 6. Reference Visual Graphics Populating (Ghibli Nature & Journey Dunes)
+    // 6. Ghibli Props & Environment World Building
     if (biome === 'dunes') {
-      // Ancient Leviathan Skeleton Ribcage Arches (Reference 2 & 4)
       if (Math.random() < 0.34) {
         const rx = (Math.random() - 0.5) * CHUNK_SIZE * 0.65;
         const rz = (Math.random() - 0.5) * CHUNK_SIZE * 0.65;
@@ -448,7 +425,6 @@ export class TerrainManager {
         decorations.push(ribArch);
       }
 
-      // Ancient Stone Obelisks & Monolith Pillars (Reference 2 & 4)
       if (Math.random() < 0.42) {
         const rx = (Math.random() - 0.5) * CHUNK_SIZE * 0.7;
         const rz = (Math.random() - 0.5) * CHUNK_SIZE * 0.7;
@@ -460,7 +436,6 @@ export class TerrainManager {
         decorations.push(obelisk);
       }
 
-      // Desert Acacia Umbrella Trees (Reference 2 & 4)
       if (Math.random() < 0.35) {
         const rx = (Math.random() - 0.5) * CHUNK_SIZE * 0.75;
         const rz = (Math.random() - 0.5) * CHUNK_SIZE * 0.75;
@@ -472,7 +447,6 @@ export class TerrainManager {
         decorations.push(acacia);
       }
     } else if (biome === 'meadow') {
-      // Ghibli Stone Lantern (Tōrō) along trails (Reference 1 & 3)
       if (Math.random() < 0.38) {
         const rx = (Math.random() - 0.5) * CHUNK_SIZE * 0.7;
         const rz = (Math.random() - 0.5) * CHUNK_SIZE * 0.7;
@@ -484,7 +458,6 @@ export class TerrainManager {
         decorations.push(lantern);
       }
 
-      // Mossy Weathered Boulders (Reference 1 & 3)
       if (Math.random() < 0.5) {
         const rx = (Math.random() - 0.5) * CHUNK_SIZE * 0.75;
         const rz = (Math.random() - 0.5) * CHUNK_SIZE * 0.75;
@@ -496,7 +469,6 @@ export class TerrainManager {
         decorations.push(boulders);
       }
 
-      // Mountain Gazebo / Cottage in the woods (Reference 1 center)
       if (Math.random() < 0.22) {
         const rx = (Math.random() - 0.5) * CHUNK_SIZE * 0.65;
         const rz = (Math.random() - 0.5) * CHUNK_SIZE * 0.65;
@@ -508,7 +480,6 @@ export class TerrainManager {
         decorations.push(cottage);
       }
     } else if (biome === 'forest') {
-      // Ancient Camphor Guardian Tree - a towering Totoro-style forest spirit tree
       if (Math.random() < 0.3) {
         const rx = (Math.random() - 0.5) * CHUNK_SIZE * 0.6;
         const rz = (Math.random() - 0.5) * CHUNK_SIZE * 0.6;
@@ -520,7 +491,6 @@ export class TerrainManager {
         decorations.push(guardianTree);
       }
 
-      // Weathered forest shrine gate (torii) marking the path deeper into Whisperwood
       if (Math.random() < 0.28) {
         const rx = (Math.random() - 0.5) * CHUNK_SIZE * 0.65;
         const rz = (Math.random() - 0.5) * CHUNK_SIZE * 0.65;
@@ -532,7 +502,6 @@ export class TerrainManager {
         decorations.push(gate);
       }
 
-      // Mossy boulders cluster (shared with meadow, re-themed by forest's cooler light)
       if (Math.random() < 0.4) {
         const rx = (Math.random() - 0.5) * CHUNK_SIZE * 0.7;
         const rz = (Math.random() - 0.5) * CHUNK_SIZE * 0.7;
@@ -544,7 +513,6 @@ export class TerrainManager {
         decorations.push(boulders);
       }
 
-      // Drifting firefly motes near the forest floor (Whisperwood spirit lights)
       if (Math.random() < 0.5) {
         const rx = (Math.random() - 0.5) * CHUNK_SIZE * 0.7;
         const rz = (Math.random() - 0.5) * CHUNK_SIZE * 0.7;
@@ -568,10 +536,6 @@ export class TerrainManager {
 
   // --- Procedural Reference Graphics Builders ---
 
-  /**
-   * Giant ancient leviathan ribcage skeleton arching over sand dunes (Reference 2 & 4)
-   * The player can surf directly under these majestic bone arches!
-   */
   private createAncientRibArch(x: number, y: number, z: number): THREE.Group {
     const group = new THREE.Group();
     group.position.set(x, y - 0.5, z);
@@ -579,11 +543,10 @@ export class TerrainManager {
     group.rotation.y = angle;
 
     const boneMat = new THREE.MeshStandardMaterial({
-      color: 0xede0c8, // Sun-bleached desert bone ivory
+      color: 0xede0c8,
       roughness: 0.85,
     });
 
-    // 5-6 curved arching rib bones
     const ribCount = 5 + Math.floor(Math.random() * 2);
     for (let i = 0; i < ribCount; i++) {
       const ribRadius = 4.6 + Math.sin((i / ribCount) * Math.PI) * 1.5;
@@ -597,14 +560,12 @@ export class TerrainManager {
       group.add(rib);
     }
 
-    // Spine ridge connecting the ribs
     const spineGeom = new THREE.CylinderGeometry(0.35, 0.45, ribCount * 2.6, 6);
     spineGeom.rotateX(Math.PI / 2);
     const spine = new THREE.Mesh(spineGeom, boneMat);
     spine.position.set(0, 4.8, 0);
     group.add(spine);
 
-    // Ancient skull / fossil head partially buried in the sand dune
     const skullGeom = new THREE.BoxGeometry(2.2, 1.8, 3.4);
     skullGeom.translate(0, 0.5, ribCount * 1.4);
     const skull = new THREE.Mesh(skullGeom, boneMat);
@@ -614,29 +575,24 @@ export class TerrainManager {
     return group;
   }
 
-  /**
-   * Weathered desert stone obelisk & monolith pillar (Reference 2 & 4)
-   */
   private createStoneObelisk(x: number, y: number, z: number): THREE.Group {
     const group = new THREE.Group();
     group.position.set(x, y - 0.8, z);
     group.rotation.y = Math.random() * Math.PI;
 
     const stoneMat = new THREE.MeshStandardMaterial({
-      color: 0xc89e6e, // Warm sandstone
+      color: 0xc89e6e,
       roughness: 0.8,
     });
 
     const height = 10 + Math.random() * 8;
-    // Tapered 4-sided monolith
     const pillarGeom = new THREE.CylinderGeometry(0.7, 1.3, height, 4);
     pillarGeom.translate(0, height / 2, 0);
     const pillar = new THREE.Mesh(pillarGeom, stoneMat);
     pillar.rotation.y = Math.PI / 4;
-    pillar.rotation.z = (Math.random() - 0.5) * 0.08; // slightly leaned ancient ruin
+    pillar.rotation.z = (Math.random() - 0.5) * 0.08;
     group.add(pillar);
 
-    // Fallen carved stone blocks nearby
     for (let b = 0; b < 2; b++) {
       const blockGeom = new THREE.BoxGeometry(1.2 + Math.random() * 0.8, 0.9, 1.4);
       const block = new THREE.Mesh(blockGeom, stoneMat);
@@ -648,9 +604,6 @@ export class TerrainManager {
     return group;
   }
 
-  /**
-   * Silhouetted desert umbrella acacia tree (Reference 2 & 4)
-   */
   private createDesertAcacia(x: number, y: number, z: number): THREE.Group {
     const group = new THREE.Group();
     group.position.set(x, y - 0.2, z);
@@ -658,14 +611,12 @@ export class TerrainManager {
     const woodMat = new THREE.MeshLambertMaterial({ color: 0x5a4835 });
     const leafMat = new THREE.MeshLambertMaterial({ color: 0x7c7352 });
 
-    // Slender angled trunk
     const trunkGeom = new THREE.CylinderGeometry(0.25, 0.4, 7.5, 5);
     trunkGeom.translate(0, 3.75, 0);
     const trunk = new THREE.Mesh(trunkGeom, woodMat);
     trunk.rotation.z = 0.15 + Math.random() * 0.15;
     group.add(trunk);
 
-    // Wide flat umbrella foliage tiers
     const topDiscGeom = new THREE.CylinderGeometry(4.2, 3.6, 0.6, 7);
     const topDisc = new THREE.Mesh(topDiscGeom, leafMat);
     topDisc.position.set(1.2, 7.2, 0);
@@ -679,51 +630,42 @@ export class TerrainManager {
     return group;
   }
 
-  /**
-   * Traditional Japanese Ghibli Stone Lantern (Tōrō) along path (Reference 1 & 3)
-   */
   private createGhibliStoneLantern(x: number, y: number, z: number): THREE.Group {
     const group = new THREE.Group();
     group.position.set(x, y, z);
     group.scale.setScalar(0.95 + Math.random() * 0.2);
 
     const stoneMat = new THREE.MeshStandardMaterial({
-      color: 0x8a928d, // Weathered mossy granite
+      color: 0x8a928d,
       roughness: 0.9,
     });
-    const glowMat = new THREE.MeshBasicMaterial({ color: 0xffd374 }); // warm amber lantern interior
+    const glowMat = new THREE.MeshBasicMaterial({ color: 0xffd374 });
 
-    // Pedestal base
     const baseGeom = new THREE.BoxGeometry(1.3, 0.5, 1.3);
     const base = new THREE.Mesh(baseGeom, stoneMat);
     base.position.y = 0.25;
     group.add(base);
 
-    // Pillar
     const pillarGeom = new THREE.CylinderGeometry(0.35, 0.45, 1.4, 6);
     const pillar = new THREE.Mesh(pillarGeom, stoneMat);
     pillar.position.y = 1.15;
     group.add(pillar);
 
-    // Middle platform
     const midGeom = new THREE.CylinderGeometry(0.9, 0.7, 0.35, 6);
     const mid = new THREE.Mesh(midGeom, stoneMat);
     mid.position.y = 1.95;
     group.add(mid);
 
-    // Light chamber
     const chamberGeom = new THREE.BoxGeometry(0.65, 0.75, 0.65);
     const chamber = new THREE.Mesh(chamberGeom, glowMat);
     chamber.position.y = 2.45;
     group.add(chamber);
 
-    // Flared pagoda roof
     const roofGeom = new THREE.ConeGeometry(1.5, 0.6, 6);
     const roof = new THREE.Mesh(roofGeom, stoneMat);
     roof.position.y = 3.05;
     group.add(roof);
 
-    // Jewel finial cap
     const capGeom = new THREE.SphereGeometry(0.22, 6, 6);
     const cap = new THREE.Mesh(capGeom, stoneMat);
     cap.position.y = 3.45;
@@ -732,15 +674,12 @@ export class TerrainManager {
     return group;
   }
 
-  /**
-   * Mossy weathered boulders cluster (Reference 1 & 3)
-   */
   private createMossyBoulders(x: number, y: number, z: number): THREE.Group {
     const group = new THREE.Group();
     group.position.set(x, y - 0.2, z);
 
     const rockMat = new THREE.MeshStandardMaterial({
-      color: 0x6e7870, // Mossy stone green-gray
+      color: 0x6e7870,
       roughness: 0.92,
     });
 
@@ -761,32 +700,26 @@ export class TerrainManager {
     return group;
   }
 
-  /**
-   * Cozy rustic hillside mountain cottage / gazebo (Reference 1 center)
-   */
   private createMountainCottage(x: number, y: number, z: number): THREE.Group {
     const group = new THREE.Group();
     group.position.set(x, y - 0.2, z);
     group.scale.setScalar(1.2);
 
     const woodMat = new THREE.MeshLambertMaterial({ color: 0x6d523e });
-    const roofMat = new THREE.MeshLambertMaterial({ color: 0xa84234 }); // Terracotta tile roof
-    const windowMat = new THREE.MeshBasicMaterial({ color: 0xffebad }); // glowing window
+    const roofMat = new THREE.MeshLambertMaterial({ color: 0xa84234 });
+    const windowMat = new THREE.MeshBasicMaterial({ color: 0xffebad });
 
-    // Cabin body
     const bodyGeom = new THREE.BoxGeometry(4.2, 2.8, 4.2);
     bodyGeom.translate(0, 1.4, 0);
     const body = new THREE.Mesh(bodyGeom, woodMat);
     group.add(body);
 
-    // Triangular Gable Roof
     const roofGeom = new THREE.ConeGeometry(3.6, 2.0, 4);
     roofGeom.rotateY(Math.PI / 4);
     roofGeom.translate(0, 3.6, 0);
     const roof = new THREE.Mesh(roofGeom, roofMat);
     group.add(roof);
 
-    // Warm glowing windows
     const winGeom = new THREE.PlaneGeometry(0.8, 0.8);
     const win1 = new THREE.Mesh(winGeom, windowMat);
     win1.position.set(0, 1.5, 2.12);
@@ -800,10 +733,6 @@ export class TerrainManager {
     return group;
   }
 
-  /**
-   * Towering ancient camphor "Guardian Tree" — a Totoro-inspired forest spirit tree
-   * with a massive gnarled trunk, a hollow at its base, and a broad layered canopy.
-   */
   private createGuardianCamphorTree(x: number, y: number, z: number): THREE.Group {
     const group = new THREE.Group();
     group.position.set(x, y - 0.3, z);
@@ -815,13 +744,11 @@ export class TerrainManager {
     const canopyMat2 = new THREE.MeshLambertMaterial({ color: 0x549b57 });
     const hollowMat = new THREE.MeshBasicMaterial({ color: 0x1a140d });
 
-    // Massive gnarled trunk, wider at the root buttresses
     const trunkGeom = new THREE.CylinderGeometry(1.1, 2.1, 9.5, 8);
     trunkGeom.translate(0, 4.75, 0);
     const trunk = new THREE.Mesh(trunkGeom, barkMat);
     group.add(trunk);
 
-    // Root buttresses flaring out at the base
     for (let i = 0; i < 5; i++) {
       const angle = (i / 5) * Math.PI * 2;
       const rootGeom = new THREE.ConeGeometry(0.6, 3.2, 5);
@@ -832,14 +759,12 @@ export class TerrainManager {
       group.add(root);
     }
 
-    // Dark hollow at the base where soot sprites might dwell
     const hollowGeom = new THREE.SphereGeometry(0.55, 8, 8, 0, Math.PI * 2, 0, Math.PI * 0.6);
     const hollow = new THREE.Mesh(hollowGeom, hollowMat);
     hollow.position.set(0, 1.1, 1.85);
     hollow.rotation.x = Math.PI * 0.15;
     group.add(hollow);
 
-    // Layered puffy canopy tiers, painterly Ghibli style
     const canopyTiers = [
       { y: 10.5, r: 4.6, mat: canopyMat },
       { y: 9.2, r: 3.6, mat: canopyMat2 },
@@ -857,9 +782,6 @@ export class TerrainManager {
     return group;
   }
 
-  /**
-   * Weathered wooden forest shrine gate (torii), moss-grown and half-swallowed by roots
-   */
   private createForestShrineGate(x: number, y: number, z: number): THREE.Group {
     const group = new THREE.Group();
     group.position.set(x, y - 0.3, z);
@@ -868,7 +790,6 @@ export class TerrainManager {
     const woodMat = new THREE.MeshStandardMaterial({ color: 0x7a3b32, roughness: 0.85 });
     const mossMat = new THREE.MeshLambertMaterial({ color: 0x4f7a4a });
 
-    // Two upright pillars
     const pillarGeom = new THREE.CylinderGeometry(0.28, 0.32, 5.2, 8);
     const leftPillar = new THREE.Mesh(pillarGeom, woodMat);
     leftPillar.position.set(-2.1, 2.6, 0);
@@ -877,21 +798,18 @@ export class TerrainManager {
     rightPillar.position.set(2.1, 2.6, 0);
     group.add(rightPillar);
 
-    // Upper curved lintel beam
     const topBeamGeom = new THREE.CylinderGeometry(0.32, 0.32, 5.6, 8);
     topBeamGeom.rotateZ(Math.PI / 2);
     const topBeam = new THREE.Mesh(topBeamGeom, woodMat);
     topBeam.position.set(0, 5.3, 0);
     group.add(topBeam);
 
-    // Lower straight tie beam
     const tieBeamGeom = new THREE.CylinderGeometry(0.18, 0.18, 4.3, 6);
     tieBeamGeom.rotateZ(Math.PI / 2);
     const tieBeam = new THREE.Mesh(tieBeamGeom, woodMat);
     tieBeam.position.set(0, 4.3, 0);
     group.add(tieBeam);
 
-    // Patches of hanging moss for that ancient forgotten shrine feel
     for (let i = 0; i < 4; i++) {
       const mossGeom = new THREE.SphereGeometry(0.35 + Math.random() * 0.2, 6, 6);
       const moss = new THREE.Mesh(mossGeom, mossMat);
@@ -903,10 +821,6 @@ export class TerrainManager {
     return group;
   }
 
-  /**
-   * Small drifting cluster of Whisperwood firefly / spirit-light motes.
-   * Stored with userData so update() can gently animate their bobbing glow.
-   */
   private createFireflySwarm(x: number, y: number, z: number): THREE.Group {
     const group = new THREE.Group();
     group.position.set(x, y + 0.8, z);
@@ -954,4 +868,3 @@ export class TerrainManager {
     this.orbMaterial.dispose();
   }
 }
-

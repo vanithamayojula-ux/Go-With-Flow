@@ -25,7 +25,7 @@ export class PlayerManager {
   trailHistory: { left: THREE.Vector3; right: THREE.Vector3 }[] = [];
   maxTrailPoints = 36;
 
-  // Dust & Petal Particle Pool (kept ≤ 30 for target 60fps budget)
+  // Dust & Petal Particle Pool
   dustParticles: { mesh: THREE.Sprite; active: boolean; life: number; maxLife: number; vel: THREE.Vector3 }[] = [];
   dustTexture: THREE.CanvasTexture;
   petalParticles: { mesh: THREE.Sprite; active: boolean; life: number; vel: THREE.Vector3 }[] = [];
@@ -36,7 +36,7 @@ export class PlayerManager {
   velocity = new THREE.Vector3(0, 0, 18);
   normal = new THREE.Vector3(0, 1, 0);
   targetNormal = new THREE.Vector3(0, 1, 0);
-  carveAngle = 0; // Left/Right bank
+  carveAngle = 0;
   pitchAngle = 0;
   isGrounded = true;
   hoverHeight = 1.15;
@@ -46,7 +46,7 @@ export class PlayerManager {
   grabPoseWeight = 0;
   zenPoseWeight = 0;
 
-  // Upright Vertical Camera Mode (defaults to true as requested)
+  // Upright Vertical Camera Mode
   isUpright = true;
 
   // Character Mesh References
@@ -56,7 +56,7 @@ export class PlayerManager {
   leftArmMesh!: THREE.Group;
   rightArmMesh!: THREE.Group;
 
-  // Whisperwood Soot Sprite Companion (Totoro-inspired floating buddy)
+  // Whisperwood Soot Sprite Companion
   sootSpriteMesh!: THREE.Group;
   sootSpriteTime = Math.random() * Math.PI * 2;
 
@@ -68,7 +68,7 @@ export class PlayerManager {
   // Camera State
   cameraPos = new THREE.Vector3();
   cameraLookAt = new THREE.Vector3();
-  cameraTilt = 0; // Up to 8 degrees on hard carves
+  cameraTilt = 0;
 
   // Cosmetics
   currentCosmetics: CosmeticsConfig = {
@@ -102,7 +102,6 @@ export class PlayerManager {
     this.group = new THREE.Group();
     this.scene.add(this.group);
 
-    // Initial position on terrain
     const h = getTerrainHeight(0, 0);
     this.position.set(0, h + this.hoverHeight, 0);
     this.group.position.copy(this.position);
@@ -121,7 +120,6 @@ export class PlayerManager {
     this.boardDeckMesh = boardDeck;
     this.boardMesh.add(boardDeck);
 
-    // Board keel / glowing energy foil
     const foilGeom = new THREE.BoxGeometry(0.1, 0.25, 2.2);
     foilGeom.translate(0, -0.12, 0);
     const foilMat = new THREE.MeshBasicMaterial({ color: 0x6de4a2 });
@@ -129,7 +127,6 @@ export class PlayerManager {
     this.boardFoilMesh = foil;
     this.boardMesh.add(foil);
 
-    // Board nose fin
     const noseGeom = new THREE.ConeGeometry(0.35, 0.7, 8);
     noseGeom.rotateX(Math.PI / 2);
     noseGeom.scale(1.0, 0.14, 1.0);
@@ -150,12 +147,12 @@ export class PlayerManager {
     this.torsoMesh.castShadow = true;
     this.characterMesh.add(this.torsoMesh);
 
-    // Dynamic Articulated Surfer Arms with Glowing Cyan Bracers (Reference 2 & 4)
+    // Dynamic Articulated Surfer Arms
     const armMat = new THREE.MeshLambertMaterial({ color: 0xc85a32 });
     const skinMat = new THREE.MeshLambertMaterial({ color: 0xfde3ce });
-    const bracerMat = new THREE.MeshBasicMaterial({ color: 0x8ef0ff }); // glowing cyan wrist bracer
+    const bracerMat = new THREE.MeshBasicMaterial({ color: 0x8ef0ff });
 
-    // Left Arm (Back balance arm)
+    // Left Arm
     this.leftArmMesh = new THREE.Group();
     this.leftArmMesh.position.set(-0.32, 1.05, -0.05);
 
@@ -175,7 +172,7 @@ export class PlayerManager {
 
     this.characterMesh.add(this.leftArmMesh);
 
-    // Right Arm (Forward reaching balance arm)
+    // Right Arm
     this.rightArmMesh = new THREE.Group();
     this.rightArmMesh.position.set(0.32, 1.05, 0.05);
 
@@ -195,8 +192,8 @@ export class PlayerManager {
 
     this.characterMesh.add(this.rightArmMesh);
 
-    // Legs in surfer stance
-    const legMat = new THREE.MeshLambertMaterial({ color: 0x3f4e5a }); // deep indigo pants
+    // Legs
+    const legMat = new THREE.MeshLambertMaterial({ color: 0x3f4e5a });
     const leftLeg = new THREE.Mesh(new THREE.CylinderGeometry(0.11, 0.09, 0.65, 6), legMat);
     leftLeg.position.set(-0.2, 0.35, -0.2);
     leftLeg.rotation.set(-0.2, 0, 0.15);
@@ -207,32 +204,32 @@ export class PlayerManager {
     rightLeg.rotation.set(0.25, 0, -0.15);
     this.characterMesh.add(rightLeg);
 
-    // Head / traveler hat
+    // Head
     const headGeom = new THREE.SphereGeometry(0.24, 8, 8);
     const headMat = new THREE.MeshLambertMaterial({ color: 0xfde3ce });
     const head = new THREE.Mesh(headGeom, headMat);
     head.position.set(0, 1.35, 0.05);
     this.characterMesh.add(head);
 
-    // Wide brim straw / adventure hat (Meadow / Voyager style)
+    // Wide brim straw hat
     const hatGeom = new THREE.ConeGeometry(0.65, 0.22, 12);
     const hatMat = new THREE.MeshLambertMaterial({ color: 0xdfb76c });
     this.hatMesh = new THREE.Mesh(hatGeom, hatMat);
     this.hatMesh.position.set(0, 1.5, 0.05);
     this.characterMesh.add(this.hatMesh);
 
-    // Desert Nomad Cowl / Hood (Reference 2 & 4 style)
+    // Desert Nomad Cowl / Hood
     const hoodGeom = new THREE.SphereGeometry(0.32, 8, 8);
-    const hoodMat = new THREE.MeshLambertMaterial({ color: 0xd8c2a4 }); // Desert sand linen cowl
+    const hoodMat = new THREE.MeshLambertMaterial({ color: 0xd8c2a4 });
     this.hoodMesh = new THREE.Mesh(hoodGeom, hoodMat);
     this.hoodMesh.position.set(0, 1.38, 0.02);
     this.hoodMesh.visible = false;
     this.characterMesh.add(this.hoodMesh);
 
-    // Whisperwood Wanderer acorn-leaf cap (Totoro-inspired forest headwear)
+    // Acorn-leaf cap
     this.acornCapMesh = new THREE.Group();
-    const acornDomeMat = new THREE.MeshLambertMaterial({ color: 0x6b4a2f }); // acorn-cap brown
-    const acornLeafMat = new THREE.MeshLambertMaterial({ color: 0x4d8a4f }); // fresh leaf green
+    const acornDomeMat = new THREE.MeshLambertMaterial({ color: 0x6b4a2f });
+    const acornLeafMat = new THREE.MeshLambertMaterial({ color: 0x4d8a4f });
     const acornDome = new THREE.Mesh(new THREE.SphereGeometry(0.34, 8, 8, 0, Math.PI * 2, 0, Math.PI * 0.55), acornDomeMat);
     acornDome.rotation.x = Math.PI;
     this.acornCapMesh.add(acornDome);
@@ -247,11 +244,11 @@ export class PlayerManager {
     this.acornCapMesh.visible = false;
     this.characterMesh.add(this.acornCapMesh);
 
-    // Wind-swept flowing cape / scarf (Dynamic wind mesh)
+    // Wind-swept flowing cape / scarf
     const capeGeom = new THREE.PlaneGeometry(0.6, 1.3, 3, 5);
     capeGeom.translate(0, -0.65, 0);
     const capeMat = new THREE.MeshLambertMaterial({
-      color: 0x3bb396, // Emerald green scarf
+      color: 0x3bb396,
       side: THREE.DoubleSide,
     });
     this.capeMesh = new THREE.Mesh(capeGeom, capeMat);
@@ -261,7 +258,6 @@ export class PlayerManager {
     this.group.add(this.characterMesh);
 
     // Whisperwood Soot Sprite Companion — a tiny round black spirit that tags along
-    // when the Forest Wanderer style is equipped (Totoro / Spirited Away inspired)
     this.sootSpriteMesh = new THREE.Group();
     const sootBodyMat = new THREE.MeshLambertMaterial({ color: 0x1c1c1c });
     const sootEyeMat = new THREE.MeshBasicMaterial({ color: 0xffffff });
@@ -274,7 +270,7 @@ export class PlayerManager {
     const rightEye = new THREE.Mesh(eyeGeom, sootEyeMat);
     rightEye.position.set(0.08, 0.03, 0.19);
     this.sootSpriteMesh.add(rightEye);
-    this.sootSpriteMesh.visible = false;
+    this.sootSpriteMesh.visible = true; // Enabled by default as companion
     this.group.add(this.sootSpriteMesh);
 
     // 3. GPU Board Ribbon Trail
@@ -288,7 +284,6 @@ export class PlayerManager {
     this.trailGeometry.setAttribute('uv', new THREE.BufferAttribute(this.trailUvs, 2));
     this.trailGeometry.setAttribute('aProgress', new THREE.BufferAttribute(this.trailProgress, 1));
 
-    // Indices for ribbon quads
     const indices: number[] = [];
     for (let i = 0; i < this.maxTrailPoints - 1; i++) {
       const a = i * 2;
@@ -316,7 +311,7 @@ export class PlayerManager {
     this.trailMesh.frustumCulled = false;
     this.scene.add(this.trailMesh);
 
-    // 4. Pooled Jump Dust & Petals
+    // 4. Pooled Dust & Petal Particles
     this.dustTexture = createDustParticleTexture();
     const dustMat = new THREE.SpriteMaterial({
       map: this.dustTexture,
@@ -405,7 +400,6 @@ export class PlayerManager {
   applyCosmetics(config: CosmeticsConfig) {
     this.currentCosmetics = { ...config };
 
-    // Board deck & foil
     if (this.boardDeckMesh && this.boardFoilMesh) {
       if (config.boardId === 'sakura-foil') {
         (this.boardDeckMesh.material as THREE.MeshStandardMaterial).color.set('#FCE7F3');
@@ -425,12 +419,10 @@ export class PlayerManager {
       }
     }
 
-    // Cape / scarf color
     if (this.capeMesh) {
       (this.capeMesh.material as THREE.MeshLambertMaterial).color.set(config.capeColor);
     }
 
-    // Character Headwear & Style (Nomad cowl vs Voyager straw hat vs Forest Wanderer acorn cap)
     const isForestWanderer = config.characterStyle === 'forest-wanderer';
     const isNomad = !isForestWanderer && (config.characterStyle === 'desert-nomad' || this.stats.currentBiome === 'dunes');
     if (this.hatMesh && this.hoodMesh && this.acornCapMesh) {
@@ -443,7 +435,7 @@ export class PlayerManager {
       (this.torsoMesh.material as THREE.MeshLambertMaterial).color.set(torsoColor);
     }
     if (this.sootSpriteMesh) {
-      this.sootSpriteMesh.visible = isForestWanderer;
+      this.sootSpriteMesh.visible = true; // Soot sprite active as companion
     }
 
     this.updateTrailColors();
@@ -455,15 +447,14 @@ export class PlayerManager {
 
   triggerTrick(trick: TrickType, audioManager?: AudioManager | null): boolean {
     if (this.isGrounded && this.jumpVelocity === 0) {
-      // Small hop if grounded to initiate trick flow
       this.jumpVelocity = 12.0;
       this.isGrounded = false;
       this.stats.airTime = 0.01;
     }
 
     this.activeTrick = trick;
-    this.trickTimer = 0.5; // 0.5s duration
-    this.slowMoTimer = 0.4; // 0.4s slow-mo window
+    this.trickTimer = 0.5;
+    this.slowMoTimer = 0.4;
     this.stats.slowMoActive = true;
 
     const trickNames: Record<TrickType, string> = {
@@ -503,13 +494,11 @@ export class PlayerManager {
     terrainManager?: TerrainManager,
     audioManager?: AudioManager | null
   ) {
-    // Check Biome & Friction
     const currentBiome = getBiomeAt(this.position.z);
     const friction = getBiomeFriction(currentBiome);
     this.stats.currentBiome = currentBiome;
     this.stats.currentFriction = friction;
 
-    // Check Slow-Mo Window (Master prompt: during slow-mo trick windows, multiply gravity by 0.6-0.9)
     if (this.slowMoTimer > 0) {
       this.slowMoTimer -= dt;
       this.stats.slowMoActive = true;
@@ -517,13 +506,11 @@ export class PlayerManager {
       this.stats.slowMoActive = false;
     }
 
-    // Mid-air trick input triggers
     if (input.trickSpin) this.triggerTrick('spin', audioManager);
     else if (input.trickFlip) this.triggerTrick('flip', audioManager);
     else if (input.trickGrab) this.triggerTrick('grab', audioManager);
     else if (input.trickPose) this.triggerTrick('pose', audioManager);
 
-    // Trick timer countdown
     if (this.trickTimer > 0) {
       this.trickTimer -= dt;
       if (this.trickTimer <= 0) {
@@ -535,8 +522,7 @@ export class PlayerManager {
 
     const effectiveDt = Math.min(dt, 0.05) * (this.stats.slowMoActive ? 0.7 : 1.0);
 
-    // 1. Steering & Carving Controls
-    // Scaled with friction: dunes (µ=0.02) slide wider, meadow (µ=0.08) grips tightly
+    // Steering & Carving
     const steerSpeed = (input.drift ? 40.0 : 26.0) * (0.85 + (0.08 - friction) * 2.0);
     let targetCarve = 0;
 
@@ -548,31 +534,27 @@ export class PlayerManager {
       this.velocity.x += steerSpeed * effectiveDt;
     }
 
-    // Carve damping scaled with friction
     const dampingFactor = currentBiome === 'dunes' ? 0.94 : 0.88;
     this.velocity.x *= Math.pow(dampingFactor, effectiveDt * 60);
     this.carveAngle = THREE.MathUtils.lerp(this.carveAngle, targetCarve, 12 * effectiveDt);
 
-    // 2. Forward Surfing Acceleration
+    // Forward Surfing Speed
     let targetSpeed = 22.0;
     if (input.forward) targetSpeed = 34.0;
     if (input.drift) targetSpeed *= 0.85;
 
-    // Style meter bonus to speed
     const styleBonus = (this.stats.styleMeter / 100) * 9.0;
     targetSpeed += styleBonus;
 
-    // Low friction dunes glide faster
     if (currentBiome === 'dunes') targetSpeed += 2.5;
 
     this.velocity.z = THREE.MathUtils.lerp(this.velocity.z, targetSpeed, 3.5 * effectiveDt);
 
-    // 3. Updraft Thermal Geysers Collision Detection
+    // Updraft Thermal Geysers Collision
     if (terrainManager && terrainManager.updraftsList) {
       for (const up of terrainManager.updraftsList) {
         const dist = Math.hypot(this.position.x - up.x, this.position.z - up.z);
         if (dist < up.radius && this.position.y < up.y + 12.0) {
-          // Launch player high into the sky towards floating islands!
           if (this.jumpVelocity < 20.0) {
             this.jumpVelocity = 22.5;
             this.isGrounded = false;
@@ -585,7 +567,7 @@ export class PlayerManager {
       }
     }
 
-    // 4. Jump and Air Time Handling
+    // Jump & Air Time
     if (input.jump && this.isGrounded) {
       this.jumpVelocity = 15.0;
       this.isGrounded = false;
@@ -593,40 +575,34 @@ export class PlayerManager {
       this.emitJumpDust(this.position, 6);
     }
 
-    // Apply gravity (multiplied by 0.7 during slow-mo trick window)
     const gravityRate = this.stats.slowMoActive ? 19.5 : 28.0;
     if (!this.isGrounded) {
       this.jumpVelocity -= gravityRate * effectiveDt;
       this.position.y += this.jumpVelocity * effectiveDt;
       this.stats.airTime += effectiveDt;
 
-      // Trick Rotations & Stance Animation Blending
       if (this.activeTrick === 'spin') {
-        this.spinAngle += effectiveDt * 14.0; // High-speed 360 spin
+        this.spinAngle += effectiveDt * 14.0;
       } else if (this.activeTrick === 'flip') {
-        this.flipAngle += effectiveDt * 12.0; // High-speed backflip
+        this.flipAngle += effectiveDt * 12.0;
       } else if (this.activeTrick === 'grab') {
         this.grabPoseWeight = THREE.MathUtils.lerp(this.grabPoseWeight, 1.0, 15 * effectiveDt);
       } else if (this.activeTrick === 'pose') {
         this.zenPoseWeight = THREE.MathUtils.lerp(this.zenPoseWeight, 1.0, 15 * effectiveDt);
       } else {
-        // Continuous gentle flow rotation
         this.spinAngle += effectiveDt * 4.0;
         this.flipAngle = Math.sin(this.stats.airTime * 3.5) * 0.25;
       }
     } else {
-      // Landing blend time 0.12 - 0.25s (smooth lerp back to neutral)
       this.spinAngle = THREE.MathUtils.lerp(this.spinAngle, 0, 12 * effectiveDt);
       this.flipAngle = THREE.MathUtils.lerp(this.flipAngle, 0, 12 * effectiveDt);
       this.grabPoseWeight = THREE.MathUtils.lerp(this.grabPoseWeight, 0, 14 * effectiveDt);
       this.zenPoseWeight = THREE.MathUtils.lerp(this.zenPoseWeight, 0, 14 * effectiveDt);
     }
 
-    // 5. Forward Integration
     this.position.x += this.velocity.x * effectiveDt;
     this.position.z += this.velocity.z * effectiveDt;
 
-    // 6. Multi-surface Height & Slope Blend (Ground + Floating Islands)
     let groundHeight = getTerrainHeight(this.position.x, this.position.z);
     let isOnIsland = false;
 
@@ -640,7 +616,6 @@ export class PlayerManager {
     const targetY = groundHeight + this.hoverHeight;
 
     if (this.position.y <= targetY) {
-      // Landing on slope or island
       if (!this.isGrounded && this.jumpVelocity < -2) {
         this.emitJumpDust(this.position, 8);
         const trickBonus = Math.floor(this.stats.airTime * 280) + (this.activeTrick ? 350 : 0);
@@ -655,34 +630,27 @@ export class PlayerManager {
       this.activeTrick = null;
     }
 
-    // Slope alignment IK
     const currentGroundNormal = getTerrainNormal(this.position.x, this.position.z);
     this.targetNormal.copy(currentGroundNormal);
     this.normal.lerp(this.targetNormal, 14 * effectiveDt);
 
-    // Compute Pitch from slope
     this.pitchAngle = (this.normal.z / this.normal.y) * 0.8;
 
-    // Position & Orientation Updates
     this.group.position.copy(this.position);
 
-    // Board banking & trick rotation
     this.boardMesh.rotation.z = -this.carveAngle * 1.4;
     this.boardMesh.rotation.x = this.pitchAngle + (this.activeTrick === 'flip' ? this.flipAngle : 0);
     this.boardMesh.rotation.y = this.spinAngle;
 
-    // Character dynamic stance & lean
     this.characterMesh.rotation.z = -this.carveAngle * 0.9;
     this.characterMesh.rotation.x = this.flipAngle - this.grabPoseWeight * 0.5;
     this.characterMesh.rotation.y = -this.carveAngle * 0.4 + (this.isGrounded ? 0.35 : this.spinAngle);
     this.characterMesh.position.y = -this.grabPoseWeight * 0.25;
 
-    // Dynamic wind cape waving
     const capeWind = Math.sin(time * 14.0 + this.position.z * 0.2) * (0.35 + (this.velocity.z / 30) * 0.4);
     this.capeMesh.rotation.x = 0.5 + capeWind;
     this.capeMesh.rotation.z = this.carveAngle * 0.6;
 
-    // Dynamic Surfer Arm Sway & Trick Reach
     if (this.leftArmMesh && this.rightArmMesh) {
       this.leftArmMesh.rotation.z = THREE.MathUtils.lerp(this.leftArmMesh.rotation.z, -this.carveAngle * 0.8, 8 * effectiveDt);
       this.rightArmMesh.rotation.z = THREE.MathUtils.lerp(this.rightArmMesh.rotation.z, -this.carveAngle * 0.8, 8 * effectiveDt);
@@ -696,7 +664,7 @@ export class PlayerManager {
       }
     }
 
-    // 6b. Whisperwood Soot Sprite Companion — bobs and orbits playfully alongside the wanderer
+    // Whisperwood Soot Sprite Companion — bobs and orbits playfully alongside the player
     if (this.sootSpriteMesh.visible) {
       this.sootSpriteTime += effectiveDt;
       const orbitRadius = 1.1;
@@ -709,14 +677,11 @@ export class PlayerManager {
       this.sootSpriteMesh.rotation.y = t * 1.5;
     }
 
-    // 7. Board Trail Ribbon Update
     this.updateTrailRibbon(effectiveDt);
 
-    // 8. Dynamic Camera Tracking with Cinematic Smoothing (Upright vs Widescreen)
+    // Camera Tracking
     if (this.isUpright) {
-      // Upright Vertical Portrait Framing (Matches reference 4 & mobile/portrait view)
-      // Surfer sits in lower 30% of view; vast sky, clouds, and terrain tower above
-      const targetCameraTilt = -this.carveAngle * 0.18; // Gentler tilt for upright stability
+      const targetCameraTilt = -this.carveAngle * 0.18;
       this.cameraTilt = THREE.MathUtils.lerp(this.cameraTilt, targetCameraTilt, 8 * effectiveDt);
 
       const airZoom = this.isGrounded ? 0 : Math.min(this.stats.airTime * 1.5, 3.2);
@@ -734,8 +699,7 @@ export class PlayerManager {
       this.cameraLookAt.y = THREE.MathUtils.lerp(this.cameraLookAt.y, this.position.y + 2.0, 8 * effectiveDt);
       this.cameraLookAt.z = THREE.MathUtils.lerp(this.cameraLookAt.z, this.position.z + 12.0, 8 * effectiveDt);
     } else {
-      // Standard Widescreen Landscape Framing
-      const targetCameraTilt = -this.carveAngle * 0.35; // ~8 degrees max
+      const targetCameraTilt = -this.carveAngle * 0.35;
       this.cameraTilt = THREE.MathUtils.lerp(this.cameraTilt, targetCameraTilt, 8 * effectiveDt);
 
       const airZoom = this.isGrounded ? 0 : Math.min(this.stats.airTime * 1.5, 3.0);
@@ -754,7 +718,7 @@ export class PlayerManager {
       this.cameraLookAt.z = THREE.MathUtils.lerp(this.cameraLookAt.z, this.position.z + 10.0, 8 * effectiveDt);
     }
 
-    // 9. Particle Lifecycle
+    // Particle Lifecycle
     for (const p of this.dustParticles) {
       if (p.active) {
         p.life += effectiveDt;
@@ -779,17 +743,14 @@ export class PlayerManager {
       }
     }
 
-    // Occasional wind petal spawn
     if (Math.random() < 0.2) {
       this.emitWindPetals(this.position, 1);
     }
 
-    // 10. Stats & Style Meter Evolution
     this.stats.speed = this.velocity.z;
     this.stats.distance = Math.floor(this.position.z);
     this.stats.isGrounded = this.isGrounded;
 
-    // Style Meter gentle decay or increase during flow
     if (Math.abs(this.carveAngle) > 0.15 || !this.isGrounded || this.activeTrick) {
       this.stats.styleMeter = Math.min(100, this.stats.styleMeter + effectiveDt * 9);
     } else {
@@ -801,12 +762,10 @@ export class PlayerManager {
     else if (this.stats.styleMeter >= 30) this.stats.styleTier = 'Breeze';
     else this.stats.styleTier = 'Chill';
 
-    // Style-dependent trail hue shifting
     this.updateTrailColors();
   }
 
   private updateTrailRibbon(dt: number) {
-    // Current board tip positions (left & right fins)
     const boardWorld = new THREE.Vector3();
     this.boardMesh.getWorldPosition(boardWorld);
 
@@ -823,7 +782,6 @@ export class PlayerManager {
       this.trailHistory.pop();
     }
 
-    // Update geometry attributes
     const posAttr = this.trailGeometry.attributes.position as THREE.BufferAttribute;
     const uvAttr = this.trailGeometry.attributes.uv as THREE.BufferAttribute;
     const progAttr = this.trailGeometry.attributes.aProgress as THREE.BufferAttribute;
@@ -834,12 +792,10 @@ export class PlayerManager {
       const pair = this.trailHistory[idx] || { left: boardWorld, right: boardWorld };
       const progress = 1.0 - i / this.maxTrailPoints;
 
-      // Left vertex
       posAttr.setXYZ(i * 2, pair.left.x, pair.left.y, pair.left.z);
       uvAttr.setXY(i * 2, 0.0, progress);
       progAttr.setX(i * 2, progress);
 
-      // Right vertex
       posAttr.setXYZ(i * 2 + 1, pair.right.x, pair.right.y, pair.right.z);
       uvAttr.setXY(i * 2 + 1, 1.0, progress);
       progAttr.setX(i * 2 + 1, progress);
@@ -855,20 +811,19 @@ export class PlayerManager {
     const custom = this.currentCosmetics.trailId;
 
     if (custom === 'rainbow' || tier === 'Transcendent') {
-      // Transcendent Rainbow Trail
-      this.trailMaterial.uniforms.uColorA.value.set('#F472B6'); // sakura pink
-      this.trailMaterial.uniforms.uColorB.value.set('#38BDF8'); // radiant sky blue
+      this.trailMaterial.uniforms.uColorA.value.set('#F472B6');
+      this.trailMaterial.uniforms.uColorB.value.set('#38BDF8');
     } else if (custom === 'solar-flare' || tier === 'Flow') {
-      this.trailMaterial.uniforms.uColorA.value.set('#F59E0B'); // solar golden amber
+      this.trailMaterial.uniforms.uColorA.value.set('#F59E0B');
       this.trailMaterial.uniforms.uColorB.value.set('#FDE68A');
     } else if (custom === 'aurora') {
-      this.trailMaterial.uniforms.uColorA.value.set('#818CF8'); // cosmic indigo
-      this.trailMaterial.uniforms.uColorB.value.set('#34D399'); // emerald aurora
+      this.trailMaterial.uniforms.uColorA.value.set('#818CF8');
+      this.trailMaterial.uniforms.uColorB.value.set('#34D399');
     } else if (tier === 'Breeze') {
-      this.trailMaterial.uniforms.uColorA.value.set('#48DE80'); // vibrant grass green
+      this.trailMaterial.uniforms.uColorA.value.set('#48DE80');
       this.trailMaterial.uniforms.uColorB.value.set('#A3F5B8');
     } else {
-      this.trailMaterial.uniforms.uColorA.value.set('#39C5BB'); // soft cyan
+      this.trailMaterial.uniforms.uColorA.value.set('#39C5BB');
       this.trailMaterial.uniforms.uColorB.value.set('#8EEAC8');
     }
   }

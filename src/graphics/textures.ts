@@ -15,21 +15,21 @@ export function createPainterlyCloudTexture(): THREE.CanvasTexture {
 
   // Soft billowy clusters with layered brush-stroke feeling
   const puffs = [
-    { x: 256, y: 270, r: 150, alpha: 0.95 },
-    { x: 190, y: 290, r: 110, alpha: 0.9 },
-    { x: 320, y: 280, r: 120, alpha: 0.9 },
-    { x: 240, y: 200, r: 100, alpha: 0.95 },
-    { x: 150, y: 310, r: 80, alpha: 0.85 },
-    { x: 370, y: 300, r: 90, alpha: 0.85 },
-    { x: 290, y: 210, r: 85, alpha: 0.9 },
-    { x: 210, y: 230, r: 75, alpha: 0.9 },
+    { x: 256, y: 270, r: 150 },
+    { x: 190, y: 290, r: 110 },
+    { x: 320, y: 280, r: 120 },
+    { x: 240, y: 200, r: 100 },
+    { x: 150, y: 310, r: 80 },
+    { x: 370, y: 300, r: 90 },
+    { x: 290, y: 210, r: 85 },
+    { x: 210, y: 230, r: 75 },
   ];
 
   // Base soft shadow / ambient underbelly (Ghibli soft lilac-cyan shadow)
   puffs.forEach(p => {
     const grad = ctx.createRadialGradient(p.x, p.y + 25, p.r * 0.2, p.x, p.y + 25, p.r);
-    grad.addColorStop(0, 'rgba(215, 228, 248, 0.92)');
-    grad.addColorStop(0.65, 'rgba(185, 205, 235, 0.75)');
+    grad.addColorStop(0, 'rgba(215, 228, 248, 0.95)');
+    grad.addColorStop(0.65, 'rgba(185, 205, 235, 0.78)');
     grad.addColorStop(1, 'rgba(175, 195, 230, 0)');
     ctx.fillStyle = grad;
     ctx.beginPath();
@@ -40,9 +40,9 @@ export function createPainterlyCloudTexture(): THREE.CanvasTexture {
   // Midtone & upper highlight body (crisp warm painterly white)
   puffs.forEach(p => {
     const grad = ctx.createRadialGradient(p.x - p.r * 0.2, p.y - p.r * 0.25, p.r * 0.05, p.x, p.y, p.r);
-    grad.addColorStop(0, 'rgba(255, 255, 255, 0.98)');
-    grad.addColorStop(0.5, 'rgba(252, 248, 240, 0.92)');
-    grad.addColorStop(0.8, 'rgba(240, 243, 250, 0.7)');
+    grad.addColorStop(0, 'rgba(255, 255, 255, 0.99)');
+    grad.addColorStop(0.5, 'rgba(254, 248, 238, 0.94)');
+    grad.addColorStop(0.8, 'rgba(240, 243, 250, 0.72)');
     grad.addColorStop(1, 'rgba(240, 243, 250, 0)');
     ctx.fillStyle = grad;
     ctx.beginPath();
@@ -50,13 +50,13 @@ export function createPainterlyCloudTexture(): THREE.CanvasTexture {
     ctx.fill();
   });
 
-  // Warm sunlight rim edge (golden-hour touch #F7D6A5)
+  // Warm sunlight rim edge (golden-hour touch)
   ctx.save();
   ctx.globalCompositeOperation = 'source-atop';
   const rimGrad = ctx.createLinearGradient(100, 100, 400, 400);
-  rimGrad.addColorStop(0, 'rgba(255, 246, 220, 0.45)');
-  rimGrad.addColorStop(0.5, 'rgba(255, 255, 255, 0.1)');
-  rimGrad.addColorStop(1, 'rgba(160, 190, 230, 0.3)');
+  rimGrad.addColorStop(0, 'rgba(255, 246, 220, 0.50)');
+  rimGrad.addColorStop(0.5, 'rgba(255, 255, 255, 0.12)');
+  rimGrad.addColorStop(1, 'rgba(160, 190, 230, 0.32)');
   ctx.fillStyle = rimGrad;
   ctx.fillRect(0, 0, 512, 512);
   ctx.restore();
@@ -92,7 +92,7 @@ export function createFoliageTexture(): THREE.CanvasTexture {
     const grad = ctx.createLinearGradient(b.startX, b.startY, b.endX, b.endY);
     grad.addColorStop(0, b.colorA);
     grad.addColorStop(0.65, b.colorB);
-    grad.addColorStop(1, '#D8FADC'); // Sunlight tip
+    grad.addColorStop(1, '#D8FADC');
 
     ctx.fillStyle = grad;
     ctx.beginPath();
@@ -112,7 +112,7 @@ export function createFoliageTexture(): THREE.CanvasTexture {
     ctx.restore();
   });
 
-  // Hand-painted buttercup / dandelion / daisy blossoms (matching Ghibli meadow reference)
+  // Hand-painted buttercup / dandelion / daisy blossoms (matching Ghibli meadow style)
   const flowers = [
     { x: 95, y: 70, r: 8, color: '#FCE789' },
     { x: 165, y: 60, r: 9, color: '#FFFFFF' },
@@ -122,12 +122,10 @@ export function createFoliageTexture(): THREE.CanvasTexture {
     { x: 120, y: 85, r: 6, color: '#FFFFFF' },
   ];
   flowers.forEach(f => {
-    // Petal disc
     ctx.fillStyle = f.color;
     ctx.beginPath();
     ctx.arc(f.x, f.y, f.r, 0, Math.PI * 2);
     ctx.fill();
-    // Warm golden flower core
     ctx.fillStyle = '#E89F2A';
     ctx.beginPath();
     ctx.arc(f.x, f.y, f.r * 0.35, 0, Math.PI * 2);
@@ -154,23 +152,19 @@ export function createToweringCumulusTexture(): THREE.CanvasTexture {
 
   // Towering cauliflower puffs reaching vertically
   const towerPuffs = [
-    // Base tier
-    { x: 256, y: 880, r: 180, shadow: true },
-    { x: 160, y: 850, r: 140, shadow: true },
-    { x: 350, y: 860, r: 150, shadow: true },
-    // Mid tier
-    { x: 230, y: 680, r: 170, shadow: true },
-    { x: 330, y: 690, r: 150, shadow: false },
-    { x: 140, y: 710, r: 120, shadow: true },
-    { x: 280, y: 530, r: 160, shadow: false },
-    // Upper body
-    { x: 200, y: 410, r: 140, shadow: false },
-    { x: 310, y: 390, r: 150, shadow: false },
-    { x: 260, y: 280, r: 135, shadow: false },
-    // Crown / summit
-    { x: 240, y: 170, r: 110, shadow: false },
-    { x: 290, y: 180, r: 95, shadow: false },
-    { x: 256, y: 100, r: 75, shadow: false },
+    { x: 256, y: 880, r: 180 },
+    { x: 160, y: 850, r: 140 },
+    { x: 350, y: 860, r: 150 },
+    { x: 230, y: 680, r: 170 },
+    { x: 330, y: 690, r: 150 },
+    { x: 140, y: 710, r: 120 },
+    { x: 280, y: 530, r: 160 },
+    { x: 200, y: 410, r: 140 },
+    { x: 310, y: 390, r: 150 },
+    { x: 260, y: 280, r: 135 },
+    { x: 240, y: 170, r: 110 },
+    { x: 290, y: 180, r: 95 },
+    { x: 256, y: 100, r: 75 },
   ];
 
   // 1. Ambient underbelly and soft cloud shadows
@@ -202,8 +196,8 @@ export function createToweringCumulusTexture(): THREE.CanvasTexture {
   ctx.save();
   ctx.globalCompositeOperation = 'source-atop';
   const sunRim = ctx.createLinearGradient(120, 80, 480, 900);
-  sunRim.addColorStop(0, 'rgba(255, 248, 225, 0.5)');
-  sunRim.addColorStop(0.4, 'rgba(255, 255, 255, 0.15)');
+  sunRim.addColorStop(0, 'rgba(255, 248, 225, 0.55)');
+  sunRim.addColorStop(0.4, 'rgba(255, 255, 255, 0.18)');
   sunRim.addColorStop(1, 'rgba(150, 180, 225, 0.35)');
   ctx.fillStyle = sunRim;
   ctx.fillRect(0, 0, 512, 1024);
@@ -255,7 +249,7 @@ export function createTreeFoliageTexture(): THREE.CanvasTexture {
     ctx.save();
     ctx.translate(x, y);
     ctx.rotate(angle + Math.PI / 4);
-    ctx.fillStyle = i % 2 === 0 ? 'rgba(165, 235, 155, 0.65)' : 'rgba(247, 214, 165, 0.45)';
+    ctx.fillStyle = i % 2 === 0 ? 'rgba(165, 235, 155, 0.68)' : 'rgba(247, 214, 165, 0.50)';
     ctx.beginPath();
     ctx.ellipse(0, 0, w, h, 0, 0, Math.PI * 2);
     ctx.fill();
@@ -274,9 +268,9 @@ export function createDustParticleTexture(): THREE.CanvasTexture {
 
   ctx.clearRect(0, 0, 64, 64);
   const grad = ctx.createRadialGradient(32, 32, 4, 32, 32, 28);
-  grad.addColorStop(0, 'rgba(255, 252, 240, 0.95)');
-  grad.addColorStop(0.4, 'rgba(245, 230, 200, 0.7)');
-  grad.addColorStop(0.7, 'rgba(220, 210, 190, 0.35)');
+  grad.addColorStop(0, 'rgba(255, 252, 240, 0.96)');
+  grad.addColorStop(0.4, 'rgba(245, 230, 200, 0.72)');
+  grad.addColorStop(0.7, 'rgba(220, 210, 190, 0.38)');
   grad.addColorStop(1, 'rgba(200, 200, 190, 0)');
 
   ctx.fillStyle = grad;
@@ -295,9 +289,9 @@ export function createWindPetalTexture(): THREE.CanvasTexture {
 
   ctx.clearRect(0, 0, 64, 64);
   const grad = ctx.createLinearGradient(16, 16, 48, 48);
-  grad.addColorStop(0, 'rgba(255, 225, 235, 0.95)');
-  grad.addColorStop(0.6, 'rgba(255, 185, 205, 0.85)');
-  grad.addColorStop(1, 'rgba(255, 240, 210, 0.4)');
+  grad.addColorStop(0, 'rgba(255, 225, 235, 0.96)');
+  grad.addColorStop(0.6, 'rgba(255, 185, 205, 0.88)');
+  grad.addColorStop(1, 'rgba(255, 240, 210, 0.45)');
 
   ctx.fillStyle = grad;
   ctx.beginPath();

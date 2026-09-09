@@ -23,8 +23,8 @@ export const LIGHTING_PRESETS: Record<LightingMode, LightingPresetConfig> = {
     sunColor: '#F7D6A5',
     sunPosition: [80, 45, -120],
     ambientColor: '#8DB8E8',
-    slopeWarm: '#F7D6A5',
-    slopeCool: '#6FB07E',
+    slopeWarm: '#F9E4B7',
+    slopeCool: '#4E8B69',
     hazeDensity: 0.85,
   },
   'morning': {
@@ -35,7 +35,7 @@ export const LIGHTING_PRESETS: Record<LightingMode, LightingPresetConfig> = {
     sunPosition: [-90, 35, -100],
     ambientColor: '#9AC0ED',
     slopeWarm: '#FEE0B6',
-    slopeCool: '#6EAD80',
+    slopeCool: '#56986F',
     hazeDensity: 0.95,
   },
   'bright-day': {
@@ -46,7 +46,7 @@ export const LIGHTING_PRESETS: Record<LightingMode, LightingPresetConfig> = {
     sunPosition: [30, 95, -80],
     ambientColor: '#A3D2F7',
     slopeWarm: '#FCE7C5',
-    slopeCool: '#65A976',
+    slopeCool: '#4F9468',
     hazeDensity: 0.6,
   },
 };
@@ -147,7 +147,7 @@ export class SkyManager {
       });
     }
 
-    // Towering Ghibli Cumulonimbus clouds (Laputa / Howl's Moving Castle style from reference 1 & 3)
+    // Towering Ghibli Cumulonimbus clouds (Laputa / Howl's Moving Castle style)
     const towerMat = new THREE.SpriteMaterial({
       map: this.toweringCloudTexture,
       transparent: true,
@@ -180,7 +180,7 @@ export class SkyManager {
       });
     }
 
-    // 4. Soaring Flock of Ghibli Birds in V-Formation (Reference 1 & 3)
+    // 4. Soaring Flock of Ghibli Birds in V-Formation
     this.flockGroup = new THREE.Group();
     this.scene.add(this.flockGroup);
 
@@ -229,7 +229,7 @@ export class SkyManager {
       });
     }
 
-    // 5. Majestic Soaring Desert Sky Creature / Sand Leviathan (Reference 2 & 4 near sun)
+    // 5. Majestic Soaring Desert Sky Creature / Sand Leviathan
     this.desertCreatureGroup = new THREE.Group();
     const creatureMat = new THREE.MeshBasicMaterial({ color: 0xa87d55, side: THREE.DoubleSide });
 
@@ -295,7 +295,7 @@ export class SkyManager {
     const flockFlightY = playerPos.y + 75 + Math.cos(time * 0.1) * 8;
 
     this.flockGroup.position.set(flockFlightX, flockFlightY, flockFlightZ);
-    this.flockGroup.rotation.y = Math.sin(time * 0.15) * 0.35; // gentle banking turn
+    this.flockGroup.rotation.y = Math.sin(time * 0.15) * 0.35;
 
     for (const b of this.birds) {
       b.mesh.position.set(b.offsetX, b.offsetY, b.offsetZ);
@@ -313,7 +313,7 @@ export class SkyManager {
 
     this.desertCreatureGroup.position.set(creatureX, creatureY, creatureZ);
     this.desertCreatureGroup.rotation.y = -creatureAngle + Math.PI / 2;
-    this.desertCreatureGroup.rotation.z = 0.25; // banked glide
+    this.desertCreatureGroup.rotation.z = 0.25;
     const cFlap = Math.sin(time * 1.8) * 0.3;
     this.desertCreatureWings.left.rotation.z = cFlap;
     this.desertCreatureWings.right.rotation.z = -cFlap;
