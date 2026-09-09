@@ -23,14 +23,14 @@ export const AssetDeliverablesModal: React.FC<AssetDeliverablesModalProps> = ({ 
     <div id="asset-deliverables-modal" className="fixed inset-0 z-50 bg-black/75 backdrop-blur-md flex items-center justify-center p-3 sm:p-6 overflow-hidden">
       <div className="w-full max-w-4xl max-h-[90vh] bg-slate-900 border border-white/15 rounded-3xl text-white flex flex-col shadow-2xl overflow-hidden">
         {/* Modal Header */}
-        <div className="p-5 sm:p-6 border-b border-white/10 flex items-center justify-between bg-slate-900/95 sticky top-0 z-10">
+        <div className="p-5 sm:p-6 border-b border-cyan-500/20 flex items-center justify-between bg-black/95 sticky top-0 z-10 font-mono">
           <div className="flex items-center space-x-3">
-            <div className="w-10 h-10 rounded-2xl bg-emerald-500/20 border border-emerald-400/30 flex items-center justify-center text-emerald-300">
-              <Palette className="w-5 h-5" />
+            <div className="w-10 h-10 rounded-xl bg-cyan-950/60 border border-cyan-400/50 flex items-center justify-center text-cyan-300 shadow-[0_0_10px_rgba(0,240,255,0.3)]">
+              <Cpu className="w-5 h-5" />
             </div>
             <div>
-              <h2 className="text-lg font-bold text-white tracking-tight">Art Asset Requests & Engine Deliverables</h2>
-              <p className="text-xs text-white/50">Ghibli nature specification, shader code, and texture atlases</p>
+              <h2 className="text-lg font-black text-white tracking-tight uppercase">ENGINE ARCHITECTURE & ASSET DELIVERABLES</h2>
+              <p className="text-xs text-white/50">Neon Drift WebGL shaders, synthwave audio specs, and 3D track streaming</p>
             </div>
           </div>
 

@@ -32,30 +32,31 @@ export const GraphicsDrawer: React.FC<GraphicsDrawerProps> = ({
   if (!isOpen) return null;
 
   const presets: { id: QualityPreset; name: string; desc: string }[] = [
-    { id: 'desktop-full', name: 'Desktop Full', desc: 'Full cel shaders, 2000+ foliage, bloom & subtle film grain' },
-    { id: 'mobile-opt', name: 'Mobile Optimized', desc: 'Balanced density, optimized post-process, rock-solid 60fps' },
-    { id: 'webgl-min', name: 'Minimal WebGL', desc: 'Maximum performance, simplified materials for low-end devices' },
+    { id: 'desktop-full', name: 'Desktop Full', desc: 'Full cyber post-processing, multi-tap bloom, CRT scanlines & 60fps' },
+    { id: 'mobile-opt', name: 'Mobile Optimized', desc: 'Streamlined shaders, bloom & steady 60fps performance' },
+    { id: 'webgl-min', name: 'Minimal WebGL', desc: 'Maximum performance, essential shaders for low-power devices' },
   ];
 
   const lightingOptions: { id: LightingMode; name: string; time: string }[] = [
-    { id: 'morning', name: 'Morning Meadow', time: '07:30 AM' },
-    { id: 'golden-hour', name: 'Golden Hour', time: '06:15 PM' },
-    { id: 'bright-day', name: 'Bright Day', time: '12:00 PM' },
+    { id: 'midnight-cyan', name: 'Midnight Cyan', time: '00:00 AM' },
+    { id: 'synthwave-magenta', name: 'Synthwave Magenta', time: '02:00 AM' },
+    { id: 'toxic-matrix', name: 'Toxic Matrix', time: '03:30 AM' },
+    { id: 'solar-amber', name: 'Neo-Tokyo Amber', time: '05:00 AM' },
   ];
 
   return (
-    <div id="graphics-drawer-backdrop" className="fixed inset-0 z-40 bg-black/60 backdrop-blur-sm flex justify-end transition-opacity">
+    <div id="graphics-drawer-backdrop" className="fixed inset-0 z-40 bg-black/60 backdrop-blur-sm flex justify-end transition-opacity font-mono">
       <div
         id="graphics-drawer-panel"
-        className="w-full max-w-md h-full bg-slate-900/95 border-l border-white/10 text-white flex flex-col shadow-2xl overflow-y-auto"
+        className="w-full max-w-md h-full bg-black/95 border-l border-cyan-500/30 text-white flex flex-col shadow-2xl overflow-y-auto"
       >
         {/* Header */}
-        <div className="p-5 border-b border-white/10 flex items-center justify-between sticky top-0 bg-slate-900/95 backdrop-blur-md z-10">
+        <div className="p-5 border-b border-cyan-500/20 flex items-center justify-between sticky top-0 bg-black/95 backdrop-blur-md z-10">
           <div className="flex items-center space-x-2">
-            <Sliders className="w-5 h-5 text-sky-400" />
+            <Sliders className="w-5 h-5 text-cyan-400" />
             <div>
-              <h2 className="text-base font-bold text-white">Graphics & Shaders</h2>
-              <p className="text-xs text-white/50">Ghibli visual & performance controls</p>
+              <h2 className="text-base font-bold text-white uppercase tracking-wider">Cyber Shaders & Visuals</h2>
+              <p className="text-xs text-white/50">Neon Drift bloom, scanlines & engine telemetry</p>
             </div>
           </div>
           <button
