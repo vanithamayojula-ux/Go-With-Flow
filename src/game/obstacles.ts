@@ -760,7 +760,7 @@ export class ObstacleManager {
         if (playerPos.y > barrierTop + 0.15) {
           obs.cleared = true;
         } else {
-          hasStumbled = true;
+          hasCrashed = true;
           crashedObstacle = obs;
           obs.cleared = true;
           break;
@@ -769,13 +769,13 @@ export class ObstacleManager {
         if (isSliding) {
           obs.cleared = true; // Safely slid underneath!
         } else {
-          hasStumbled = true;
+          hasCrashed = true;
           crashedObstacle = obs;
           obs.cleared = true;
           break;
         }
       } else if (obs.type === 'drone-hazard') {
-        hasStumbled = true;
+        hasCrashed = true;
         crashedObstacle = obs;
         obs.cleared = true;
         break;
@@ -786,7 +786,7 @@ export class ObstacleManager {
         } else if (obs.hasRamp && dz < 0 && dz > -obs.depth / 2 - 7.5) {
           // Riding up front ramp!
         } else {
-          hasStumbled = true;
+          hasCrashed = true;
           crashedObstacle = obs;
           obs.cleared = true;
           break;

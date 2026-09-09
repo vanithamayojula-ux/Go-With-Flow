@@ -716,11 +716,13 @@ export class PlayerManager {
       }
     }
 
-    // Lane switching & Slide Controls (Strict 3-lane snapping, zero continuous drift)
-    if (input.laneLeft || input.left) {
+    // Discrete Lane switching & Slide Controls
+    if (input.laneLeft) {
       this.switchLane(-1, audioManager);
-    } else if (input.laneRight || input.right) {
+      input.laneLeft = false;
+    } else if (input.laneRight) {
       this.switchLane(1, audioManager);
+      input.laneRight = false;
     }
 
     if (input.slide) this.triggerSlide(audioManager);
