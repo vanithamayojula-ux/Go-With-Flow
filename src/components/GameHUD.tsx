@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { Volume2, VolumeX, Sliders, Eye, FileCode2, Wind, Sparkles, Palette, Compass, Smartphone, Monitor, Code, Shield } from 'lucide-react';
+import { Volume2, VolumeX, Sliders, Eye, FileCode2, Wind, Sparkles, Palette, Compass, Smartphone, Monitor, Code, Shield, Trophy } from 'lucide-react';
 import { BiomeType, LightingMode, PlayerStats } from '../types';
 
 interface GameHUDProps {
