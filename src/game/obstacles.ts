@@ -90,19 +90,62 @@ export class ObstacleManager {
   private fenceBarGeom = new THREE.BoxGeometry(3.8, 0.4, 0.15);
   private fenceMat = new THREE.MeshBasicMaterial({ color: 0xffaa00 });
 
+  // Phase 4: New Obstacle Geometries & High-Contrast Neon Materials
+  private movingBarrierGeom = new THREE.BoxGeometry(3.6, 0.6, 0.4);
+  private movingBarrierMat = new THREE.MeshBasicMaterial({ color: 0xffcc00 });
+
+  private fallingBlockGeom = new THREE.BoxGeometry(2.4, 2.4, 2.4);
+  private fallingBlockMat = new THREE.MeshStandardMaterial({ color: 0x111625, metalness: 0.85, roughness: 0.2 });
+  private fallingBlockGlowMat = new THREE.MeshBasicMaterial({ color: 0xff0044 });
+
+  private pulsingLaserGeom = new THREE.CylinderGeometry(0.08, 0.08, 4.4, 8);
+  private pulsingLaserMat = new THREE.MeshBasicMaterial({ color: 0xff0033, transparent: true, opacity: 0.9, blending: THREE.AdditiveBlending });
+
   constructor(scene: THREE.Scene) {
     this.scene = scene;
     this.grindRailGeom.rotateX(Math.PI / 2);
   }
 
   update(playerZ: number, time: number) {
+    const dt = 0.016;
+
     // 1. Procedurally spawn cyberpunk obstacle sections ahead
     while (this.lastSpawnZ < playerZ + 220) {
       this.spawnSection(this.lastSpawnZ);
       this.lastSpawnZ += this.spawnInterval + Math.random() * 10;
     }
 
-    // 2. Rotate Data Shards & Power-up pickups
+    // 2. Animate dynamic hazards & obstacles
+    for (const obs of this.obstacles) {
+      if (obs.cleared) continue;
+
+      if (obs.type === 'moving-horizontal-barrier') {
+        const base = obs.baseX ?? obs.x;
+        obs.x = base + Math.sin(time * 3.2 + obs.z * 0.1) * 2.2;
+        obs.mesh.position.x = obs.x;
+      } else if (obs.type === 'falling-security-block') {
+        const distZ = obs.z - playerZ;
+        if (distZ < 65 && distZ > -10) {
+          const targetY = getTerrainHeight(obs.x, obs.z) + 1.2;
+          obs.y = THREE.MathUtils.lerp(obs.y, targetY, dt * 10.0);
+          obs.mesh.position.y = obs.y;
+        }
+      } else if (obs.type === 'pulsing-laser-beam') {
+        const pulse = Math.sin(time * 8.0) * 0.35 + 0.65;
+        obs.mesh.traverse(child => {
+          if (child instanceof THREE.Mesh && child.material instanceof THREE.MeshBasicMaterial) {
+            child.material.opacity = pulse;
+          }
+        });
+      } else if (obs.type === 'drone-hazard') {
+        const base = obs.baseX ?? obs.x;
+        obs.x = base + Math.sin(time * 2.8 + obs.z) * 1.8;
+        obs.mesh.position.x = obs.x;
+        obs.mesh.position.y = obs.y + Math.sin(time * 4.0) * 0.25;
+      }
+    }
+
+    // 3. Rotate Data Shards & Power-up pickups
     for (const shard of this.coins) {
       if (!shard.collected) {
         shard.mesh.rotation.y = time * 4.0;
@@ -117,50 +160,51 @@ export class ObstacleManager {
       }
     }
 
-    // 3. Despawn old obstacles behind player
+    // 4. Despawn old obstacles behind player
     this.cullOldInstances(playerZ - 40);
   }
 
   private spawnSection(z: number) {
     const roll = Math.random();
 
-    if (roll < 0.18) {
+    if (roll < 0.14) {
+      // Moving Horizontal Barrier
+      const lane: LaneIndex = (Math.floor(Math.random() * 3) - 1) as LaneIndex;
+      this.spawnMovingHorizontalBarrier(lane, z);
+      this.spawnDataShardLine(lane === 0 ? 1 : 0, z - 4, 4);
+    } else if (roll < 0.26) {
+      // Falling Security Block
+      const lane: LaneIndex = (Math.floor(Math.random() * 3) - 1) as LaneIndex;
+      this.spawnFallingSecurityBlock(lane, z);
+      this.spawnDataShardLine(lane === 0 ? -1 : 0, z - 4, 4);
+    } else if (roll < 0.38) {
+      // Pulsing Laser Beam
+      const lane: LaneIndex = (Math.floor(Math.random() * 3) - 1) as LaneIndex;
+      this.spawnPulsingLaserBeam(lane, z);
+      this.spawnDataShardLine(lane, z + 4, 4);
+    } else if (roll < 0.50) {
       // Grind Rail along lane divider or center lane
       const lane: LaneIndex = (Math.floor(Math.random() * 3) - 1) as LaneIndex;
       this.spawnGrindRail(lane, z);
       this.spawnDataShardArc(lane, z, 6);
-    } else if (roll < 0.34) {
+    } else if (roll < 0.62) {
       // Boost Gate on one lane + Data Shards corridor
       const lane: LaneIndex = (Math.floor(Math.random() * 3) - 1) as LaneIndex;
       this.spawnBoostGate(lane, z);
       this.spawnDataShardLine(lane, z - 8, 5);
       this.spawnDataShardLine(lane, z + 6, 6);
-    } else if (roll < 0.48) {
+    } else if (roll < 0.74) {
       // Drifting Drone Hazard patrolling a lane
       const droneLane: LaneIndex = (Math.floor(Math.random() * 3) - 1) as LaneIndex;
       this.spawnDroneHazard(droneLane, z);
       const safeLane: LaneIndex = (droneLane === 0 ? 1 : 0) as LaneIndex;
       this.spawnDataShardLine(safeLane, z - 4, 4);
-    } else if (roll < 0.62) {
+    } else if (roll < 0.86) {
       // Low Energy-Fence requiring jump
       const fenceLane: LaneIndex = (Math.floor(Math.random() * 3) - 1) as LaneIndex;
       this.spawnEnergyFence(fenceLane, z);
       const safeLane: LaneIndex = (fenceLane === 0 ? -1 : 0) as LaneIndex;
       this.spawnDataShardLine(safeLane, z - 4, 4);
-    } else if (roll < 0.82) {
-      // Laser Barrier (Jump over) + Overhead Conduit (Slide under) on adjacent lanes
-      const safeLane: LaneIndex = (Math.floor(Math.random() * 3) - 1) as LaneIndex;
-      const otherLanes: LaneIndex[] = ([-1, 0, 1] as LaneIndex[]).filter(l => l !== safeLane);
-
-      this.spawnLaserBarrier(otherLanes[0], z);
-      if (otherLanes.length > 1) {
-        this.spawnOverheadConduit(otherLanes[1], z);
-      }
-      this.spawnDataShardLine(safeLane, z - 4, 4);
-
-      if (Math.random() < 0.28) {
-        this.spawnPowerUp(safeLane, z + 6);
-      }
     } else {
       // Mag-Lev Hover Train with Sloped Aerodynamic Ramp
       const trainLane: LaneIndex = (Math.floor(Math.random() * 3) - 1) as LaneIndex;
@@ -270,6 +314,89 @@ export class ObstacleManager {
       width: 3.6,
       height: 1.1,
       depth: 0.8,
+      mesh: group,
+      cleared: false,
+    });
+  }
+
+  private spawnMovingHorizontalBarrier(lane: LaneIndex, z: number) {
+    const x = getLaneX(lane);
+    const y = getTerrainHeight(x, z) + 0.6;
+
+    const group = new THREE.Group();
+    const bar = new THREE.Mesh(this.movingBarrierGeom, this.movingBarrierMat);
+    group.add(bar);
+
+    group.position.set(x, y, z);
+    this.scene.add(group);
+
+    this.obstacles.push({
+      id: `mov_bar_${this.nextObstacleId++}`,
+      type: 'moving-horizontal-barrier',
+      lane,
+      x,
+      y,
+      z,
+      baseX: x,
+      width: 3.6,
+      height: 0.8,
+      depth: 0.6,
+      mesh: group,
+      cleared: false,
+    });
+  }
+
+  private spawnFallingSecurityBlock(lane: LaneIndex, z: number) {
+    const x = getLaneX(lane);
+    const y = getTerrainHeight(x, z) + 12.0; // Starts up high, drops as player approaches
+
+    const group = new THREE.Group();
+    const block = new THREE.Mesh(this.fallingBlockGeom, this.fallingBlockMat);
+    group.add(block);
+
+    const glowTrim = new THREE.Mesh(new THREE.BoxGeometry(2.5, 0.2, 2.5), this.fallingBlockGlowMat);
+    group.add(glowTrim);
+
+    group.position.set(x, y, z);
+    this.scene.add(group);
+
+    this.obstacles.push({
+      id: `fall_block_${this.nextObstacleId++}`,
+      type: 'falling-security-block',
+      lane,
+      x,
+      y,
+      z,
+      width: 2.6,
+      height: 2.6,
+      depth: 2.6,
+      mesh: group,
+      cleared: false,
+    });
+  }
+
+  private spawnPulsingLaserBeam(lane: LaneIndex, z: number) {
+    const x = getLaneX(lane);
+    const y = getTerrainHeight(x, z) + 0.8;
+
+    const group = new THREE.Group();
+    const beam = new THREE.Mesh(this.pulsingLaserGeom, this.pulsingLaserMat);
+    beam.rotateZ(Math.PI / 2);
+    group.add(beam);
+
+    group.position.set(x, y, z);
+    this.scene.add(group);
+
+    this.obstacles.push({
+      id: `pulse_laser_${this.nextObstacleId++}`,
+      type: 'pulsing-laser-beam',
+      lane,
+      x,
+      y,
+      z,
+      width: 4.4,
+      height: 0.9,
+      depth: 0.6,
       mesh: group,
       cleared: false,
     });
@@ -620,8 +747,15 @@ export class ObstacleManager {
         continue;
       }
 
-      // Handle Laser Barrier & Low Energy Fence (Jump over)
-      if (obs.type === 'laser-barrier' || obs.type === 'energy-fence' || obs.type === 'low-hurdle') {
+      // Handle Laser Barrier, Low Energy Fence, Moving Horizontal Barrier, Falling Block, Pulsing Laser (Jump over / avoid)
+      if (
+        obs.type === 'laser-barrier' ||
+        obs.type === 'energy-fence' ||
+        obs.type === 'low-hurdle' ||
+        obs.type === 'moving-horizontal-barrier' ||
+        obs.type === 'falling-security-block' ||
+        obs.type === 'pulsing-laser-beam'
+      ) {
         const barrierTop = obs.y + obs.height;
         if (playerPos.y > barrierTop + 0.15) {
           obs.cleared = true;

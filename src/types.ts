@@ -96,7 +96,10 @@ export type ObstacleType =
   | 'low-hurdle'
   | 'high-barrier'
   | 'spirit-train'
-  | 'spirit-train-ramp';
+  | 'spirit-train-ramp'
+  | 'moving-horizontal-barrier'
+  | 'falling-security-block'
+  | 'pulsing-laser-beam';
 
 export type PowerUpType =
   | 'quantum-magnet'

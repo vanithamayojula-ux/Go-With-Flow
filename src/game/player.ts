@@ -716,9 +716,16 @@ export class PlayerManager {
       }
     }
 
-    // Lane switching & Slide
+    // Lane switching, Steering & Slide Controls
     if (input.laneLeft) this.switchLane(-1, audioManager);
     else if (input.laneRight) this.switchLane(1, audioManager);
+
+    if (input.left) {
+      this.targetLaneX = Math.max(-4.2, this.targetLaneX - 12.0 * effectiveDt);
+    } else if (input.right) {
+      this.targetLaneX = Math.min(4.2, this.targetLaneX + 12.0 * effectiveDt);
+    }
+
     if (input.slide) this.triggerSlide(audioManager);
 
     if (this.slideTimer > 0) {
@@ -756,9 +763,9 @@ export class PlayerManager {
       this.stats.activeTrickName = null;
     }
 
-    // Smooth snappy 3-Lane interpolation
-    this.targetLaneX = getLaneX(this.currentLane);
+    // Smooth snappy 3-Lane & continuous steering interpolation with viewport bounds clamp
     this.position.x = THREE.MathUtils.lerp(this.position.x, this.targetLaneX, 18.0 * effectiveDt);
+    this.position.x = THREE.MathUtils.clamp(this.position.x, -5.5, 5.5);
     this.carveAngle = THREE.MathUtils.lerp(this.carveAngle, (this.targetLaneX - this.position.x) * 0.16, 16.0 * effectiveDt);
 
     // Target Velocity calculation
@@ -772,7 +779,7 @@ export class PlayerManager {
 
     this.velocity.z = THREE.MathUtils.lerp(this.velocity.z, targetSpeed, 4.0 * effectiveDt);
 
-    // Jump / Air dynamics
+    // Anti-Gravity & Jump Dynamics with Vertical Bounds Clamp
     if (input.jump && this.isGrounded) {
       this.jumpVelocity = 15.5;
       this.isGrounded = false;
@@ -780,17 +787,31 @@ export class PlayerManager {
       this.emitJumpDust(this.position, 6);
     }
 
+    const groundH = getTerrainHeight(this.position.x, this.position.z);
+    // Phase 2: Subtle Sinusoidal Hover Oscillation above terrain
+    const hoverBob = Math.sin(time * 3.5) * 0.08;
+    const minHoverY = groundH + this.hoverHeight + hoverBob;
+    const maxFlightY = groundH + 7.5; // Strict vertical flight ceiling
+
     const gravityRate = this.stats.slowMoActive ? 22.0 : 30.0;
     if (!this.isGrounded) {
-      this.jumpVelocity -= gravityRate * effectiveDt;
+      // Balanced anti-gravity & downward acceleration clamp
+      this.jumpVelocity = THREE.MathUtils.clamp(this.jumpVelocity - gravityRate * effectiveDt, -18.0, 16.0);
       this.position.y += this.jumpVelocity * effectiveDt;
       this.stats.airTime += effectiveDt;
+
+      // Vertical clamp to keep player within visible canvas bounds
+      if (this.position.y >= maxFlightY) {
+        this.position.y = maxFlightY;
+        this.jumpVelocity = Math.min(0, this.jumpVelocity);
+      }
 
       if (this.activeTrick === 'spin') this.spinAngle += effectiveDt * 14.0;
       else if (this.activeTrick === 'flip') this.flipAngle += effectiveDt * 12.0;
       else if (this.activeTrick === 'grab') this.grabPoseWeight = Math.min(1.0, this.grabPoseWeight + effectiveDt * 6);
       else if (this.activeTrick === 'pose') this.grabPoseWeight = Math.min(1.0, this.grabPoseWeight + effectiveDt * 4);
     } else {
+      this.position.y = minHoverY;
       this.spinAngle = THREE.MathUtils.lerp(this.spinAngle, 0, 10 * effectiveDt);
       this.flipAngle = THREE.MathUtils.lerp(this.flipAngle, 0, 10 * effectiveDt);
       this.grabPoseWeight = THREE.MathUtils.lerp(this.grabPoseWeight, 0, 12 * effectiveDt);
@@ -799,10 +820,7 @@ export class PlayerManager {
     // Forward translation
     this.position.z += this.velocity.z * effectiveDt;
 
-    // Ground snap
-    const groundH = getTerrainHeight(this.position.x, this.position.z);
-    const minHoverY = groundH + this.hoverHeight;
-
+    // Ground snap check
     if (this.position.y <= minHoverY) {
       this.position.y = minHoverY;
       if (!this.isGrounded && this.jumpVelocity < -2.0) {
@@ -814,13 +832,15 @@ export class PlayerManager {
       this.stats.airTime = 0;
     }
 
-    // Rotations & Visuals
+    // Rotations & Locked Relative Hoverboard / Player Rig Positioning
     const groundNormal = getTerrainNormal(this.position.x, this.position.z);
     this.targetNormal.copy(groundNormal);
     this.normal.lerp(this.targetNormal, 14 * effectiveDt);
 
     this.group.position.copy(this.position);
 
+    // Lock board position relative to group (no drift or detachment)
+    this.boardMesh.position.set(0, 0, 0);
     this.boardMesh.rotation.z = -this.carveAngle * 1.5;
     this.boardMesh.rotation.x = this.pitchAngle + (this.activeTrick === 'flip' ? this.flipAngle : 0);
     this.boardMesh.rotation.y = this.spinAngle;

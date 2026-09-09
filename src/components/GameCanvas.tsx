@@ -233,11 +233,11 @@ export const GameCanvas: React.FC<GameCanvasProps> = ({
     const onKeyDown = (e: KeyboardEvent) => {
       const code = e.code;
       if (code === 'KeyA' || code === 'ArrowLeft') {
-        playerMgr.switchLane(-1, audio);
+        if (!keysRef.current.left) playerMgr.switchLane(-1, audio);
         keysRef.current.left = true;
       }
       if (code === 'KeyD' || code === 'ArrowRight') {
-        playerMgr.switchLane(1, audio);
+        if (!keysRef.current.right) playerMgr.switchLane(1, audio);
         keysRef.current.right = true;
       }
       if (code === 'KeyS' || code === 'ArrowDown') {
