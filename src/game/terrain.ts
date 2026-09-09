@@ -319,23 +319,40 @@ export class TerrainManager {
       const islandGroup = new THREE.Group();
       islandGroup.position.set(islandX, islandY, islandZ);
 
-      const topPlateGeom = new THREE.CylinderGeometry(islandRadius, islandRadius * 0.9, 1.8, 12);
+      // Lush grassy top plate cap
+      const topPlateGeom = new THREE.CylinderGeometry(islandRadius, islandRadius * 0.95, 2.0, 16);
       const topPlateMat = new THREE.MeshStandardMaterial({
-        color: biome === 'dunes' ? 0xe2c488 : 0x7eb08a,
-        roughness: 0.7,
+        color: biome === 'dunes' ? 0xe2c488 : 0x4caf50,
+        roughness: 0.65,
       });
       const topPlate = new THREE.Mesh(topPlateGeom, topPlateMat);
       islandGroup.add(topPlate);
 
-      const rockConeGeom = new THREE.ConeGeometry(islandRadius * 0.9, islandRadius * 0.8, 8);
+      // Soft rounded mossy rock underside
+      const rockConeGeom = new THREE.ConeGeometry(islandRadius * 0.92, islandRadius * 1.1, 12);
       rockConeGeom.rotateX(Math.PI);
-      rockConeGeom.translate(0, -islandRadius * 0.4 - 0.8, 0);
+      rockConeGeom.translate(0, -islandRadius * 0.55 - 1.0, 0);
       const rockMat = new THREE.MeshStandardMaterial({
-        color: 0x5a6872,
+        color: 0x4a5a66,
         roughness: 0.9,
       });
       const rockCone = new THREE.Mesh(rockConeGeom, rockMat);
       islandGroup.add(rockCone);
+
+      // Hanging Vines & Trailing Greenery
+      const vineMat = new THREE.MeshLambertMaterial({ color: 0x388e3c });
+      const vineCount = 8 + Math.floor(Math.random() * 6);
+      for (let v = 0; v < vineCount; v++) {
+        const vAngle = (v / vineCount) * Math.PI * 2;
+        const vRadius = islandRadius * 0.88;
+        const vineLen = 3.5 + Math.random() * 5.5;
+        const vineGeom = new THREE.CylinderGeometry(0.12, 0.05, vineLen, 5);
+        vineGeom.translate(0, -vineLen / 2, 0);
+        const vine = new THREE.Mesh(vineGeom, vineMat);
+        vine.position.set(Math.cos(vAngle) * vRadius, -1.0, Math.sin(vAngle) * vRadius);
+        vine.rotation.z = (Math.random() - 0.5) * 0.25;
+        islandGroup.add(vine);
+      }
 
       this.scene.add(islandGroup);
 
@@ -547,10 +564,11 @@ export class TerrainManager {
     group.rotation.y = Math.random() * Math.PI * 2;
     group.scale.setScalar(1.1 + Math.random() * 0.3);
 
-    const plasterMat = new THREE.MeshLambertMaterial({ color: 0xf7f7f7 }); // White plaster walls
+    const plasterMat = new THREE.MeshLambertMaterial({ color: 0xf5ebe0 }); // Warm cream plaster
     const roofMat = new THREE.MeshLambertMaterial({ color: 0xd94326 });    // Red terracotta tile roof
     const timberMat = new THREE.MeshLambertMaterial({ color: 0x5c4632 });  // Dark timber framing
-    const windowMat = new THREE.MeshBasicMaterial({ color: 0xffebad });    // Warm glowing window
+    const windowMat = new THREE.MeshBasicMaterial({ color: 0xffe082 });    // Warm glowing amber window
+    const windowFrameMat = new THREE.MeshBasicMaterial({ color: 0x3d271d }); // Dark timber window frame
 
     // 1. Central White Clock/Spire Tower
     const towerBodyGeom = new THREE.BoxGeometry(1.6, 6.5, 1.6);
@@ -571,7 +589,7 @@ export class TerrainManager {
     clock.position.set(0, 5.2, 0.81);
     group.add(clock);
 
-    // 2. Surrounding Cottages with Red Roofs
+    // 2. Surrounding Cottages with Red Roofs & Glowing Windows
     const cottageOffsets = [
       { x: -2.8, z: 0.8, rot: 0.2, scale: 1.0 },
       { x: 2.6, z: 1.2, rot: -0.3, scale: 0.9 },
@@ -591,17 +609,26 @@ export class TerrainManager {
       const body = new THREE.Mesh(bodyGeom, plasterMat);
       house.add(body);
 
-      // Roof
+      // Timber Frame Trim
+      const beamGeom = new THREE.BoxGeometry(2.45, 0.15, 0.15);
+      const beam = new THREE.Mesh(beamGeom, timberMat);
+      beam.position.set(0, 1.1, 1.41);
+      house.add(beam);
+
+      // Mossy Roof
       const rGeom = new THREE.ConeGeometry(2.2, 1.6, 4);
       rGeom.rotateY(Math.PI / 4);
       rGeom.translate(0, 3.0, 0);
       const rMesh = new THREE.Mesh(rGeom, roofMat);
       house.add(rMesh);
 
-      // Windows
-      const winGeom = new THREE.PlaneGeometry(0.5, 0.5);
-      const win = new THREE.Mesh(winGeom, windowMat);
-      win.position.set(0, 1.3, 1.41);
+      // Glowing Amber Windows
+      const winFrame = new THREE.Mesh(new THREE.PlaneGeometry(0.65, 0.65), windowFrameMat);
+      winFrame.position.set(0, 1.3, 1.41);
+      house.add(winFrame);
+
+      const win = new THREE.Mesh(new THREE.PlaneGeometry(0.52, 0.52), windowMat);
+      win.position.set(0, 1.3, 1.42);
       house.add(win);
 
       // Living World Detail: Distant Porch Sweeper character figure on front porch

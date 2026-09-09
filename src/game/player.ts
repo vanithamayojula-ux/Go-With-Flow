@@ -262,28 +262,40 @@ export class PlayerManager {
 
     this.group.add(this.characterMesh);
 
-    // Whisperwood Soot Sprite Companion — cute black spirit ball with big white eyes
+    // Whisperwood Soot Sprite Companion — cute black spirit ball with big white eyes & soft spirit aura glow
     this.sootSpriteMesh = new THREE.Group();
-    const sootBodyMat = new THREE.MeshLambertMaterial({ color: 0x111111 });
+    const sootBodyMat = new THREE.MeshLambertMaterial({ color: 0x181818 });
     const sootEyeWhiteMat = new THREE.MeshBasicMaterial({ color: 0xffffff });
     const sootPupilMat = new THREE.MeshBasicMaterial({ color: 0x111111 });
 
-    const sootBody = new THREE.Mesh(new THREE.IcosahedronGeometry(0.28, 1), sootBodyMat);
+    // Soft Spirit Aura Glow Halo
+    const auraMat = new THREE.SpriteMaterial({
+      map: createDustParticleTexture(),
+      transparent: true,
+      opacity: 0.65,
+      blending: THREE.AdditiveBlending,
+      depthWrite: false,
+    });
+    const auraSprite = new THREE.Sprite(auraMat);
+    auraSprite.scale.set(0.95, 0.95, 1.0);
+    this.sootSpriteMesh.add(auraSprite);
+
+    const sootBody = new THREE.Mesh(new THREE.IcosahedronGeometry(0.28, 2), sootBodyMat);
     this.sootSpriteMesh.add(sootBody);
 
     // Left Eye
-    const leftEyeWhite = new THREE.Mesh(new THREE.SphereGeometry(0.075, 8, 8), sootEyeWhiteMat);
+    const leftEyeWhite = new THREE.Mesh(new THREE.SphereGeometry(0.08, 8, 8), sootEyeWhiteMat);
     leftEyeWhite.position.set(-0.11, 0.04, 0.23);
     this.sootSpriteMesh.add(leftEyeWhite);
-    const leftPupil = new THREE.Mesh(new THREE.SphereGeometry(0.035, 6, 6), sootPupilMat);
+    const leftPupil = new THREE.Mesh(new THREE.SphereGeometry(0.04, 6, 6), sootPupilMat);
     leftPupil.position.set(-0.11, 0.04, 0.29);
     this.sootSpriteMesh.add(leftPupil);
 
     // Right Eye
-    const rightEyeWhite = new THREE.Mesh(new THREE.SphereGeometry(0.075, 8, 8), sootEyeWhiteMat);
+    const rightEyeWhite = new THREE.Mesh(new THREE.SphereGeometry(0.08, 8, 8), sootEyeWhiteMat);
     rightEyeWhite.position.set(0.11, 0.04, 0.23);
     this.sootSpriteMesh.add(rightEyeWhite);
-    const rightPupil = new THREE.Mesh(new THREE.SphereGeometry(0.035, 6, 6), sootPupilMat);
+    const rightPupil = new THREE.Mesh(new THREE.SphereGeometry(0.04, 6, 6), sootPupilMat);
     rightPupil.position.set(0.11, 0.04, 0.29);
     this.sootSpriteMesh.add(rightPupil);
 
