@@ -170,66 +170,55 @@ export class PlayerManager {
     this.position.set(0, h + this.hoverHeight, 0);
     this.group.position.copy(this.position);
 
-    // 1. Build Authentic Cyberpunk Surfboard
+    // 1. Build Desert Sand Hoverboard (Matching reference image)
     this.boardMesh = new THREE.Group();
 
     const boardMat = new THREE.MeshStandardMaterial({
-      color: 0x090e18,
-      roughness: 0.18,
-      metalness: 0.88,
+      color: 0x161c24,
+      roughness: 0.2,
+      metalness: 0.5,
     });
 
-    // Surfboard Main Deck (Wide middle, tapered contour)
-    const boardGeom = new THREE.BoxGeometry(0.85, 0.12, 3.2);
+    // Surfboard Main Deck (Slim contoured deck)
+    const boardGeom = new THREE.BoxGeometry(0.78, 0.1, 3.1);
     this.boardDeckMesh = new THREE.Mesh(boardGeom, boardMat);
     this.boardMesh.add(this.boardDeckMesh);
 
-    // Curved Tapered Surfboard Nose (Pointed & curved upward at +Z)
-    const noseGeom = new THREE.ConeGeometry(0.42, 0.9, 8);
+    // Pointed Hydrodynamic Surfboard Nose
+    const noseGeom = new THREE.ConeGeometry(0.39, 0.85, 8);
     noseGeom.rotateX(Math.PI / 2);
-    noseGeom.scale(1.0, 0.12, 1.0);
+    noseGeom.scale(1.0, 0.1, 1.0);
     const nose = new THREE.Mesh(noseGeom, boardMat);
-    nose.position.set(0, 0.02, 1.9);
+    nose.position.set(0, 0.01, 1.85);
     this.boardMesh.add(nose);
 
-    // Glowing Laser-Edge Perimeter Trim
-    const foilGeom = new THREE.BoxGeometry(0.92, 0.14, 3.3);
-    const foilMat = new THREE.MeshBasicMaterial({ color: 0x00f0ff });
+    // Pure Glowing Laser Perimeter Trim (Matching intense white/cyan edge in reference image)
+    const foilGeom = new THREE.BoxGeometry(0.84, 0.12, 3.2);
+    const foilMat = new THREE.MeshBasicMaterial({ color: 0xe0f7ff });
     this.boardFoilMesh = new THREE.Mesh(foilGeom, foilMat);
     this.boardFoilMesh.position.set(0, -0.01, 0.1);
     this.boardMesh.add(this.boardFoilMesh);
 
     // Center Glowing Laser Stringer Line
     const stringerMat = new THREE.MeshBasicMaterial({ color: 0x00f0ff });
-    const stringer = new THREE.Mesh(new THREE.BoxGeometry(0.06, 0.14, 3.5), stringerMat);
+    const stringer = new THREE.Mesh(new THREE.BoxGeometry(0.05, 0.12, 3.4), stringerMat);
     stringer.position.set(0, 0.01, 0.1);
     this.boardMesh.add(stringer);
 
-    // Twin Cyber Keel Fins on Underside Tail
-    const finGeom = new THREE.BoxGeometry(0.04, 0.35, 0.5);
+    // Twin Keel Fins on Tail
+    const finGeom = new THREE.BoxGeometry(0.04, 0.3, 0.45);
     const finLeft = new THREE.Mesh(finGeom, boardMat);
-    finLeft.position.set(-0.3, -0.2, -1.2);
-    finLeft.rotation.z = -0.2;
+    finLeft.position.set(-0.28, -0.18, -1.15);
+    finLeft.rotation.z = -0.18;
     this.boardMesh.add(finLeft);
 
     const finRight = new THREE.Mesh(finGeom, boardMat);
-    finRight.position.set(0.3, -0.2, -1.2);
-    finRight.rotation.z = 0.2;
+    finRight.position.set(0.28, -0.18, -1.15);
+    finRight.rotation.z = 0.18;
     this.boardMesh.add(finRight);
 
-    // Dual Rear Cyber Thruster Nozzles
-    const thrusterGeom = new THREE.CylinderGeometry(0.12, 0.16, 0.35, 8);
-    thrusterGeom.rotateX(Math.PI / 2);
-    const thrusterL = new THREE.Mesh(thrusterGeom, boardMat);
-    thrusterL.position.set(-0.25, -0.04, -1.65);
-    this.boardMesh.add(thrusterL);
-
-    const thrusterR = new THREE.Mesh(thrusterGeom, boardMat);
-    thrusterR.position.set(0.25, -0.04, -1.65);
-    this.boardMesh.add(thrusterR);
-
-    // Real-Time Neon Underglow (Down-facing glowing disc casting light onto road)
-    const underglowGeom = new THREE.PlaneGeometry(1.5, 3.6);
+    // Sand-Hover Underglow Disc & Light
+    const underglowGeom = new THREE.PlaneGeometry(1.4, 3.4);
     underglowGeom.rotateX(-Math.PI / 2);
     const underglowMat = new THREE.MeshBasicMaterial({
       color: 0x00f0ff,
@@ -238,111 +227,147 @@ export class PlayerManager {
       blending: THREE.AdditiveBlending,
     });
     this.underglowMesh = new THREE.Mesh(underglowGeom, underglowMat);
-    this.underglowMesh.position.set(0, -0.16, 0);
+    this.underglowMesh.position.set(0, -0.14, 0);
     this.boardMesh.add(this.underglowMesh);
 
-    // Real-Time Underglow Point Light
     this.underglowLight = new THREE.PointLight(0x00f0ff, 2.0, 7.5, 1.8);
-    this.underglowLight.position.set(0, -0.22, 0);
+    this.underglowLight.position.set(0, -0.2, 0);
     this.boardMesh.add(this.underglowLight);
 
     this.group.add(this.boardMesh);
 
-    // 2. Build Small Robot Surfer (Standing Sideways in Surfing Stance)
+    // 2. Build Desert Nomad Surfer Character (Matching uploaded reference image)
     this.characterMesh = new THREE.Group();
 
-    const armorMat = new THREE.MeshStandardMaterial({
-      color: 0x0c1220,
-      roughness: 0.22,
-      metalness: 0.85,
+    const hoodMat = new THREE.MeshStandardMaterial({
+      color: 0xd8c5a8, // Desert sand beige cowl/hood
+      roughness: 0.85,
+      metalness: 0.08,
     });
-    const circuitMat = new THREE.MeshBasicMaterial({ color: 0x00f0ff });
+    const tunicMat = new THREE.MeshStandardMaterial({
+      color: 0x4a6e87, // Slate-blue tunic / poncho
+      roughness: 0.75,
+      metalness: 0.12,
+    });
+    const sashMat = new THREE.MeshStandardMaterial({
+      color: 0x202836, // Dark navy waist belt sash
+      roughness: 0.6,
+      metalness: 0.2,
+    });
+    const pantsMat = new THREE.MeshStandardMaterial({
+      color: 0x1a212c, // Fitted dark leggings
+      roughness: 0.7,
+      metalness: 0.2,
+    });
+    const skinMat = new THREE.MeshStandardMaterial({
+      color: 0xd5aa82, // Warm skin tone
+      roughness: 0.6,
+    });
+    const glowingBracerMat = new THREE.MeshBasicMaterial({ color: 0xffffff }); // Glowing wrist band
 
-    // Compact Robot Torso
-    const torsoGeom = new THREE.BoxGeometry(0.48, 0.55, 0.35);
-    this.torsoMesh = new THREE.Mesh(torsoGeom, armorMat);
-    this.torsoMesh.position.set(0, 0.72, 0);
+    // Torso (Slate-blue tunic)
+    const torsoGeom = new THREE.CylinderGeometry(0.24, 0.36, 0.58, 10);
+    this.torsoMesh = new THREE.Mesh(torsoGeom, tunicMat);
+    this.torsoMesh.position.set(0, 0.68, 0);
     this.torsoMesh.castShadow = true;
     this.characterMesh.add(this.torsoMesh);
 
-    // Glowing Chest Reactor Core
-    const chestPlate = new THREE.Mesh(new THREE.BoxGeometry(0.24, 0.24, 0.08), circuitMat);
-    chestPlate.position.set(0, 0.76, 0.18);
-    this.characterMesh.add(chestPlate);
+    // Dark Waist Belt Sash
+    const sashGeom = new THREE.TorusGeometry(0.32, 0.06, 8, 16);
+    sashGeom.rotateX(Math.PI / 2);
+    const sash = new THREE.Mesh(sashGeom, sashMat);
+    sash.position.set(0, 0.55, 0);
+    this.characterMesh.add(sash);
 
-    // Robot Surfer Arms (Outstretched to sides for counterbalance balance)
+    // Left Arm (Trailing balance arm extended horizontally, matching reference image)
     this.leftArmMesh = new THREE.Group();
-    this.leftArmMesh.position.set(-0.34, 0.82, 0);
-    const leftUpper = new THREE.Mesh(new THREE.CylinderGeometry(0.06, 0.05, 0.38, 6), armorMat);
-    leftUpper.position.set(-0.16, -0.08, 0);
-    leftUpper.rotation.z = 0.65;
+    this.leftArmMesh.position.set(-0.3, 0.78, 0);
+    const leftUpper = new THREE.Mesh(new THREE.CylinderGeometry(0.06, 0.05, 0.42, 8), tunicMat);
+    leftUpper.position.set(-0.18, -0.06, -0.1);
+    leftUpper.rotation.z = 0.85;
+    leftUpper.rotation.x = -0.35;
     this.leftArmMesh.add(leftUpper);
-    const leftBracer = new THREE.Mesh(new THREE.CylinderGeometry(0.065, 0.065, 0.1, 6), circuitMat);
-    leftBracer.position.set(-0.28, -0.16, 0);
+
+    // Glowing White Wrist Brace / Band (Matching reference image)
+    const leftBracer = new THREE.Mesh(new THREE.CylinderGeometry(0.065, 0.065, 0.08, 8), glowingBracerMat);
+    leftBracer.position.set(-0.34, -0.12, -0.2);
     this.leftArmMesh.add(leftBracer);
+
+    const leftHand = new THREE.Mesh(new THREE.SphereGeometry(0.05, 8, 8), skinMat);
+    leftHand.position.set(-0.39, -0.14, -0.24);
+    this.leftArmMesh.add(leftHand);
     this.characterMesh.add(this.leftArmMesh);
 
+    // Right Arm (Reaching forward low towards deck, matching reference image)
     this.rightArmMesh = new THREE.Group();
-    this.rightArmMesh.position.set(0.34, 0.82, 0);
-    const rightUpper = new THREE.Mesh(new THREE.CylinderGeometry(0.06, 0.05, 0.38, 6), armorMat);
-    rightUpper.position.set(0.16, -0.08, 0);
-    rightUpper.rotation.z = -0.65;
+    this.rightArmMesh.position.set(0.3, 0.78, 0);
+    const rightUpper = new THREE.Mesh(new THREE.CylinderGeometry(0.06, 0.05, 0.42, 8), tunicMat);
+    rightUpper.position.set(0.16, -0.12, 0.15);
+    rightUpper.rotation.z = -0.75;
+    rightUpper.rotation.x = 0.45;
     this.rightArmMesh.add(rightUpper);
-    const rightBracer = new THREE.Mesh(new THREE.CylinderGeometry(0.065, 0.065, 0.1, 6), circuitMat);
-    rightBracer.position.set(0.28, -0.16, 0);
-    this.rightArmMesh.add(rightBracer);
+
+    const rightHand = new THREE.Mesh(new THREE.SphereGeometry(0.05, 8, 8), skinMat);
+    rightHand.position.set(0.32, -0.25, 0.28);
+    this.rightArmMesh.add(rightHand);
     this.characterMesh.add(this.rightArmMesh);
 
-    // Sideways Surfing Robot Legs (Feet planted across deck, knees bent)
-    const legGeom = new THREE.CylinderGeometry(0.08, 0.065, 0.52, 6);
-    const leftLeg = new THREE.Mesh(legGeom, armorMat);
-    leftLeg.position.set(-0.16, 0.28, -0.38);
-    leftLeg.rotation.x = -0.22;
+    // Deep Bent Legs (Planted wide across board deck in dynamic stance)
+    const legGeom = new THREE.CylinderGeometry(0.08, 0.06, 0.54, 8);
+    const leftLeg = new THREE.Mesh(legGeom, pantsMat);
+    leftLeg.position.set(-0.16, 0.26, -0.36);
+    leftLeg.rotation.x = -0.26;
     this.characterMesh.add(leftLeg);
 
-    const rightLeg = new THREE.Mesh(legGeom, armorMat);
-    rightLeg.position.set(0.16, 0.28, 0.38);
-    rightLeg.rotation.x = 0.22;
+    const rightLeg = new THREE.Mesh(legGeom, pantsMat);
+    rightLeg.position.set(0.16, 0.26, 0.36);
+    rightLeg.rotation.x = 0.26;
     this.characterMesh.add(rightLeg);
 
-    // Robot Head with Dual Glowing Eye Lenses & Laser Visor
-    const helmGeom = new THREE.BoxGeometry(0.38, 0.32, 0.32);
-    this.headMesh = new THREE.Mesh(helmGeom, armorMat);
-    this.headMesh.position.set(0, 1.15, 0);
-    this.characterMesh.add(this.headMesh);
+    // Soft Hooded Head (Desert Sand Cowl matching reference image)
+    const headGroup = new THREE.Group();
+    headGroup.position.set(0, 1.12, 0);
 
-    // Dual Glowing Robot Eye Lenses
-    const eyeGeom = new THREE.CylinderGeometry(0.05, 0.05, 0.06, 8);
-    eyeGeom.rotateX(Math.PI / 2);
-    const eyeMat = new THREE.MeshBasicMaterial({ color: 0x00f0ff });
-    const eyeL = new THREE.Mesh(eyeGeom, eyeMat);
-    eyeL.position.set(-0.09, 1.18, 0.17);
-    this.characterMesh.add(eyeL);
+    const headSphere = new THREE.SphereGeometry(0.36, 16, 16);
+    this.headMesh = new THREE.Mesh(headSphere, hoodMat);
+    headGroup.add(this.headMesh);
 
-    const eyeR = new THREE.Mesh(eyeGeom, eyeMat);
-    eyeR.position.set(0.09, 1.18, 0.17);
-    this.characterMesh.add(eyeR);
+    // Cowl Hood Drapery Framing Face
+    const cowlGeom = new THREE.ConeGeometry(0.44, 0.42, 12);
+    cowlGeom.rotateX(Math.PI);
+    const cowl = new THREE.Mesh(cowlGeom, hoodMat);
+    cowl.position.set(0, 0.08, -0.02);
+    headGroup.add(cowl);
 
-    // Thin Glowing Laser Visor Line
-    const visorGeom = new THREE.BoxGeometry(0.34, 0.04, 0.18);
-    this.visorMesh = new THREE.Mesh(visorGeom, eyeMat);
-    this.visorMesh.position.set(0, 1.12, 0.16);
-    this.characterMesh.add(this.visorMesh);
+    // Shadowed Face Inset
+    const faceGeom = new THREE.SphereGeometry(0.28, 12, 12);
+    const faceMat = new THREE.MeshStandardMaterial({ color: 0x1c1614, roughness: 0.9 });
+    const face = new THREE.Mesh(faceGeom, faceMat);
+    face.position.set(0, -0.02, 0.12);
+    headGroup.add(face);
 
-    // Short Energy Trail Scarf / Cape
-    const capeGeom = new THREE.PlaneGeometry(0.38, 0.85, 2, 4);
-    capeGeom.translate(0, -0.42, 0);
-    const capeMat = new THREE.MeshBasicMaterial({
-      color: 0x00f0ff,
+    // Glowing Laser Visor Line
+    const visorGeom = new THREE.BoxGeometry(0.28, 0.04, 0.14);
+    const visorMat = new THREE.MeshBasicMaterial({ color: 0x00f0ff });
+    this.visorMesh = new THREE.Mesh(visorGeom, visorMat);
+    this.visorMesh.position.set(0, 0.02, 0.22);
+    headGroup.add(this.visorMesh);
+
+    this.characterMesh.add(headGroup);
+
+    // Flowing Scarf / Shroud Fluttering Behind Surfer
+    const scarfGeom = new THREE.PlaneGeometry(0.32, 0.9, 2, 4);
+    scarfGeom.translate(0, -0.45, 0);
+    const scarfMat = new THREE.MeshStandardMaterial({
+      color: 0xd8c5a8,
       side: THREE.DoubleSide,
-      transparent: true,
-      opacity: 0.88,
+      roughness: 0.8,
     });
-    this.capeMesh = new THREE.Mesh(capeGeom, capeMat);
-    this.capeMesh.position.set(0, 0.98, -0.18);
+    this.capeMesh = new THREE.Mesh(scarfGeom, scarfMat);
+    this.capeMesh.position.set(0, 0.96, -0.22);
     this.characterMesh.add(this.capeMesh);
 
-    // Orient Robot Sideways on surfboard deck (Surfing Stance facing side!)
+    // Orient Character Sideways on surfboard deck (Matching low dynamic sand-surfing posture in reference image!)
     this.characterMesh.rotation.y = Math.PI / 2.2;
     this.group.add(this.characterMesh);
 
@@ -501,18 +526,27 @@ export class PlayerManager {
       (this.boardDeckMesh.material as THREE.MeshStandardMaterial).color.set(deckColor);
     }
 
-    // Armor Variant
+    // Armor / Outfit Variant
     if (this.torsoMesh && this.headMesh) {
-      const armorColor =
+      const tunicColor =
         config.armorVariant === 'titanium-white'
           ? '#d4d8e8'
           : config.armorVariant === 'onyx-stealth'
-          ? '#05070c'
+          ? '#141a24'
           : config.armorVariant === 'crimson-cyborg'
-          ? '#2a0a14'
-          : '#0c1220';
-      (this.torsoMesh.material as THREE.MeshStandardMaterial).color.set(armorColor);
-      (this.headMesh.material as THREE.MeshStandardMaterial).color.set(armorColor);
+          ? '#3a1220'
+          : '#4a6e87'; // Default Slate-Blue Tunic
+      const hoodColor =
+        config.armorVariant === 'titanium-white'
+          ? '#eef2fc'
+          : config.armorVariant === 'onyx-stealth'
+          ? '#222b3a'
+          : config.armorVariant === 'crimson-cyborg'
+          ? '#5c2232'
+          : '#d8c5a8'; // Default Desert Sand Beige Hood
+      (this.torsoMesh.material as THREE.MeshStandardMaterial).color.set(tunicColor);
+      (this.headMesh.material as THREE.MeshStandardMaterial).color.set(hoodColor);
+      (this.capeMesh.material as THREE.MeshStandardMaterial).color.set(hoodColor);
     }
 
     // Optional Companion Drone per Outfit (Fixes hardcoded-visible bug)

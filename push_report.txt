@@ -1,0 +1,17 @@
+warning: in the working copy of 'do_push.bat', LF will be replaced by CRLF the next time Git touches it
+[main 4367873] chore: clean up temporary test files
+ 3 files changed, 7 insertions(+), 1 deletion(-)
+ create mode 100644 do_push.bat
+ rename git_res.txt => push_report.txt (100%)
+ delete mode 100644 test123.txt
+To https://github.com/vanithamayojula-ux/Go-With-Flow.git
+   17929e0..4367873  main -> main
+On branch main
+Your branch is up to date with 'origin/main'.
+
+Changes not staged for commit:
+  (use "git add <file>..." to update what will be committed)
+  (use "git restore <file>..." to discard changes in working directory)
+	modified:   push_report.txt
+
+no changes added to commit (use "git add" and/or "git commit -a")

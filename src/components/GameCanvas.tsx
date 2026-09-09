@@ -233,11 +233,11 @@ export const GameCanvas: React.FC<GameCanvasProps> = ({
     const onKeyDown = (e: KeyboardEvent) => {
       const code = e.code;
       if (code === 'KeyA' || code === 'ArrowLeft') {
-        if (!keysRef.current.left) playerMgr.switchLane(-1, audio);
+        if (!keysRef.current.left) playerMgr.switchLane(1, audio);
         keysRef.current.left = true;
       }
       if (code === 'KeyD' || code === 'ArrowRight') {
-        if (!keysRef.current.right) playerMgr.switchLane(1, audio);
+        if (!keysRef.current.right) playerMgr.switchLane(-1, audio);
         keysRef.current.right = true;
       }
       if (code === 'KeyS' || code === 'ArrowDown') {
@@ -328,9 +328,9 @@ export const GameCanvas: React.FC<GameCanvasProps> = ({
         if (absDx > absDy) {
           // Horizontal Swipe: 3-Lane Switch
           if (dx < 0) {
-            playerMgr.switchLane(-1, audio);
-          } else {
             playerMgr.switchLane(1, audio);
+          } else {
+            playerMgr.switchLane(-1, audio);
           }
         } else {
           // Vertical Swipe: Jump or Slide
