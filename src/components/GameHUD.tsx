@@ -143,7 +143,7 @@ export const GameHUD: React.FC<GameHUDProps> = ({
 
           {/* Active Subway Surfers Power-Ups Strip */}
           <div className="flex items-center space-x-1.5 pointer-events-auto">
-            {stats.activePowerUps.magnetTimer > 0 && (
+            {stats.activePowerUps?.magnetTimer > 0 && (
               <div className="px-2.5 py-1 rounded-lg bg-red-500/90 text-white text-[11px] font-bold flex items-center space-x-1 shadow-md animate-pulse">
                 <span>🧲 Magnet</span>
                 <span className="font-mono text-[10px] bg-red-700/80 px-1 rounded">
@@ -151,7 +151,7 @@ export const GameHUD: React.FC<GameHUDProps> = ({
                 </span>
               </div>
             )}
-            {stats.activePowerUps.jetpackTimer > 0 && (
+            {stats.activePowerUps?.jetpackTimer > 0 && (
               <div className="px-2.5 py-1 rounded-lg bg-cyan-500/90 text-white text-[11px] font-bold flex items-center space-x-1 shadow-md animate-bounce">
                 <span>🚀 Jetpack</span>
                 <span className="font-mono text-[10px] bg-cyan-700/80 px-1 rounded">
@@ -159,7 +159,7 @@ export const GameHUD: React.FC<GameHUDProps> = ({
                 </span>
               </div>
             )}
-            {stats.activePowerUps.multiplierTimer > 0 && (
+            {stats.activePowerUps?.multiplierTimer > 0 && (
               <div className="px-2.5 py-1 rounded-lg bg-amber-500/90 text-white text-[11px] font-bold flex items-center space-x-1 shadow-md">
                 <span>✨ 2x Multiplier</span>
                 <span className="font-mono text-[10px] bg-amber-700/80 px-1 rounded">
@@ -167,7 +167,7 @@ export const GameHUD: React.FC<GameHUDProps> = ({
                 </span>
               </div>
             )}
-            {stats.activePowerUps.hoverboardShield && (
+            {stats.activePowerUps?.hoverboardShield && (
               <div className="px-2.5 py-1 rounded-lg bg-emerald-500/90 text-white text-[11px] font-bold flex items-center space-x-1 shadow-md">
                 <span>🛡️ Shield Active</span>
               </div>

@@ -92,6 +92,17 @@ export default function App() {
     activeTrickName: null,
     slowMoActive: false,
     isOnFloatingIsland: false,
+    currentLane: 0,
+    isSliding: false,
+    slideTimer: 0,
+    activePowerUps: {
+      magnetTimer: 0,
+      jetpackTimer: 0,
+      hoverboardShield: false,
+      multiplierTimer: 0,
+    },
+    scoreMultiplier: 1,
+    gameState: 'playing',
   });
 
   const [fps, setFps] = useState(60);
