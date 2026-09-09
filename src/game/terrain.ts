@@ -78,6 +78,8 @@ export interface CyberChunk {
     orbs: { id: string; x: number; y: number; z: number; collected: boolean; mesh?: THREE.Mesh }[];
     floatingIslands: FloatingIslandData[];
     updrafts: UpdraftGeyser[];
+    grass: { x: number; y: number; z: number; scale: number; rot: number }[];
+    trees: { x: number; y: number; z: number; scale: number }[];
   };
 }
 
@@ -266,6 +268,8 @@ export class TerrainManager {
         orbs: [],
         floatingIslands: [],
         updrafts: [],
+        grass: [],
+        trees: [],
       },
     });
   }

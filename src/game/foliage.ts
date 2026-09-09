@@ -151,15 +151,19 @@ export class FoliageManager {
 
     // Collect all active foliage near player
     for (const chunk of chunks.values()) {
+      if (!chunk.foliageInstances) continue;
+      const grassList = chunk.foliageInstances.grass || [];
+      const treeList = chunk.foliageInstances.trees || [];
+
       const dist = Math.hypot(chunk.cx * 80 - playerX, chunk.cz * 80 - playerZ);
       if (dist > 180) continue; // Distance cull
 
       // Grass
-      for (let i = 0; i < chunk.foliageInstances.grass.length; i++) {
+      for (let i = 0; i < grassList.length; i++) {
         if (Math.random() > densityMultiplier && densityMultiplier < 0.99) continue;
         if (grassIdx >= this.maxGrassInstances) break;
 
-        const g = chunk.foliageInstances.grass[i];
+        const g = grassList[i];
         posAttr.setXYZ(grassIdx, g.x, g.y, g.z);
         scaleAttr.setX(grassIdx, g.scale);
         rotAttr.setX(grassIdx, g.rot);
@@ -174,9 +178,9 @@ export class FoliageManager {
       }
 
       // Trees
-      for (let i = 0; i < chunk.foliageInstances.trees.length; i++) {
+      for (let i = 0; i < treeList.length; i++) {
         if (treeIdx >= this.maxTreeInstances) break;
-        const t = chunk.foliageInstances.trees[i];
+        const t = treeList[i];
 
         // Tree foliage crown
         treePosAttr.setXYZ(treeIdx, t.x, t.y + 2.8 * t.scale, t.z);
