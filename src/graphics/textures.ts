@@ -436,16 +436,20 @@ export function createWindPetalTexture(): THREE.CanvasTexture {
 
   ctx.clearRect(0, 0, 64, 64);
   const grad = ctx.createLinearGradient(16, 16, 48, 48);
-  grad.addColorStop(0, 'rgba(255, 205, 220, 0.98)');
-  grad.addColorStop(0.6, 'rgba(244, 143, 177, 0.90)');
-  grad.addColorStop(1, 'rgba(255, 240, 210, 0.50)');
+  grad.addColorStop(0, 'rgba(0, 240, 255, 0.98)');
+  grad.addColorStop(0.6, 'rgba(255, 0, 127, 0.90)');
+  grad.addColorStop(1, 'rgba(255, 255, 255, 0.95)');
 
   ctx.fillStyle = grad;
   ctx.beginPath();
-  ctx.moveTo(32, 10);
-  ctx.bezierCurveTo(46, 18, 52, 36, 32, 54);
-  ctx.bezierCurveTo(12, 36, 18, 18, 32, 10);
+  ctx.moveTo(32, 8);
+  ctx.bezierCurveTo(46, 18, 50, 36, 32, 56);
+  ctx.bezierCurveTo(14, 36, 18, 18, 32, 8);
   ctx.fill();
 
   return new THREE.CanvasTexture(canvas);
 }
+
+export const createPetalParticleTexture = createWindPetalTexture;
+export const createCyberSparkTexture = createWindPetalTexture;
+
