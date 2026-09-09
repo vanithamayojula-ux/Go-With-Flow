@@ -385,7 +385,7 @@ export const GameCanvas: React.FC<GameCanvasProps> = ({
       renderer.setSize(w, h);
       const pr = renderer.getPixelRatio();
       rt.setSize(w * pr, h * pr);
-      if (postMaterialRef.current) {
+      if (postMaterialRef.current && postMaterialRef.current.uniforms && postMaterialRef.current.uniforms.uResolution) {
         postMaterialRef.current.uniforms.uResolution.value.set(w * pr, h * pr);
       }
     });
@@ -576,8 +576,8 @@ export const GameCanvas: React.FC<GameCanvasProps> = ({
         const speedLinesFactor = Math.min(1.0, Math.max(0, (playerMgr.stats.speed - 28) / 55));
         const heatShimmerFactor = currentBiome === 'orbital-ring' || currentBiome === 'dunes' ? 1.0 : 0.0;
 
-        postMaterial.uniforms.uTime.value = timeSeconds;
-        postMaterial.uniforms.uHighSpeedBlur.value = blurFactor * shaderParams.highSpeedBlur;
+        if (postMaterial.uniforms.uTime) postMaterial.uniforms.uTime.value = timeSeconds;
+        if (postMaterial.uniforms.uHighSpeedBlur) postMaterial.uniforms.uHighSpeedBlur.value = blurFactor * shaderParams.highSpeedBlur;
         if (postMaterial.uniforms.uBloom) postMaterial.uniforms.uBloom.value = shaderParams.bloomIntensity;
         if (postMaterial.uniforms.uChromaticAberration) postMaterial.uniforms.uChromaticAberration.value = shaderParams.chromaticAberration ?? 0.005;
         if (postMaterial.uniforms.uScanlines) postMaterial.uniforms.uScanlines.value = shaderParams.scanlineIntensity ?? 0.5;
@@ -601,7 +601,7 @@ export const GameCanvas: React.FC<GameCanvasProps> = ({
 
       // Inform parent HUD of live stats
       const drawCalls = renderer.info.render.calls;
-      const instances = foliageMgr.grassMesh.count + foliageMgr.treeMesh.count;
+      const instances = (foliageMgr.grassMesh ? foliageMgr.grassMesh.count : 0) + (foliageMgr.treeMesh ? foliageMgr.treeMesh.count : 0);
       onStatsUpdate(playerMgr.stats, currentFps, drawCalls, instances);
     };
 
@@ -617,16 +617,16 @@ export const GameCanvas: React.FC<GameCanvasProps> = ({
       window.removeEventListener('pointerup', onPointerUp);
       resizeObserver.disconnect();
 
-      skyMgr.dispose();
       terrainMgr.dispose();
       foliageMgr.dispose();
+      skyMgr.dispose();
       playerMgr.dispose();
-      obstacleMgr.reset();
-      quadGeom.dispose();
-      postMaterial.dispose();
+      obstacleMgr.dispose();
       rt.dispose();
+      postMaterial.dispose();
       renderer.dispose();
-      if (renderer.domElement.parentElement) {
+
+      if (renderer.domElement && renderer.domElement.parentElement) {
         renderer.domElement.parentElement.removeChild(renderer.domElement);
       }
     };
@@ -638,11 +638,12 @@ export const GameCanvas: React.FC<GameCanvasProps> = ({
       skyMgrRef.current.applyLightingPreset(lightingMode);
       const preset = LIGHTING_PRESETS[lightingMode];
       if (terrainMgrRef.current && preset) {
-        terrainMgrRef.current.terrainMaterial.uniforms.uSunColor.value.set(preset.sunColor);
-        terrainMgrRef.current.terrainMaterial.uniforms.uSunDirection.value.set(...preset.sunPosition).normalize();
-        terrainMgrRef.current.terrainMaterial.uniforms.uAmbientColor.value.set(preset.ambientColor);
-        terrainMgrRef.current.terrainMaterial.uniforms.uSlopeWarmColor.value.set(preset.slopeWarm);
-        terrainMgrRef.current.terrainMaterial.uniforms.uSlopeCoolColor.value.set(preset.slopeCool);
+        const u = terrainMgrRef.current.terrainMaterial.uniforms;
+        if (u.uSunColor) u.uSunColor.value.set(preset.sunColor);
+        if (u.uSunDirection) u.uSunDirection.value.set(...preset.sunPosition).normalize();
+        if (u.uAmbientColor) u.uAmbientColor.value.set(preset.ambientColor);
+        if (u.uSlopeWarmColor) u.uSlopeWarmColor.value.set(preset.slopeWarm);
+        if (u.uSlopeCoolColor) u.uSlopeCoolColor.value.set(preset.slopeCool);
       }
     }
   }, [lightingMode]);
@@ -650,24 +651,30 @@ export const GameCanvas: React.FC<GameCanvasProps> = ({
   // Update Shader Parameters dynamically
   useEffect(() => {
     if (foliageMgrRef.current) {
-      foliageMgrRef.current.grassMaterial.uniforms.uWindSpeed.value = shaderParams.windSpeed;
-      foliageMgrRef.current.grassMaterial.uniforms.uWindStrength.value = shaderParams.windStrength;
-      foliageMgrRef.current.grassMaterial.uniforms.uRimLightIntensity.value = shaderParams.rimLightIntensity;
+      const gUniforms = foliageMgrRef.current.grassMaterial.uniforms;
+      if (gUniforms.uWindSpeed) gUniforms.uWindSpeed.value = shaderParams.windSpeed;
+      if (gUniforms.uWindStrength) gUniforms.uWindStrength.value = shaderParams.windStrength;
+      if (gUniforms.uRimLightIntensity) gUniforms.uRimLightIntensity.value = shaderParams.rimLightIntensity;
 
-      foliageMgrRef.current.treeMaterial.uniforms.uWindSpeed.value = shaderParams.windSpeed * 0.7;
-      foliageMgrRef.current.treeMaterial.uniforms.uWindStrength.value = shaderParams.windStrength * 0.5;
-      foliageMgrRef.current.treeMaterial.uniforms.uRimLightIntensity.value = shaderParams.rimLightIntensity;
+      const treeUniforms = foliageMgrRef.current.treeMaterial.uniforms;
+      if (treeUniforms.uWindSpeed) treeUniforms.uWindSpeed.value = shaderParams.windSpeed * 0.7;
+      if (treeUniforms.uWindStrength) treeUniforms.uWindStrength.value = shaderParams.windStrength * 0.5;
+      if (treeUniforms.uRimLightIntensity) treeUniforms.uRimLightIntensity.value = shaderParams.rimLightIntensity;
     }
 
     if (terrainMgrRef.current) {
-      terrainMgrRef.current.terrainMaterial.uniforms.uCelRampHardness.value = shaderParams.celRampHardness;
-      terrainMgrRef.current.terrainMaterial.uniforms.uRimLightIntensity.value = shaderParams.rimLightIntensity;
+      const tUniforms = terrainMgrRef.current.terrainMaterial.uniforms;
+      if (tUniforms.uCelRampHardness) tUniforms.uCelRampHardness.value = shaderParams.celRampHardness;
+      if (tUniforms.uRimLightIntensity) tUniforms.uRimLightIntensity.value = shaderParams.rimLightIntensity;
     }
 
     if (postMaterialRef.current) {
-      postMaterialRef.current.uniforms.uFilmGrain.value = shaderParams.filmGrainIntensity;
-      postMaterialRef.current.uniforms.uBloom.value = shaderParams.bloomIntensity;
-      postMaterialRef.current.uniforms.uColorLift.value = shaderParams.colorLift;
+      const pUniforms = postMaterialRef.current.uniforms;
+      if (pUniforms.uFilmGrain) pUniforms.uFilmGrain.value = shaderParams.filmGrainIntensity;
+      if (pUniforms.uBloom) pUniforms.uBloom.value = shaderParams.bloomIntensity;
+      if (pUniforms.uColorLift) pUniforms.uColorLift.value = shaderParams.colorLift;
+      if (pUniforms.uChromaticAberration) pUniforms.uChromaticAberration.value = shaderParams.chromaticAberration ?? 0.005;
+      if (pUniforms.uScanlines) pUniforms.uScanlines.value = shaderParams.scanlineIntensity ?? 0.5;
     }
   }, [shaderParams]);
 
