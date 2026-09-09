@@ -45,13 +45,13 @@ const DEFAULT_SHADER_PARAMS: ShaderParams = {
   rimLightIntensity: 0.8,
   celRampHardness: 0.45,
   slopeWarmth: 0.2,
-  filmGrainIntensity: 0.025,
-  bloomIntensity: 0.75, // Rich cyberpunk emissive bloom
-  colorLift: 0.35,
-  highSpeedBlur: 0.6,
-  speedLineIntensity: 0.8,
-  chromaticAberration: 0.005,
-  scanlineIntensity: 0.5,
+  filmGrainIntensity: 0.0, // No noisy film grain
+  bloomIntensity: 0.35, // Crisp targeted neon glow without hazy fog
+  colorLift: 0.2,
+  highSpeedBlur: 0.0, // Razor-sharp clarity, no smearing
+  speedLineIntensity: 0.0, // Clean view of highway and skyline
+  chromaticAberration: 0.0005, // Pin-sharp pixel alignment
+  scanlineIntensity: 0.0, // Pure 4K display fidelity
   glitchIntensity: 0.0,
 };
 

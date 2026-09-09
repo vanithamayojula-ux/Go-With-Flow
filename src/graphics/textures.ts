@@ -453,3 +453,175 @@ export function createWindPetalTexture(): THREE.CanvasTexture {
 export const createPetalParticleTexture = createWindPetalTexture;
 export const createCyberSparkTexture = createWindPetalTexture;
 
+/**
+ * High-definition Procedural Cyberpunk Skyscraper Window Grid Texture
+ * Produces crisp illuminated window matrices, horizontal floor slabs, and vertical metallic mullions
+ */
+export function createCyberBuildingTexture(): THREE.CanvasTexture {
+  const canvas = document.createElement('canvas');
+  canvas.width = 512;
+  canvas.height = 1024;
+  const ctx = canvas.getContext('2d')!;
+
+  // Deep obsidian/navy reflective architectural facade
+  ctx.fillStyle = '#060913';
+  ctx.fillRect(0, 0, 512, 1024);
+
+  // Vertical structural mullions
+  ctx.strokeStyle = '#0f172a';
+  ctx.lineWidth = 3;
+  const cols = 16;
+  const colWidth = 512 / cols;
+  for (let c = 0; c <= cols; c++) {
+    ctx.beginPath();
+    ctx.moveTo(c * colWidth, 0);
+    ctx.lineTo(c * colWidth, 1024);
+    ctx.stroke();
+  }
+
+  // Horizontal floor slab dividers
+  const rows = 48;
+  const rowHeight = 1024 / rows;
+  ctx.strokeStyle = '#0a101d';
+  ctx.lineWidth = 4;
+  for (let r = 0; r <= rows; r++) {
+    ctx.beginPath();
+    ctx.moveTo(0, r * rowHeight);
+    ctx.lineTo(512, r * rowHeight);
+    ctx.stroke();
+  }
+
+  // Windows grid
+  const neonPalettes = [
+    '#00f0ff', // Electric Cyan
+    '#00f0ff',
+    '#ffaa00', // Amber
+    '#ff007f', // Hot Pink
+    '#e0f7ff', // Crisp Cold White
+    '#38bdf8', // Sky Cyan
+    '#818cf8', // Indigo
+  ];
+
+  for (let r = 0; r < rows; r++) {
+    for (let c = 0; c < cols; c++) {
+      const isLit = Math.random() < 0.45;
+      const wx = c * colWidth + 5;
+      const wy = r * rowHeight + 4;
+      const ww = colWidth - 10;
+      const wh = rowHeight - 8;
+
+      if (isLit) {
+        const color = neonPalettes[Math.floor(Math.random() * neonPalettes.length)];
+        const intensity = 0.5 + Math.random() * 0.5;
+        ctx.fillStyle = color;
+        ctx.globalAlpha = intensity;
+        ctx.fillRect(wx, wy, ww, wh);
+
+        // Subtle inner glow
+        ctx.fillStyle = '#ffffff';
+        ctx.globalAlpha = 0.4;
+        ctx.fillRect(wx + 2, wy + 2, ww - 4, 3);
+      } else {
+        // Dark reflective glass window
+        ctx.fillStyle = '#0b1322';
+        ctx.globalAlpha = 0.8;
+        ctx.fillRect(wx, wy, ww, wh);
+      }
+    }
+  }
+
+  ctx.globalAlpha = 1.0;
+
+  // Occasional full-width holographic neon horizontal data strips
+  const stripRows = [12, 25, 38];
+  stripRows.forEach((sr, idx) => {
+    const stripColor = idx % 2 === 0 ? '#00f0ff' : '#ff007f';
+    ctx.fillStyle = stripColor;
+    ctx.shadowColor = stripColor;
+    ctx.shadowBlur = 8;
+    ctx.fillRect(0, sr * rowHeight, 512, 5);
+    ctx.shadowBlur = 0;
+  });
+
+  const texture = new THREE.CanvasTexture(canvas);
+  texture.wrapS = THREE.RepeatWrapping;
+  texture.wrapT = THREE.RepeatWrapping;
+  texture.repeat.set(1, 1);
+  return texture;
+}
+
+/**
+ * Holographic High-Tech Neon Billboard Texture
+ */
+export function createCyberBillboardTexture(
+  title: string,
+  subtitle: string,
+  primaryColor: string,
+  secondaryColor: string
+): THREE.CanvasTexture {
+  const canvas = document.createElement('canvas');
+  canvas.width = 512;
+  canvas.height = 256;
+  const ctx = canvas.getContext('2d')!;
+
+  // Dark cyber plate background
+  ctx.fillStyle = '#05070f';
+  ctx.fillRect(0, 0, 512, 256);
+
+  // Outer Neon border
+  ctx.strokeStyle = primaryColor;
+  ctx.lineWidth = 6;
+  ctx.shadowColor = primaryColor;
+  ctx.shadowBlur = 12;
+  ctx.strokeRect(8, 8, 496, 240);
+
+  // Corner brackets
+  ctx.strokeStyle = secondaryColor;
+  ctx.lineWidth = 10;
+  const bracketLen = 30;
+  // Top-left
+  ctx.beginPath();
+  ctx.moveTo(8, 8 + bracketLen);
+  ctx.lineTo(8, 8);
+  ctx.lineTo(8 + bracketLen, 8);
+  ctx.stroke();
+  // Bottom-right
+  ctx.beginPath();
+  ctx.moveTo(504, 248 - bracketLen);
+  ctx.lineTo(504, 248);
+  ctx.lineTo(504 - bracketLen, 248);
+  ctx.stroke();
+
+  // Subtle digital scanlines
+  ctx.shadowBlur = 0;
+  ctx.fillStyle = 'rgba(255, 255, 255, 0.04)';
+  for (let y = 0; y < 256; y += 4) {
+    ctx.fillRect(8, y, 496, 2);
+  }
+
+  // Japanese / Cyber Accent Tag
+  ctx.fillStyle = secondaryColor;
+  ctx.font = 'bold 18px "Courier New", monospace';
+  ctx.fillText('► ' + subtitle + ' ◄', 28, 48);
+
+  // Main Billboard Neon Typography
+  ctx.fillStyle = primaryColor;
+  ctx.shadowColor = primaryColor;
+  ctx.shadowBlur = 16;
+  ctx.font = '900 52px "Arial Black", Impact, sans-serif';
+  ctx.fillText(title, 28, 128);
+
+  // High-tech status bar & pulse meter
+  ctx.shadowBlur = 0;
+  ctx.fillStyle = secondaryColor;
+  ctx.fillRect(28, 160, 456, 8);
+
+  ctx.fillStyle = '#ffffff';
+  ctx.font = 'bold 14px monospace';
+  ctx.fillText('SYSTEM OK // FREQ: 98.4GHz // NEURAL LINK STABLE', 28, 200);
+
+  const texture = new THREE.CanvasTexture(canvas);
+  return texture;
+}
+
+

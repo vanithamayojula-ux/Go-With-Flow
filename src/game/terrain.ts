@@ -1,6 +1,7 @@
 import * as THREE from 'three';
 import { TerrainShader } from '../graphics/shaders';
 import { BiomeType, FloatingIslandData } from '../types';
+import { createCyberBuildingTexture, createCyberBillboardTexture } from '../graphics/textures';
 
 export const CHUNK_SIZE = 80;
 export const CHUNK_SEGMENTS = 24;
@@ -91,25 +92,51 @@ export class TerrainManager {
   updraftsList: UpdraftGeyser[] = [];
   floatingIslandsList: { x: number; y: number; z: number; radius: number }[] = [];
 
-  // Shared Cyber Billboard & Prop Geometries & Materials
-  private buildingGeom = new THREE.BoxGeometry(14, 60, 22);
-  private buildingMat = new THREE.MeshLambertMaterial({ color: 0x050811 });
+  // Procedural 4K Skyscraper Window & Holographic Billboard Textures & Materials
+  private buildingTex: THREE.CanvasTexture;
+  private buildingMat: THREE.MeshBasicMaterial;
+  private rooftopMat: THREE.MeshLambertMaterial;
+  private spireMat: THREE.MeshBasicMaterial;
+  private beaconMat: THREE.MeshBasicMaterial;
+  private neonCyanMat: THREE.MeshBasicMaterial;
+  private neonMagentaMat: THREE.MeshBasicMaterial;
+  private neonAmberMat: THREE.MeshBasicMaterial;
 
-  private billboardGeom = new THREE.PlaneGeometry(10, 6);
-  private billboardMatCyan = new THREE.MeshBasicMaterial({ color: 0x00f0ff });
-  private billboardMatMagenta = new THREE.MeshBasicMaterial({ color: 0xff007f });
-  private billboardMatAmber = new THREE.MeshBasicMaterial({ color: 0xffaa00 });
-
-  private wireframeBoxGeom = new THREE.BoxGeometry(5, 5, 5);
-  private wireframeOctaGeom = new THREE.OctahedronGeometry(4);
+  private billboardMats: THREE.MeshBasicMaterial[] = [];
+  private wireframeBoxGeom = new THREE.BoxGeometry(6, 6, 6);
+  private wireframeOctaGeom = new THREE.OctahedronGeometry(5);
   private wireframeMat = new THREE.MeshBasicMaterial({ color: 0x00f0ff, wireframe: true });
 
-  private curbRailGeom = new THREE.BoxGeometry(0.5, 0.75, CHUNK_SIZE);
+  private curbRailGeom = new THREE.BoxGeometry(0.5, 0.8, CHUNK_SIZE);
   private curbRailMat = new THREE.MeshBasicMaterial({ color: 0x00f0ff });
 
   constructor(scene: THREE.Scene) {
     this.scene = scene;
 
+    // 1. Procedural 4K Cyberpunk Skyscraper Window Grid Texture
+    this.buildingTex = createCyberBuildingTexture();
+    this.buildingMat = new THREE.MeshBasicMaterial({ map: this.buildingTex });
+    this.rooftopMat = new THREE.MeshLambertMaterial({ color: 0x070b15 });
+    this.spireMat = new THREE.MeshBasicMaterial({ color: 0x38bdf8 });
+    this.beaconMat = new THREE.MeshBasicMaterial({ color: 0xff0033 });
+    this.neonCyanMat = new THREE.MeshBasicMaterial({ color: 0x00f0ff });
+    this.neonMagentaMat = new THREE.MeshBasicMaterial({ color: 0xff007f });
+    this.neonAmberMat = new THREE.MeshBasicMaterial({ color: 0xffaa00 });
+
+    // 2. High-Tech Holographic Billboard Materials
+    const bTex1 = createCyberBillboardTexture('NEON DRIFT', '高速レーサー // 2077', '#00f0ff', '#ff007f');
+    const bTex2 = createCyberBillboardTexture('NIGHT CITY', 'メガシティ // SECTOR 07', '#ff007f', '#00f0ff');
+    const bTex3 = createCyberBillboardTexture('ARASAKA', 'サイバネティクス // CORP NET', '#ff0044', '#ffaa00');
+    const bTex4 = createCyberBillboardTexture('OVERDRIVE', '超加速 // MAXIMUM SPEED', '#00ffcc', '#ff007f');
+
+    this.billboardMats = [
+      new THREE.MeshBasicMaterial({ map: bTex1, side: THREE.DoubleSide }),
+      new THREE.MeshBasicMaterial({ map: bTex2, side: THREE.DoubleSide }),
+      new THREE.MeshBasicMaterial({ map: bTex3, side: THREE.DoubleSide }),
+      new THREE.MeshBasicMaterial({ map: bTex4, side: THREE.DoubleSide }),
+    ];
+
+    // 3. Terrain Road Shader
     this.terrainMaterial = new THREE.ShaderMaterial({
       vertexShader: TerrainShader.vertexShader,
       fragmentShader: TerrainShader.fragmentShader,
@@ -123,6 +150,108 @@ export class TerrainManager {
         uWetReflections: { value: 1.0 },
       },
     });
+  }
+
+  /**
+   * Helper: Builds a 3D architectural cyberpunk skyscraper complete with
+   * lit window matrices, rooftop mechanical penthouse, communications antenna,
+   * flashing red aircraft beacon, vertical neon conduits, and optional holographic billboard.
+   */
+  private createSkyscraper(
+    x: number,
+    baseY: number,
+    z: number,
+    width: number,
+    height: number,
+    depth: number,
+    side: 'left' | 'right',
+    billboardIdx?: number
+  ): THREE.Group {
+    const group = new THREE.Group();
+
+    // 1. Skyscraper Main Tower Body with illuminated window grid
+    const towerGeom = new THREE.BoxGeometry(width, height, depth);
+    const towerMesh = new THREE.Mesh(towerGeom, this.buildingMat);
+    towerMesh.position.set(0, height / 2, 0);
+    group.add(towerMesh);
+
+    // 2. Rooftop Mechanical Penthouse / Stepped Crown
+    const crownGeom = new THREE.BoxGeometry(width * 0.65, 7, depth * 0.65);
+    const crownMesh = new THREE.Mesh(crownGeom, this.rooftopMat);
+    crownMesh.position.set(0, height + 3.5, 0);
+    group.add(crownMesh);
+
+    // 3. Communications Antenna / Spire
+    const spireGeom = new THREE.CylinderGeometry(0.15, 0.45, 16, 6);
+    const spireMesh = new THREE.Mesh(spireGeom, this.spireMat);
+    spireMesh.position.set(0, height + 7 + 8, 0);
+    group.add(spireMesh);
+
+    // 4. Rooftop Red Aircraft Warning Beacon
+    const beaconGeom = new THREE.SphereGeometry(0.7, 8, 8);
+    const beaconMesh = new THREE.Mesh(beaconGeom, this.beaconMat);
+    beaconMesh.position.set(0, height + 7 + 16, 0);
+    group.add(beaconMesh);
+
+    // 5. Vertical Neon Corner Conduit
+    const conduitGeom = new THREE.BoxGeometry(0.4, height, 0.4);
+    const conduitMat = side === 'left' ? this.neonCyanMat : this.neonMagentaMat;
+    const conduitMesh = new THREE.Mesh(conduitGeom, conduitMat);
+    const cornerX = side === 'left' ? width / 2 : -width / 2;
+    conduitMesh.position.set(cornerX, height / 2, depth / 2);
+    group.add(conduitMesh);
+
+    // 6. Holographic Billboard on inner facade facing the highway
+    if (billboardIdx !== undefined && billboardIdx >= 0) {
+      const bW = Math.min(width * 0.85, 14);
+      const bH = bW * 0.5;
+      const bGeom = new THREE.PlaneGeometry(bW, bH);
+      const bMat = this.billboardMats[billboardIdx % this.billboardMats.length];
+      const signMesh = new THREE.Mesh(bGeom, bMat);
+
+      if (side === 'left') {
+        signMesh.position.set(width / 2 + 0.15, height * 0.48, 0);
+        signMesh.rotation.y = Math.PI / 2;
+      } else {
+        signMesh.position.set(-width / 2 - 0.15, height * 0.48, 0);
+        signMesh.rotation.y = -Math.PI / 2;
+      }
+      group.add(signMesh);
+    }
+
+    group.position.set(x, baseY, z);
+    return group;
+  }
+
+  /**
+   * Helper: Builds an overhead Cyber Skybridge spanning across the highway
+   */
+  private createSkybridge(z: number, roadY: number): THREE.Group {
+    const group = new THREE.Group();
+
+    // Main bridge structural span
+    const bridgeSpanGeom = new THREE.BoxGeometry(38, 3.5, 6);
+    const bridgeSpan = new THREE.Mesh(bridgeSpanGeom, this.rooftopMat);
+    bridgeSpan.position.set(0, roadY + 16, z);
+    group.add(bridgeSpan);
+
+    // Glowing underside laser rails
+    const railGeom = new THREE.BoxGeometry(38, 0.35, 0.35);
+    const railFront = new THREE.Mesh(railGeom, this.neonCyanMat);
+    railFront.position.set(0, roadY + 14.1, z + 2.8);
+    group.add(railFront);
+
+    const railBack = new THREE.Mesh(railGeom, this.neonMagentaMat);
+    railBack.position.set(0, roadY + 14.1, z - 2.8);
+    group.add(railBack);
+
+    // Center overhead holographic highway sign
+    const signGeom = new THREE.PlaneGeometry(12, 3);
+    const signMesh = new THREE.Mesh(signGeom, this.billboardMats[0]);
+    signMesh.position.set(0, roadY + 16, z + 3.1);
+    group.add(signMesh);
+
+    return group;
   }
 
   update(playerZ: number, playerX: number, renderDistance = 3, time = 0) {
@@ -185,45 +314,66 @@ export class TerrainManager {
 
     // 2. Glowing Neon Highway Guardrail Curbs
     const leftCurb = new THREE.Mesh(this.curbRailGeom, this.curbRailMat);
-    leftCurb.position.set(-7.0, getTerrainHeight(-7.0, zCenter) + 0.35, zCenter);
+    leftCurb.position.set(-7.25, getTerrainHeight(-7.25, zCenter) + 0.35, zCenter);
     this.scene.add(leftCurb);
     decorations.push(leftCurb);
 
     const rightCurb = new THREE.Mesh(this.curbRailGeom, this.curbRailMat);
-    rightCurb.position.set(7.0, getTerrainHeight(7.0, zCenter) + 0.35, zCenter);
+    rightCurb.position.set(7.25, getTerrainHeight(7.25, zCenter) + 0.35, zCenter);
     this.scene.add(rightCurb);
     decorations.push(rightCurb);
 
-    // 3. Zone-Specific Cyber Architecture & Props
-    if (biome === 'neon-undercity') {
-      // Skyscraper Canyon flank towers
-      [-19, 19].forEach((flankX, idx) => {
-        const b = new THREE.Mesh(this.buildingGeom, this.buildingMat);
-        const y = getTerrainHeight(flankX, zCenter) + 26;
-        b.position.set(flankX, y, zCenter);
-        this.scene.add(b);
-        decorations.push(b);
+    // 3. Dense 4K Cyberpunk Skyscrapers on BOTH sides of the highway!
+    const baseRoadY = getTerrainHeight(0, zCenter);
 
-        // Holographic Billboard Sign on building face
-        const bMat = idx === 0 ? this.billboardMatCyan : this.billboardMatMagenta;
-        const sign = new THREE.Mesh(this.billboardGeom, bMat);
-        sign.position.set(flankX > 0 ? flankX - 7.1 : flankX + 7.1, y + 5, zCenter);
-        sign.rotation.y = flankX > 0 ? -Math.PI / 2 : Math.PI / 2;
-        this.scene.add(sign);
-        decorations.push(sign);
-      });
+    // LEFT FLANK SKYSCRAPERS
+    // Skyscraper L1 (Front canyon tower with holographic billboard)
+    const hL1 = 65 + Math.abs(cz * 17) % 35;
+    const bL1 = this.createSkyscraper(-20, baseRoadY, zCenter - 20, 16, hL1, 22, 'left', Math.abs(cz) % 4);
+    this.scene.add(bL1);
+    decorations.push(bL1);
 
-      // Steam Vents emitting upward light glow
-      const vent = new THREE.Mesh(
-        new THREE.CylinderGeometry(0.6, 0.8, 0.4, 8),
-        new THREE.MeshBasicMaterial({ color: 0x00f0ff })
-      );
-      vent.position.set(-5.5, getTerrainHeight(-5.5, zCenter + 12) + 0.2, zCenter + 12);
-      this.scene.add(vent);
-      decorations.push(vent);
-    } else if (biome === 'the-grid') {
-      // Floating Tron Wireframe Polyhedra alongside highway
-      [-14, 14].forEach(flankX => {
+    // Skyscraper L2 (Mid-distance massive megatower)
+    const hL2 = 95 + Math.abs(cz * 23) % 45;
+    const bL2 = this.createSkyscraper(-38, baseRoadY - 4, zCenter + 14, 22, hL2, 28, 'left');
+    this.scene.add(bL2);
+    decorations.push(bL2);
+
+    // Skyscraper L3 (Background titan skyscraper)
+    const hL3 = 135 + Math.abs(cz * 31) % 55;
+    const bL3 = this.createSkyscraper(-62, baseRoadY - 8, zCenter - 5, 30, hL3, 34, 'left');
+    this.scene.add(bL3);
+    decorations.push(bL3);
+
+    // RIGHT FLANK SKYSCRAPERS
+    // Skyscraper R1 (Front canyon tower with holographic billboard)
+    const hR1 = 70 + Math.abs(cz * 19) % 35;
+    const bR1 = this.createSkyscraper(20, baseRoadY, zCenter + 18, 16, hR1, 22, 'right', (Math.abs(cz) + 2) % 4);
+    this.scene.add(bR1);
+    decorations.push(bR1);
+
+    // Skyscraper R2 (Mid-distance massive megatower)
+    const hR2 = 90 + Math.abs(cz * 29) % 50;
+    const bR2 = this.createSkyscraper(38, baseRoadY - 4, zCenter - 16, 22, hR2, 28, 'right');
+    this.scene.add(bR2);
+    decorations.push(bR2);
+
+    // Skyscraper R3 (Background titan skyscraper)
+    const hR3 = 140 + Math.abs(cz * 37) % 55;
+    const bR3 = this.createSkyscraper(62, baseRoadY - 8, zCenter + 8, 30, hR3, 34, 'right');
+    this.scene.add(bR3);
+    decorations.push(bR3);
+
+    // 4. Overhead Cyber Skybridge spanning the highway every 2 chunks
+    if (Math.abs(cz) % 2 === 0) {
+      const skybridge = this.createSkybridge(zCenter, baseRoadY);
+      this.scene.add(skybridge);
+      decorations.push(skybridge);
+    }
+
+    // 5. Zone-Specific Props & Accents
+    if (biome === 'the-grid') {
+      [-13, 13].forEach(flankX => {
         const poly = new THREE.Mesh(Math.random() > 0.5 ? this.wireframeBoxGeom : this.wireframeOctaGeom, this.wireframeMat);
         poly.position.set(flankX, getTerrainHeight(flankX, zCenter) + 8 + Math.random() * 6, zCenter);
         poly.rotation.set(Math.random(), Math.random(), Math.random());
@@ -231,9 +381,8 @@ export class TerrainManager {
         decorations.push(poly);
       });
     } else if (biome === 'orbital-ring') {
-      // Floating Space Truss Gantries
       const ringArch = new THREE.Mesh(
-        new THREE.TorusGeometry(12, 0.4, 8, 24, Math.PI),
+        new THREE.TorusGeometry(12, 0.45, 8, 24, Math.PI),
         new THREE.MeshBasicMaterial({ color: 0x00f0ff })
       );
       ringArch.position.set(0, getTerrainHeight(0, zCenter), zCenter);
@@ -241,7 +390,6 @@ export class TerrainManager {
       this.scene.add(ringArch);
       decorations.push(ringArch);
     } else if (biome === 'derelict-station') {
-      // Industrial girders & amber hazard strobes
       [-12, 12].forEach(flankX => {
         const pylon = new THREE.Mesh(
           new THREE.CylinderGeometry(0.3, 0.3, 14, 6),
@@ -251,7 +399,7 @@ export class TerrainManager {
         this.scene.add(pylon);
         decorations.push(pylon);
 
-        const strobe = new THREE.Mesh(new THREE.SphereGeometry(0.4, 8, 8), this.billboardMatAmber);
+        const strobe = new THREE.Mesh(new THREE.SphereGeometry(0.4, 8, 8), this.neonAmberMat);
         strobe.position.set(flankX, getTerrainHeight(flankX, zCenter) + 14, zCenter);
         this.scene.add(strobe);
         decorations.push(strobe);
@@ -284,12 +432,15 @@ export class TerrainManager {
     this.terrainMaterial.dispose();
     this.curbRailGeom.dispose();
     this.curbRailMat.dispose();
-    this.buildingGeom.dispose();
+    this.buildingTex.dispose();
     this.buildingMat.dispose();
-    this.billboardGeom.dispose();
-    this.billboardMatCyan.dispose();
-    this.billboardMatMagenta.dispose();
-    this.billboardMatAmber.dispose();
+    this.rooftopMat.dispose();
+    this.spireMat.dispose();
+    this.beaconMat.dispose();
+    this.neonCyanMat.dispose();
+    this.neonMagentaMat.dispose();
+    this.neonAmberMat.dispose();
+    this.billboardMats.forEach(m => m.dispose());
     this.wireframeBoxGeom.dispose();
     this.wireframeOctaGeom.dispose();
     this.wireframeMat.dispose();

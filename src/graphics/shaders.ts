@@ -45,52 +45,42 @@ export const SkyboxShader = {
       vec3 dir = normalize(vWorldPosition);
       float elevation = dir.y;
 
-      // Deep dark void background (~85% near-black/deep navy)
-      vec3 baseVoid = mix(vec3(0.015, 0.02, 0.04), vec3(0.003, 0.005, 0.012), clamp(elevation * 2.0, 0.0, 1.0));
+      // Crystal-clear deep space dark void gradient
+      vec3 baseVoid = mix(vec3(0.008, 0.012, 0.024), vec3(0.002, 0.003, 0.008), clamp(elevation * 2.2, 0.0, 1.0));
 
-      // 1. Cosmic Starfield & Digital Dust
-      float starGrid = hash(floor(dir.xz / (abs(elevation) + 0.08) * 180.0));
-      float star = step(0.985, starGrid) * (sin(uTime * 4.0 + starGrid * 30.0) * 0.35 + 0.65);
-      baseVoid += vec3(0.6, 0.85, 1.0) * star * smoothstep(0.05, 0.4, abs(elevation));
-
-      // 2. Distant Cyber Megacity Skyline Silhouettes
-      float angle = atan(dir.x, dir.z);
-      float buildingIndex = floor(angle * 32.0);
-      float buildingHeight = hash(vec2(buildingIndex, 42.0)) * 0.28 + 0.04;
-      float isBuilding = step(elevation, buildingHeight) * step(-0.02, elevation);
-
-      if (isBuilding > 0.5 && uGridMode < 0.5) {
-        // Dark skyscraper silhouette
-        vec3 buildingCol = vec3(0.01, 0.012, 0.025);
-
-        // Cyber window grid lights (cyan & amber)
-        vec2 windowUv = vec2(fract(angle * 32.0) * 8.0, elevation * 120.0);
-        float windowLit = step(0.68, hash(floor(windowUv) + buildingIndex * 13.0));
-        vec3 windowColor = mix(vec3(0.0, 0.94, 1.0), vec3(1.0, 0.45, 0.1), hash(vec2(buildingIndex, 7.0)));
-        buildingCol += windowColor * windowLit * 0.65;
-
-        // Aircraft warning blinker atop skyscrapers
-        float topEdge = step(buildingHeight - 0.015, elevation);
-        float blink = step(0.5, sin(uTime * 5.0 + buildingIndex * 2.0));
-        buildingCol += vec3(1.0, 0.1, 0.2) * topEdge * blink * 1.5;
-
-        baseVoid = buildingCol;
+      // 1. Crisp Pinpoint Starfield (anti-aliased stars)
+      vec2 starCoord = dir.xz / (abs(elevation) + 0.12) * 140.0;
+      vec2 starGrid = fract(starCoord) - 0.5;
+      float starId = hash(floor(starCoord));
+      if (starId > 0.965) {
+        float starDist = length(starGrid);
+        float starSize = hash(floor(starCoord) + 17.0) * 0.12 + 0.06;
+        float starIntensity = smoothstep(starSize, 0.0, starDist);
+        float twinkle = sin(uTime * 3.0 + starId * 50.0) * 0.35 + 0.65;
+        vec3 starCol = mix(vec3(0.6, 0.85, 1.0), vec3(1.0, 0.5, 0.9), hash(floor(starCoord) + 42.0));
+        baseVoid += starCol * starIntensity * twinkle * smoothstep(0.04, 0.35, abs(elevation));
       }
+
+      // 2. Distant Subtle Cyber Nebula Sheen
+      float nebula = sin(dir.x * 3.0 + dir.y * 2.0 + uTime * 0.05) * cos(dir.z * 3.0);
+      vec3 nebulaCol = mix(vec3(0.0, 0.4, 0.8), vec3(0.6, 0.0, 0.5), dir.y * 0.5 + 0.5);
+      baseVoid += nebulaCol * clamp(nebula * 0.04, 0.0, 0.08);
 
       // 3. Tron Wireframe Grid Mode (for "The Grid" zone)
       if (uGridMode > 0.1) {
+        float angle = atan(dir.x, dir.z);
         float gridElevation = abs(elevation);
         float gridLineX = abs(fract(angle * 16.0) - 0.5);
         float gridLineY = abs(fract(gridElevation * 20.0) - 0.5);
-        float grid = smoothstep(0.46, 0.49, max(1.0 - gridLineX * 2.0, 1.0 - gridLineY * 2.0));
+        float grid = smoothstep(0.47, 0.49, max(1.0 - gridLineX * 2.0, 1.0 - gridLineY * 2.0));
         vec3 gridColor = mix(vec3(0.0, 0.95, 1.0), vec3(1.0, 0.0, 0.6), sin(angle * 4.0 + uTime) * 0.5 + 0.5);
-        baseVoid += gridColor * grid * 0.65 * uGridMode;
+        baseVoid += gridColor * grid * 0.5 * uGridMode;
       }
 
-      // 4. Distant Horizon Neon Haze & Atmospheric Glow
-      float horizonHaze = exp(-abs(elevation) * 8.0);
-      vec3 hazeColor = mix(vec3(0.0, 0.8, 1.0), vec3(0.85, 0.0, 0.55), sin(uTime * 0.2) * 0.5 + 0.5);
-      baseVoid += hazeColor * horizonHaze * 0.38;
+      // 4. Distant Horizon Neon Haze
+      float horizonHaze = exp(-abs(elevation) * 12.0);
+      vec3 hazeColor = mix(vec3(0.0, 0.75, 1.0), vec3(0.85, 0.0, 0.65), sin(uTime * 0.15) * 0.5 + 0.5);
+      baseVoid += hazeColor * horizonHaze * 0.32;
 
       gl_FragColor = vec4(baseVoid, 1.0);
     }
@@ -284,86 +274,72 @@ export const PostProcessShader = {
     void main() {
       vec2 uv = vUv;
 
-      // 1. Digital Glitch Horizontal Tear & Displacement
-      if (uGlitch > 0.02) {
-        float glitchSlice = floor(uv.y * 36.0);
-        float glitchNoise = hash(vec2(glitchSlice, floor(uTime * 14.0)));
-        if (glitchNoise > 0.86) {
-          float offset = (hash(vec2(glitchSlice, uTime)) - 0.5) * 0.045 * uGlitch;
+      // 1. Digital Glitch Horizontal Tear (Strictly on Crash / Game Over)
+      if (uGlitch > 0.5) {
+        float glitchSlice = floor(uv.y * 24.0);
+        float glitchNoise = hash(vec2(glitchSlice, floor(uTime * 12.0)));
+        if (glitchNoise > 0.7) {
+          float offset = (hash(vec2(glitchSlice, uTime)) - 0.5) * 0.03 * uGlitch;
           uv.x += offset;
         }
       }
 
-      // 2. High-Speed Radial Motion Blur during Boost
-      vec3 sceneCol = vec3(0.0);
-      if (uHighSpeedBlur > 0.02) {
-        vec2 center = vec2(0.5, 0.45);
-        vec2 toCenter = (center - uv) * clamp(uHighSpeedBlur, 0.0, 1.0) * 0.016;
-        for (int i = 0; i < 5; i++) {
-          sceneCol += texture2D(tDiffuse, uv + toCenter * float(i)).rgb;
-        }
-        sceneCol *= 0.2;
-      } else {
-        sceneCol = texture2D(tDiffuse, uv).rgb;
+      // 2. Crystal-Clear Scene Texture Sampling (No radial blur smearing)
+      vec3 sceneCol = texture2D(tDiffuse, uv).rgb;
+
+      // 3. Subtle Clean Chromatic Aberration at Screen Edges (Optional)
+      if (uChromaticAberration > 0.0001) {
+        float dist = length(uv - 0.5);
+        vec2 caOffset = (uv - 0.5) * (uChromaticAberration * dist * 1.5);
+        sceneCol.r = texture2D(tDiffuse, uv - caOffset).r;
+        sceneCol.b = texture2D(tDiffuse, uv + caOffset).b;
       }
 
-      // 3. Chromatic Aberration (RGB Color Channel Split)
-      float caAmount = max(uChromaticAberration, 0.003 + uHighSpeedBlur * 0.008);
-      vec2 caOffset = (uv - 0.5) * caAmount;
-      float rChannel = texture2D(tDiffuse, uv - caOffset).r;
-      float bChannel = texture2D(tDiffuse, uv + caOffset).b;
-      sceneCol.r = rChannel;
-      sceneCol.b = bChannel;
-
-      // 4. Radiant Multi-Tap Neon Bloom (Extract high emissive highlights)
-      if (uBloom > 0.01) {
+      // 4. Razor-Sharp Targeted Neon Bloom (Only ultra-bright emissive lights)
+      if (uBloom > 0.05) {
         vec3 bloomAccum = vec3(0.0);
         vec2 texel = 1.0 / uResolution;
-        float bMul = uBloom * 3.5;
-        float r1 = 2.5 * bMul;
-        float r2 = 6.0 * bMul;
-        float r3 = 11.0 * bMul;
-        float threshold = 0.32; // Low threshold so neon signs and rails bloom richly!
+        float bMul = uBloom * 2.0;
+        float r1 = 3.0 * bMul;
+        float r2 = 7.0 * bMul;
+        float threshold = 0.68; // High threshold preserves pitch-black sky and sharp textures
 
-        bloomAccum += max(texture2D(tDiffuse, uv + vec2(-r1, 0.0) * texel).rgb - threshold, vec3(0.0)) * 0.35;
-        bloomAccum += max(texture2D(tDiffuse, uv + vec2(r1, 0.0) * texel).rgb - threshold, vec3(0.0)) * 0.35;
-        bloomAccum += max(texture2D(tDiffuse, uv + vec2(0.0, -r1) * texel).rgb - threshold, vec3(0.0)) * 0.35;
-        bloomAccum += max(texture2D(tDiffuse, uv + vec2(0.0, r1) * texel).rgb - threshold, vec3(0.0)) * 0.35;
+        bloomAccum += max(texture2D(tDiffuse, uv + vec2(-r1, 0.0) * texel).rgb - threshold, vec3(0.0)) * 0.3;
+        bloomAccum += max(texture2D(tDiffuse, uv + vec2(r1, 0.0) * texel).rgb - threshold, vec3(0.0)) * 0.3;
+        bloomAccum += max(texture2D(tDiffuse, uv + vec2(0.0, -r1) * texel).rgb - threshold, vec3(0.0)) * 0.3;
+        bloomAccum += max(texture2D(tDiffuse, uv + vec2(0.0, r1) * texel).rgb - threshold, vec3(0.0)) * 0.3;
 
-        bloomAccum += max(texture2D(tDiffuse, uv + vec2(-r2, -r2) * texel).rgb - threshold, vec3(0.0)) * 0.25;
-        bloomAccum += max(texture2D(tDiffuse, uv + vec2(r2, r2) * texel).rgb - threshold, vec3(0.0)) * 0.25;
-        bloomAccum += max(texture2D(tDiffuse, uv + vec2(-r3, r3) * texel).rgb - threshold, vec3(0.0)) * 0.18;
-        bloomAccum += max(texture2D(tDiffuse, uv + vec2(r3, -r3) * texel).rgb - threshold, vec3(0.0)) * 0.18;
+        bloomAccum += max(texture2D(tDiffuse, uv + vec2(-r2, -r2) * texel).rgb - threshold, vec3(0.0)) * 0.2;
+        bloomAccum += max(texture2D(tDiffuse, uv + vec2(r2, r2) * texel).rgb - threshold, vec3(0.0)) * 0.2;
 
-        sceneCol += bloomAccum * (0.85 * uBloom);
+        sceneCol += bloomAccum * (0.6 * uBloom);
       }
 
-      // 5. Anime-Cyber Digital Speedlines
-      if (uSpeedLines > 0.05) {
+      // 5. Subtle High-Speed Anime Peripheral Streaks (Only at extreme velocities > 120km/h)
+      if (uSpeedLines > 0.6) {
         vec2 center = vec2(0.5, 0.45);
         vec2 dir = uv - center;
         float dist = length(dir);
-        float angle = atan(dir.y, dir.x);
-        float linePattern = sin(angle * 64.0 + uTime * 24.0);
-        linePattern = smoothstep(0.35, 0.95, linePattern);
-        float mask = smoothstep(0.22, 0.85, dist) * uSpeedLines;
-        vec3 speedLineColor = mix(vec3(0.0, 0.95, 1.0), vec3(1.0, 1.0, 1.0), 0.7);
-        sceneCol += speedLineColor * linePattern * mask * 0.65;
+        // Only show at screen outer border, keeping center razor-sharp
+        if (dist > 0.45) {
+          float angle = atan(dir.y, dir.x);
+          float linePattern = sin(angle * 72.0 + uTime * 28.0);
+          linePattern = smoothstep(0.7, 0.98, linePattern);
+          float mask = smoothstep(0.45, 0.9, dist) * (uSpeedLines - 0.6) * 2.0;
+          vec3 speedLineColor = mix(vec3(0.0, 0.95, 1.0), vec3(1.0, 1.0, 1.0), 0.8);
+          sceneCol += speedLineColor * linePattern * mask * 0.4;
+        }
       }
 
-      // 6. CRT Scanline Overlay (Subtle cyber visor tech aesthetic)
-      float scanline = sin(uv.y * uResolution.y * 0.8) * 0.5 + 0.5;
-      float scanlineFactor = mix(1.0, 0.88 + 0.12 * scanline, clamp(uScanlines, 0.0, 1.0));
-      sceneCol *= scanlineFactor;
+      // 6. Optional Scanlines (Only if enabled)
+      if (uScanlines > 0.1) {
+        float scanline = sin(uv.y * uResolution.y * 0.5) * 0.5 + 0.5;
+        sceneCol *= mix(1.0, 0.94 + 0.06 * scanline, uScanlines);
+      }
 
-      // 7. Cyberpunk High-Contrast Tone Mapping
-      // Deep crush near-black, lift vibrant neon lights to pop
-      sceneCol = pow(sceneCol, vec3(1.15)); // Deep contrast curve
-      sceneCol = sceneCol * (2.8 * sceneCol + 0.1) / (sceneCol * (2.4 * sceneCol + 1.2) + 0.15);
-
-      // Film grain noise
-      float grain = (hash(uv * 1200.0 + fract(uTime * 0.2)) - 0.5) * 0.022;
-      sceneCol += vec3(grain);
+      // 7. Punchy 4K Cyberpunk Tone Curve (Rich contrast & vibrant neon)
+      sceneCol = pow(sceneCol, vec3(1.06));
+      sceneCol = sceneCol * (1.05 * sceneCol + 0.02) / (sceneCol * 1.02 + 0.05);
 
       gl_FragColor = vec4(clamp(sceneCol, 0.0, 1.0), 1.0);
     }

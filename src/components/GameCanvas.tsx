@@ -158,7 +158,7 @@ export const GameCanvas: React.FC<GameCanvasProps> = ({
       powerPreference: 'high-performance',
     });
     renderer.setSize(width, height);
-    renderer.setPixelRatio(Math.min(window.devicePixelRatio, graphicsConfig.preset === 'desktop-full' ? 2 : 1.5));
+    renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2.5));
     renderer.toneMapping = THREE.ACESFilmicToneMapping;
     renderer.toneMappingExposure = 1.05;
     renderer.shadowMap.enabled = graphicsConfig.enableShadows;
@@ -185,14 +185,14 @@ export const GameCanvas: React.FC<GameCanvasProps> = ({
       uniforms: {
         tDiffuse: { value: rt.texture },
         uTime: { value: 0 },
-        uFilmGrain: { value: shaderParams.filmGrainIntensity },
-        uBloom: { value: shaderParams.bloomIntensity },
-        uColorLift: { value: shaderParams.colorLift },
+        uFilmGrain: { value: 0 },
+        uBloom: { value: shaderParams.bloomIntensity ?? 0.35 },
+        uColorLift: { value: shaderParams.colorLift ?? 0.2 },
         uHighSpeedBlur: { value: 0 },
         uSpeedLines: { value: 0 },
         uHeatShimmer: { value: 0 },
-        uChromaticAberration: { value: shaderParams.chromaticAberration ?? 0.005 },
-        uScanlines: { value: shaderParams.scanlineIntensity ?? 0.5 },
+        uChromaticAberration: { value: shaderParams.chromaticAberration ?? 0.0005 },
+        uScanlines: { value: shaderParams.scanlineIntensity ?? 0.0 },
         uGlitch: { value: 0 },
         uResolution: { value: new THREE.Vector2(width * dpr, height * dpr) },
       },
@@ -577,10 +577,10 @@ export const GameCanvas: React.FC<GameCanvasProps> = ({
         const heatShimmerFactor = currentBiome === 'orbital-ring' || currentBiome === 'dunes' ? 1.0 : 0.0;
 
         if (postMaterial.uniforms.uTime) postMaterial.uniforms.uTime.value = timeSeconds;
-        if (postMaterial.uniforms.uHighSpeedBlur) postMaterial.uniforms.uHighSpeedBlur.value = blurFactor * shaderParams.highSpeedBlur;
-        if (postMaterial.uniforms.uBloom) postMaterial.uniforms.uBloom.value = shaderParams.bloomIntensity;
-        if (postMaterial.uniforms.uChromaticAberration) postMaterial.uniforms.uChromaticAberration.value = shaderParams.chromaticAberration ?? 0.005;
-        if (postMaterial.uniforms.uScanlines) postMaterial.uniforms.uScanlines.value = shaderParams.scanlineIntensity ?? 0.5;
+        if (postMaterial.uniforms.uHighSpeedBlur) postMaterial.uniforms.uHighSpeedBlur.value = 0.0;
+        if (postMaterial.uniforms.uBloom) postMaterial.uniforms.uBloom.value = shaderParams.bloomIntensity ?? 0.35;
+        if (postMaterial.uniforms.uChromaticAberration) postMaterial.uniforms.uChromaticAberration.value = shaderParams.chromaticAberration ?? 0.0005;
+        if (postMaterial.uniforms.uScanlines) postMaterial.uniforms.uScanlines.value = shaderParams.scanlineIntensity ?? 0.0;
         if (postMaterial.uniforms.uGlitch) {
           postMaterial.uniforms.uGlitch.value = playerMgr.gameState === 'gameover' ? 0.85 : (shaderParams.glitchIntensity ?? 0.0);
         }
