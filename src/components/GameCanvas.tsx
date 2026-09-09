@@ -396,8 +396,12 @@ export const GameCanvas: React.FC<GameCanvasProps> = ({
       }
 
       // Terrain Uniforms Camera & Time update
-      terrainMgr.terrainMaterial.uniforms.uCameraPos.value.copy(camera.position);
-      terrainMgr.terrainMaterial.uniforms.uTime.value = timeSeconds;
+      if (terrainMgr.terrainMaterial.uniforms.uCameraPos) {
+        terrainMgr.terrainMaterial.uniforms.uCameraPos.value.copy(camera.position);
+      }
+      if (terrainMgr.terrainMaterial.uniforms.uTime) {
+        terrainMgr.terrainMaterial.uniforms.uTime.value = timeSeconds;
+      }
 
       // Render Scene
       if (graphicsConfig.enablePostProcess && rt && postScene && postCamera && postMaterial) {
