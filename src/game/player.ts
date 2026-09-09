@@ -170,38 +170,66 @@ export class PlayerManager {
     this.position.set(0, h + this.hoverHeight, 0);
     this.group.position.copy(this.position);
 
-    // 1. Build Cyberpunk Stealth Hoverboard
+    // 1. Build Authentic Cyberpunk Surfboard
     this.boardMesh = new THREE.Group();
 
-    // Dark matte carbon-fiber deck
-    const boardGeom = new THREE.CylinderGeometry(0.36, 0.44, 2.9, 12);
-    boardGeom.rotateZ(Math.PI / 2);
-    boardGeom.scale(1.0, 0.12, 1.0);
     const boardMat = new THREE.MeshStandardMaterial({
       color: 0x090e18,
-      roughness: 0.22,
-      metalness: 0.85,
+      roughness: 0.18,
+      metalness: 0.88,
     });
+
+    // Surfboard Main Deck (Wide middle, tapered contour)
+    const boardGeom = new THREE.BoxGeometry(0.85, 0.12, 3.2);
     this.boardDeckMesh = new THREE.Mesh(boardGeom, boardMat);
     this.boardMesh.add(this.boardDeckMesh);
 
-    // Glowing Laser-Edge Perimeter Trim
-    const foilGeom = new THREE.BoxGeometry(0.08, 0.22, 2.4);
-    foilGeom.translate(0, -0.1, 0);
-    const foilMat = new THREE.MeshBasicMaterial({ color: 0x00f0ff });
-    this.boardFoilMesh = new THREE.Mesh(foilGeom, foilMat);
-    this.boardMesh.add(this.boardFoilMesh);
-
-    // Sharp Angular Hoverboard Nose
-    const noseGeom = new THREE.ConeGeometry(0.36, 0.75, 6);
+    // Curved Tapered Surfboard Nose (Pointed & curved upward at +Z)
+    const noseGeom = new THREE.ConeGeometry(0.42, 0.9, 8);
     noseGeom.rotateX(Math.PI / 2);
-    noseGeom.scale(1.0, 0.14, 1.0);
+    noseGeom.scale(1.0, 0.12, 1.0);
     const nose = new THREE.Mesh(noseGeom, boardMat);
-    nose.position.set(0, 0, 1.65);
+    nose.position.set(0, 0.02, 1.9);
     this.boardMesh.add(nose);
 
-    // Real-Time Neon Underglow (Down-facing glowing disc casting light onto wet road)
-    const underglowGeom = new THREE.PlaneGeometry(1.4, 3.2);
+    // Glowing Laser-Edge Perimeter Trim
+    const foilGeom = new THREE.BoxGeometry(0.92, 0.14, 3.3);
+    const foilMat = new THREE.MeshBasicMaterial({ color: 0x00f0ff });
+    this.boardFoilMesh = new THREE.Mesh(foilGeom, foilMat);
+    this.boardFoilMesh.position.set(0, -0.01, 0.1);
+    this.boardMesh.add(this.boardFoilMesh);
+
+    // Center Glowing Laser Stringer Line
+    const stringerMat = new THREE.MeshBasicMaterial({ color: 0x00f0ff });
+    const stringer = new THREE.Mesh(new THREE.BoxGeometry(0.06, 0.14, 3.5), stringerMat);
+    stringer.position.set(0, 0.01, 0.1);
+    this.boardMesh.add(stringer);
+
+    // Twin Cyber Keel Fins on Underside Tail
+    const finGeom = new THREE.BoxGeometry(0.04, 0.35, 0.5);
+    const finLeft = new THREE.Mesh(finGeom, boardMat);
+    finLeft.position.set(-0.3, -0.2, -1.2);
+    finLeft.rotation.z = -0.2;
+    this.boardMesh.add(finLeft);
+
+    const finRight = new THREE.Mesh(finGeom, boardMat);
+    finRight.position.set(0.3, -0.2, -1.2);
+    finRight.rotation.z = 0.2;
+    this.boardMesh.add(finRight);
+
+    // Dual Rear Cyber Thruster Nozzles
+    const thrusterGeom = new THREE.CylinderGeometry(0.12, 0.16, 0.35, 8);
+    thrusterGeom.rotateX(Math.PI / 2);
+    const thrusterL = new THREE.Mesh(thrusterGeom, boardMat);
+    thrusterL.position.set(-0.25, -0.04, -1.65);
+    this.boardMesh.add(thrusterL);
+
+    const thrusterR = new THREE.Mesh(thrusterGeom, boardMat);
+    thrusterR.position.set(0.25, -0.04, -1.65);
+    this.boardMesh.add(thrusterR);
+
+    // Real-Time Neon Underglow (Down-facing glowing disc casting light onto road)
+    const underglowGeom = new THREE.PlaneGeometry(1.5, 3.6);
     underglowGeom.rotateX(-Math.PI / 2);
     const underglowMat = new THREE.MeshBasicMaterial({
       color: 0x00f0ff,
@@ -213,92 +241,97 @@ export class PlayerManager {
     this.underglowMesh.position.set(0, -0.16, 0);
     this.boardMesh.add(this.underglowMesh);
 
-    // Real-Time Underglow Point Light (Genuinely illuminates road and obstacles beneath the hoverboard)
+    // Real-Time Underglow Point Light
     this.underglowLight = new THREE.PointLight(0x00f0ff, 2.0, 7.5, 1.8);
     this.underglowLight.position.set(0, -0.22, 0);
     this.boardMesh.add(this.underglowLight);
 
     this.group.add(this.boardMesh);
 
-    // 2. Build Sleek Cybernetic Character Rig (Athletic Carving Stance)
+    // 2. Build Small Robot Surfer (Standing Sideways in Surfing Stance)
     this.characterMesh = new THREE.Group();
 
-    // Armored Torso with angled chest carapace
-    const torsoGeom = new THREE.CapsuleGeometry(0.28, 0.55, 4, 8);
     const armorMat = new THREE.MeshStandardMaterial({
       color: 0x0c1220,
       roughness: 0.22,
       metalness: 0.85,
     });
+    const circuitMat = new THREE.MeshBasicMaterial({ color: 0x00f0ff });
+
+    // Compact Robot Torso
+    const torsoGeom = new THREE.BoxGeometry(0.48, 0.55, 0.35);
     this.torsoMesh = new THREE.Mesh(torsoGeom, armorMat);
-    this.torsoMesh.position.set(0, 0.82, 0);
+    this.torsoMesh.position.set(0, 0.72, 0);
     this.torsoMesh.castShadow = true;
     this.characterMesh.add(this.torsoMesh);
 
-    // Glowing Chest Circuit Inlay
-    const circuitMat = new THREE.MeshBasicMaterial({ color: 0x00f0ff });
-    const chestPlate = new THREE.Mesh(new THREE.BoxGeometry(0.2, 0.22, 0.08), circuitMat);
-    chestPlate.position.set(0, 0.92, 0.24);
+    // Glowing Chest Reactor Core
+    const chestPlate = new THREE.Mesh(new THREE.BoxGeometry(0.24, 0.24, 0.08), circuitMat);
+    chestPlate.position.set(0, 0.76, 0.18);
     this.characterMesh.add(chestPlate);
 
-    // Athletic Surfer Arms (Counterbalance Carve Stance)
+    // Robot Surfer Arms (Outstretched to sides for counterbalance balance)
     this.leftArmMesh = new THREE.Group();
-    this.leftArmMesh.position.set(-0.32, 1.02, -0.05);
-    const leftUpper = new THREE.Mesh(new THREE.CylinderGeometry(0.075, 0.065, 0.42, 6), armorMat);
-    leftUpper.position.set(-0.16, -0.14, -0.15);
-    leftUpper.rotation.set(-0.55, 0, 0.45);
+    this.leftArmMesh.position.set(-0.34, 0.82, 0);
+    const leftUpper = new THREE.Mesh(new THREE.CylinderGeometry(0.06, 0.05, 0.38, 6), armorMat);
+    leftUpper.position.set(-0.16, -0.08, 0);
+    leftUpper.rotation.z = 0.65;
     this.leftArmMesh.add(leftUpper);
-    const leftForearm = new THREE.Mesh(new THREE.CylinderGeometry(0.065, 0.055, 0.38, 6), armorMat);
-    leftForearm.position.set(-0.28, -0.26, -0.32);
-    leftForearm.rotation.set(-0.65, 0, 0.3);
-    this.leftArmMesh.add(leftForearm);
-    const leftBracer = new THREE.Mesh(new THREE.CylinderGeometry(0.075, 0.075, 0.12, 6), circuitMat);
-    leftBracer.position.set(-0.31, -0.3, -0.38);
+    const leftBracer = new THREE.Mesh(new THREE.CylinderGeometry(0.065, 0.065, 0.1, 6), circuitMat);
+    leftBracer.position.set(-0.28, -0.16, 0);
     this.leftArmMesh.add(leftBracer);
     this.characterMesh.add(this.leftArmMesh);
 
     this.rightArmMesh = new THREE.Group();
-    this.rightArmMesh.position.set(0.32, 1.02, 0.05);
-    const rightUpper = new THREE.Mesh(new THREE.CylinderGeometry(0.075, 0.065, 0.42, 6), armorMat);
-    rightUpper.position.set(0.16, -0.14, 0.15);
-    rightUpper.rotation.set(0.55, 0, -0.45);
+    this.rightArmMesh.position.set(0.34, 0.82, 0);
+    const rightUpper = new THREE.Mesh(new THREE.CylinderGeometry(0.06, 0.05, 0.38, 6), armorMat);
+    rightUpper.position.set(0.16, -0.08, 0);
+    rightUpper.rotation.z = -0.65;
     this.rightArmMesh.add(rightUpper);
-    const rightForearm = new THREE.Mesh(new THREE.CylinderGeometry(0.065, 0.055, 0.38, 6), armorMat);
-    rightForearm.position.set(0.28, -0.26, 0.32);
-    rightForearm.rotation.set(0.5, 0, -0.3);
-    this.rightArmMesh.add(rightForearm);
-    const rightBracer = new THREE.Mesh(new THREE.CylinderGeometry(0.075, 0.075, 0.12, 6), circuitMat);
-    rightBracer.position.set(0.31, -0.3, 0.38);
+    const rightBracer = new THREE.Mesh(new THREE.CylinderGeometry(0.065, 0.065, 0.1, 6), circuitMat);
+    rightBracer.position.set(0.28, -0.16, 0);
     this.rightArmMesh.add(rightBracer);
     this.characterMesh.add(this.rightArmMesh);
 
-    // Deep Carving Surf Stance Legs (Bent knees, angled feet)
-    const leftLeg = new THREE.Mesh(new THREE.CylinderGeometry(0.095, 0.075, 0.62, 6), armorMat);
-    leftLeg.position.set(-0.18, 0.32, -0.22);
-    leftLeg.rotation.set(-0.25, 0, 0.18);
+    // Sideways Surfing Robot Legs (Feet planted across deck, knees bent)
+    const legGeom = new THREE.CylinderGeometry(0.08, 0.065, 0.52, 6);
+    const leftLeg = new THREE.Mesh(legGeom, armorMat);
+    leftLeg.position.set(-0.16, 0.28, -0.38);
+    leftLeg.rotation.x = -0.22;
     this.characterMesh.add(leftLeg);
 
-    const rightLeg = new THREE.Mesh(new THREE.CylinderGeometry(0.095, 0.075, 0.62, 6), armorMat);
-    rightLeg.position.set(0.16, 0.32, 0.22);
-    rightLeg.rotation.set(0.28, 0, -0.18);
+    const rightLeg = new THREE.Mesh(legGeom, armorMat);
+    rightLeg.position.set(0.16, 0.28, 0.38);
+    rightLeg.rotation.x = 0.22;
     this.characterMesh.add(rightLeg);
 
-    // Aerodynamic Cyber Helmet
-    const helmGeom = new THREE.SphereGeometry(0.24, 12, 12);
+    // Robot Head with Dual Glowing Eye Lenses & Laser Visor
+    const helmGeom = new THREE.BoxGeometry(0.38, 0.32, 0.32);
     this.headMesh = new THREE.Mesh(helmGeom, armorMat);
-    this.headMesh.position.set(0, 1.35, 0.04);
+    this.headMesh.position.set(0, 1.15, 0);
     this.characterMesh.add(this.headMesh);
 
+    // Dual Glowing Robot Eye Lenses
+    const eyeGeom = new THREE.CylinderGeometry(0.05, 0.05, 0.06, 8);
+    eyeGeom.rotateX(Math.PI / 2);
+    const eyeMat = new THREE.MeshBasicMaterial({ color: 0x00f0ff });
+    const eyeL = new THREE.Mesh(eyeGeom, eyeMat);
+    eyeL.position.set(-0.09, 1.18, 0.17);
+    this.characterMesh.add(eyeL);
+
+    const eyeR = new THREE.Mesh(eyeGeom, eyeMat);
+    eyeR.position.set(0.09, 1.18, 0.17);
+    this.characterMesh.add(eyeR);
+
     // Thin Glowing Laser Visor Line
-    const visorGeom = new THREE.BoxGeometry(0.38, 0.045, 0.22);
-    const visorMat = new THREE.MeshBasicMaterial({ color: 0x00f0ff });
-    this.visorMesh = new THREE.Mesh(visorGeom, visorMat);
-    this.visorMesh.position.set(0, 1.38, 0.18);
+    const visorGeom = new THREE.BoxGeometry(0.34, 0.04, 0.18);
+    this.visorMesh = new THREE.Mesh(visorGeom, eyeMat);
+    this.visorMesh.position.set(0, 1.12, 0.16);
     this.characterMesh.add(this.visorMesh);
 
-    // Short Glowing Energy-Trail Cape / Scarf
-    const capeGeom = new THREE.PlaneGeometry(0.42, 0.95, 2, 4);
-    capeGeom.translate(0, -0.48, 0);
+    // Short Energy Trail Scarf / Cape
+    const capeGeom = new THREE.PlaneGeometry(0.38, 0.85, 2, 4);
+    capeGeom.translate(0, -0.42, 0);
     const capeMat = new THREE.MeshBasicMaterial({
       color: 0x00f0ff,
       side: THREE.DoubleSide,
@@ -306,9 +339,11 @@ export class PlayerManager {
       opacity: 0.88,
     });
     this.capeMesh = new THREE.Mesh(capeGeom, capeMat);
-    this.capeMesh.position.set(0, 1.15, -0.22);
+    this.capeMesh.position.set(0, 0.98, -0.18);
     this.characterMesh.add(this.capeMesh);
 
+    // Orient Robot Sideways on surfboard deck (Surfing Stance facing side!)
+    this.characterMesh.rotation.y = Math.PI / 2.2;
     this.group.add(this.characterMesh);
 
     // 3. Autonomous Cyber Drone Companion (Stable Hovering Recon Drone)
@@ -863,7 +898,7 @@ export class PlayerManager {
 
     this.characterMesh.rotation.z = -this.carveAngle * 0.9;
     this.characterMesh.rotation.x = slidePitch;
-    this.characterMesh.rotation.y = -this.carveAngle * 0.4 + (this.isGrounded ? 0.35 : this.spinAngle);
+    this.characterMesh.rotation.y = Math.PI / 2.2 - this.carveAngle * 0.4 + (this.isGrounded ? 0 : this.spinAngle);
     this.characterMesh.position.y = slideCrouchY;
 
     // Cyber Recon Drone Companion stable hover/bob beside player shoulder (No yaw-spin-away bug)
