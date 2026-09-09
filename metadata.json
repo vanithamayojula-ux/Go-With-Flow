@@ -1,0 +1,6 @@
+{
+  "name": "Skyflow: Endless Planet Surf",
+  "description": "Ghibli-inspired endless planet surf game featuring handcrafted painterly nature, dynamic vertex wind foliage, layered procedural skies, tri-planar terrain, and real-time graphics controls.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
