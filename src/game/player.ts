@@ -98,8 +98,8 @@ export class PlayerManager {
 
   // Stats
   stats: PlayerStats = {
-    speed: 24,
-    maxSpeed: 52,
+    speed: 50,
+    maxSpeed: 150,
     distance: 0,
     score: 0,
     highScore: 0,
@@ -136,7 +136,8 @@ export class PlayerManager {
 
   // Physics State
   position = new THREE.Vector3();
-  velocity = new THREE.Vector3(0, 0, 24);
+  velocity = new THREE.Vector3(0, 0, 14);
+  warpTimer = 0;
   jumpVelocity = 0;
   hoverHeight = 0.55;
   normal = new THREE.Vector3(0, 1, 0);
@@ -641,17 +642,31 @@ export class PlayerManager {
     if (audioManager) audioManager.playOrbChime();
   }
 
+  triggerPortalWarp(targetBiome: BiomeType, audioManager?: AudioManager | null) {
+    this.warpTimer = 1.4;
+    this.stats.warpTimer = 1.4;
+    this.stats.currentBiome = targetBiome;
+    this.stats.score += 1500;
+    this.overdriveMeter = Math.min(100, this.overdriveMeter + 30);
+    this.velocity.z = Math.min(this.velocity.z + 10.0, 65.0);
+    this.triggerBiomePullBack();
+    if (audioManager) {
+      audioManager.playBoostGate();
+    }
+  }
+
   resetRun() {
     const h = getTerrainHeight(0, 0);
     this.currentLane = 0;
     this.targetLaneX = 0;
     this.position.set(0, h + this.hoverHeight, 0);
-    this.velocity.set(0, 0, 24);
+    this.velocity.set(0, 0, 14);
     this.jumpVelocity = 0;
     this.isGrounded = true;
     this.isSliding = false;
     this.slideTimer = 0;
     this.boostTimer = 0;
+    this.warpTimer = 0;
     this.isGrinding = false;
     this.overdriveMeter = 25.0;
     this.activePowerUps = { magnetTimer: 0, jetpackTimer: 0, hoverboardShield: false, multiplierTimer: 0 };
@@ -839,16 +854,25 @@ export class PlayerManager {
     }
     this.carveAngle = THREE.MathUtils.lerp(this.carveAngle, (this.targetLaneX - this.position.x) * 0.16, 20.0 * effectiveDt);
 
-    // Target Velocity calculation
-    let targetSpeed = 26.0;
-    if (input.forward) targetSpeed = 38.0;
-    if (this.stats.isBoosting) targetSpeed = 48.0;
-    if (this.isGrinding) targetSpeed = 36.0;
+    // Warp timer countdown
+    if (this.warpTimer > 0) {
+      this.warpTimer -= effectiveDt;
+      this.stats.warpTimer = this.warpTimer;
+    }
 
-    const overdriveBonus = (this.overdriveMeter / 100) * 8.0;
+    // Dynamic distance-based speed scaling: starting at ~14.0, ramping up smoothly as distance increases
+    const distanceKm = this.stats.distance / 1000;
+    const distanceSpeedBonus = Math.min(32.0, distanceKm * 5.0);
+    let targetSpeed = 14.0 + distanceSpeedBonus;
+
+    if (input.forward) targetSpeed += 12.0;
+    if (this.stats.isBoosting) targetSpeed += 18.0;
+    if (this.isGrinding) targetSpeed += 8.0;
+
+    const overdriveBonus = (this.overdriveMeter / 100) * 10.0;
     targetSpeed += overdriveBonus;
 
-    this.velocity.z = THREE.MathUtils.lerp(this.velocity.z, targetSpeed, 4.0 * effectiveDt);
+    this.velocity.z = THREE.MathUtils.lerp(this.velocity.z, targetSpeed, 3.5 * effectiveDt);
 
     // Step 4: Anti-Gravity Physics (Minimal change: clamp vertical position within bounds)
     if (input.jump && this.isGrounded) {

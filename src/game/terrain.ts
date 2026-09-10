@@ -6,23 +6,49 @@ import { createCyberBuildingTexture, createCyberBillboardTexture } from '../grap
 export const CHUNK_SIZE = 80;
 export const CHUNK_SEGMENTS = 24;
 
+let activeBiomeOverride: BiomeType | null = null;
+
+export function setActiveBiome(biome: BiomeType | null) {
+  activeBiomeOverride = biome;
+}
+
 export function getBiomeAt(z: number): BiomeType {
+  if (activeBiomeOverride) {
+    return activeBiomeOverride;
+  }
   const normalizedZ = Math.max(0, z);
-  const cycle = Math.floor(normalizedZ / 750) % 4;
-  if (cycle === 0) return 'neon-undercity';
-  if (cycle === 1) return 'orbital-ring';
-  if (cycle === 2) return 'the-grid';
-  return 'derelict-station';
+  const cycle = Math.floor(normalizedZ / 600) % 7;
+  switch (cycle) {
+    case 0: return 'neon-undercity';
+    case 1: return 'quantum-desert';
+    case 2: return 'cyber-forest';
+    case 3: return 'orbital-ring';
+    case 4: return 'the-grid';
+    case 5: return 'volcanic-forge';
+    case 6: return 'crystal-glacier';
+    default: return 'neon-undercity';
+  }
 }
 
 export function getBiomeFriction(biome: BiomeType): number {
   switch (biome) {
     case 'neon-undercity':
       return 0.02; // Slick wet asphalt
+    case 'quantum-desert':
+    case 'dunes':
+      return 0.025; // Golden sand resistance
+    case 'cyber-forest':
+    case 'forest':
+      return 0.02; // Bioluminescent moss plane
     case 'orbital-ring':
+    case 'sky-islands':
       return 0.01; // Frictionless zero-g magnetic guide
     case 'the-grid':
       return 0.015; // Smooth digital vector plane
+    case 'volcanic-forge':
+      return 0.03; // Magma obsidian crust
+    case 'crystal-glacier':
+      return 0.008; // Ultra-slick crystal ice
     case 'derelict-station':
       return 0.035; // Gritty industrial metal plating
     default:
@@ -33,18 +59,22 @@ export function getBiomeFriction(biome: BiomeType): number {
 export function getTerrainHeight(x: number, z: number): number {
   const biome = getBiomeAt(z);
 
-  // Smooth undulating highway elevation with gentle speed dips
-  if (biome === 'orbital-ring') {
-    // Grand rolling parabolic space ring dips
+  if (biome === 'orbital-ring' || biome === 'sky-islands') {
     return Math.sin(z * 0.015) * 4.5 + Math.cos(z * 0.008) * 3.0;
   } else if (biome === 'the-grid') {
-    // Laser-flat Tron digital highway with stepped ramps
     return Math.floor(Math.sin(z * 0.02) * 2.0) * 1.5;
+  } else if (biome === 'volcanic-forge') {
+    return Math.sin(z * 0.03) * 5.0 + Math.cos(z * 0.015) * 2.5;
+  } else if (biome === 'crystal-glacier') {
+    return Math.sin(z * 0.01) * 6.0 + Math.sin(x * 0.05) * 1.5;
+  } else if (biome === 'quantum-desert' || biome === 'dunes') {
+    return Math.sin(z * 0.02) * 4.0 + Math.cos(x * 0.04) * 2.0;
+  } else if (biome === 'cyber-forest' || biome === 'forest') {
+    return Math.sin(z * 0.025) * 3.0 + Math.sin(z * 0.01) * 2.0;
   } else if (biome === 'derelict-station') {
-    // Gritty industrial elevation changes
     return Math.sin(z * 0.025) * 3.0 + Math.cos(z * 0.04) * 1.2;
   } else {
-    // Neon Undercity: Gentle city canyon slope
+    // Neon Undercity
     return Math.sin(z * 0.018) * 3.5;
   }
 }

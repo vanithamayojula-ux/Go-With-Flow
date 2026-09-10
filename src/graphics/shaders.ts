@@ -269,6 +269,7 @@ export const PostProcessShader = {
     uniform float uGlitch;
     uniform float uSpeedLines;
     uniform float uHighSpeedBlur;
+    uniform float uWarpIntensity;
     uniform vec2 uResolution;
     varying vec2 vUv;
 
@@ -278,6 +279,18 @@ export const PostProcessShader = {
 
     void main() {
       vec2 uv = vUv;
+
+      // 0. Radial Portal Vortex Warp Distortion
+      if (uWarpIntensity > 0.01) {
+        vec2 center = vec2(0.5, 0.5);
+        vec2 distVec = uv - center;
+        float r = length(distVec);
+        float angle = atan(distVec.y, distVec.x);
+        float twist = uWarpIntensity * 4.0 * (1.0 - smoothstep(0.0, 0.8, r));
+        angle += twist;
+        float scale = 1.0 - uWarpIntensity * 0.35 * (1.0 - r);
+        uv = center + vec2(cos(angle), sin(angle)) * r * scale;
+      }
 
       // 1. Digital Glitch Horizontal Tear (Active during boost burst, combos, or collision stumble)
       if (uGlitch > 0.02) {
@@ -293,11 +306,18 @@ export const PostProcessShader = {
       vec3 sceneCol = texture2D(tDiffuse, uv).rgb;
 
       // 3. Chromatic Aberration (RGB Channel Fringing)
-      if (uChromaticAberration > 0.0001) {
+      float effCA = uChromaticAberration + uWarpIntensity * 0.012;
+      if (effCA > 0.0001) {
         float dist = length(uv - 0.5);
-        vec2 caOffset = (uv - 0.5) * (uChromaticAberration * (dist * 1.8 + 0.2));
+        vec2 caOffset = (uv - 0.5) * (effCA * (dist * 1.8 + 0.2));
         sceneCol.r = texture2D(tDiffuse, uv - caOffset).r;
         sceneCol.b = texture2D(tDiffuse, uv + caOffset).b;
+      }
+
+      // Portal warp flash aura
+      if (uWarpIntensity > 0.05) {
+        vec3 warpFlash = mix(vec3(0.0, 0.95, 1.0), vec3(1.0, 0.0, 0.8), sin(uTime * 15.0) * 0.5 + 0.5);
+        sceneCol += warpFlash * uWarpIntensity * 0.45;
       }
 
       // 4. Genuine Neon Bloom Halo (Emissive materials genuinely bleed light into surrounding dark pixels)
@@ -333,7 +353,8 @@ export const PostProcessShader = {
       }
 
       // 5. Digital High-Speed Peripheral Laser Rays (Sharp & high-contrast, not blurry)
-      if (uSpeedLines > 0.05) {
+      float effSpeedLines = max(uSpeedLines, uWarpIntensity * 1.2);
+      if (effSpeedLines > 0.05) {
         vec2 center = vec2(0.5, 0.45);
         vec2 dir = uv - center;
         float dist = length(dir);
@@ -341,7 +362,7 @@ export const PostProcessShader = {
           float angle = atan(dir.y, dir.x);
           float linePattern = sin(angle * 96.0 + uTime * 32.0);
           linePattern = smoothstep(0.78, 0.99, linePattern);
-          float mask = smoothstep(0.32, 0.92, dist) * uSpeedLines;
+          float mask = smoothstep(0.32, 0.92, dist) * effSpeedLines;
           vec3 speedLineColor = mix(vec3(0.0, 0.95, 1.0), vec3(1.0, 1.0, 1.0), 0.7);
           sceneCol += speedLineColor * linePattern * mask * 0.65;
         }

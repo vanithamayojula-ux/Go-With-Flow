@@ -1,0 +1,19 @@
+warning: in the working copy of 'push_report.txt', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'src/components/GameCanvas.tsx', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'src/game/player.ts', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'git_push_nomad.bat', LF will be replaced by CRLF the next time Git touches it
+[main 5553058] fix: resolve control direction and implement desert nomad sand surfer character model
+ 5 files changed, 174 insertions(+), 117 deletions(-)
+ create mode 100644 git_push_nomad.bat
+ create mode 100644 push_log_nomad.txt
+To https://github.com/vanithamayojula-ux/Go-With-Flow.git
+   4367873..5553058  main -> main
+On branch main
+Your branch is up to date with 'origin/main'.
+
+Changes not staged for commit:
+  (use "git add <file>..." to update what will be committed)
+  (use "git restore <file>..." to discard changes in working directory)
+	modified:   push_log_nomad.txt
+
+no changes added to commit (use "git add" and/or "git commit -a")

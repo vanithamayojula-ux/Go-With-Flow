@@ -65,14 +65,25 @@ export const GameHUD: React.FC<GameHUDProps> = ({
 
   const getBiomeBadge = (biome: BiomeType) => {
     switch (biome) {
+      case 'quantum-desert':
+      case 'dunes':
+        return { name: 'QUANTUM DESERT // SOLAR DUNES', tag: 'ZONE-02', color: 'border-amber-400 text-amber-300' };
+      case 'cyber-forest':
+      case 'forest':
+        return { name: 'CYBER FOREST // BIOLUMINESCENT', tag: 'ZONE-03', color: 'border-emerald-400 text-emerald-300' };
       case 'orbital-ring':
-        return { name: 'ORBITAL RING // ZERO-G', tag: 'ZONE-02', color: 'border-cyan-400 text-cyan-300' };
+      case 'sky-islands':
+        return { name: 'ORBITAL RING // ZERO-G', tag: 'ZONE-04', color: 'border-cyan-400 text-cyan-300' };
       case 'the-grid':
-        return { name: 'THE GRID // VECTOR VOID', tag: 'ZONE-03', color: 'border-emerald-400 text-emerald-300' };
+        return { name: 'THE GRID // VECTOR VOID', tag: 'ZONE-05', color: 'border-pink-400 text-pink-300' };
+      case 'volcanic-forge':
+        return { name: 'VOLCANIC FORGE // MAGMA CORE', tag: 'ZONE-06', color: 'border-red-400 text-red-300' };
+      case 'crystal-glacier':
+        return { name: 'CRYSTAL GLACIER // FROST REALM', tag: 'ZONE-07', color: 'border-sky-300 text-sky-200' };
       case 'derelict-station':
-        return { name: 'DERELICT // STATION-09', tag: 'ZONE-04', color: 'border-amber-400 text-amber-300' };
+        return { name: 'DERELICT // STATION-09', tag: 'ZONE-08', color: 'border-yellow-500 text-yellow-300' };
       default:
-        return { name: 'NEON UNDERCITY // SECTOR-07', tag: 'ZONE-01', color: 'border-fuchsia-400 text-fuchsia-300' };
+        return { name: 'NEON UNDERCITY // SECTOR-01', tag: 'ZONE-01', color: 'border-fuchsia-400 text-fuchsia-300' };
     }
   };
 

@@ -8,15 +8,25 @@ export type LightingMode =
   | 'toxic-matrix'
   | 'golden-hour'
   | 'morning'
-  | 'bright-day';
+  | 'bright-day'
+  | 'volcanic-red'
+  | 'crystal-ice';
 
 export type QualityPreset = 'desktop-full' | 'mobile-opt' | 'webgl-min';
 
 export type BiomeType =
   | 'neon-undercity'
+  | 'quantum-desert'
+  | 'cyber-forest'
   | 'orbital-ring'
   | 'the-grid'
-  | 'derelict-station';
+  | 'volcanic-forge'
+  | 'crystal-glacier'
+  | 'derelict-station'
+  | 'meadow'
+  | 'dunes'
+  | 'sky-islands'
+  | 'forest';
 
 export type TrickType = 'spin' | 'flip' | 'grab' | 'pose';
 
@@ -69,6 +79,7 @@ export interface ShaderParams {
   scanlineIntensity?: number;
   glitchIntensity?: number;
   wetRoadReflections?: number;
+  warpIntensity?: number;
 }
 
 export interface GraphicsConfig {
@@ -99,7 +110,8 @@ export type ObstacleType =
   | 'spirit-train-ramp'
   | 'moving-horizontal-barrier'
   | 'falling-security-block'
-  | 'pulsing-laser-beam';
+  | 'pulsing-laser-beam'
+  | 'world-portal';
 
 export type PowerUpType =
   | 'quantum-magnet'
@@ -145,6 +157,7 @@ export interface PlayerStats {
   slowMoActive: boolean;
   isOnFloatingIsland: boolean;
   isBiomeTransitioning?: boolean;
+  warpTimer?: number;
   weather?: 'clear' | 'light-rain' | 'pollen-drift';
 
   // Cyber Navigation & Rail Grinding
@@ -176,4 +189,5 @@ export interface TerrainChunkData {
   chunkZ: number;
   mesh: unknown;
 }
+
 

@@ -23,6 +23,8 @@ export interface ObstacleInstance {
   rampStartZ?: number;
   isGrindRail?: boolean;
   isBoostGate?: boolean;
+  isPortal?: boolean;
+  targetBiome?: BiomeType;
   baseX?: number;
   nearMissAwarded?: boolean;
   cleared: boolean;
@@ -164,7 +166,29 @@ export class ObstacleManager {
     this.cullOldInstances(playerZ - 40);
   }
 
+  lastPortalZ = 120;
+  portalBiomes: BiomeType[] = [
+    'volcanic-forge',
+    'crystal-glacier',
+    'quantum-desert',
+    'cyber-forest',
+    'orbital-ring',
+    'the-grid',
+    'neon-undercity',
+  ];
+  portalIndex = 0;
+
   private spawnSection(z: number) {
+    // Periodically spawn a World Portal Gateway every ~280-380 meters
+    if (z - this.lastPortalZ > 300 + Math.random() * 80) {
+      this.lastPortalZ = z;
+      const lane: LaneIndex = (Math.floor(Math.random() * 3) - 1) as LaneIndex;
+      const targetBiome = this.portalBiomes[this.portalIndex % this.portalBiomes.length];
+      this.portalIndex++;
+      this.spawnWorldPortal(lane, z, targetBiome);
+      return;
+    }
+
     const roll = Math.random();
 
     if (roll < 0.14) {
@@ -569,6 +593,67 @@ export class ObstacleManager {
     this.spawnDataShardLine(lane, z - 8, 5, y + 3.4);
   }
 
+  private spawnWorldPortal(lane: LaneIndex, z: number, targetBiome: BiomeType) {
+    const x = getLaneX(lane);
+    const y = getTerrainHeight(x, z);
+
+    const group = new THREE.Group();
+
+    const portalColors: Record<string, number> = {
+      'volcanic-forge': 0xff3300,
+      'crystal-glacier': 0x00f7ff,
+      'quantum-desert': 0xffaa00,
+      'cyber-forest': 0x00ff88,
+      'orbital-ring': 0xff00aa,
+      'the-grid': 0x00ff66,
+      'neon-undercity': 0x00f0ff,
+    };
+    const pColor = portalColors[targetBiome] || 0x00f0ff;
+
+    const ringMat = new THREE.MeshBasicMaterial({ color: pColor });
+    const ring = new THREE.Mesh(new THREE.TorusGeometry(3.0, 0.35, 12, 32), ringMat);
+    ring.position.set(0, 2.6, 0);
+    group.add(ring);
+
+    const vortexMat = new THREE.MeshBasicMaterial({
+      color: pColor,
+      transparent: true,
+      opacity: 0.85,
+      blending: THREE.AdditiveBlending,
+      side: THREE.DoubleSide,
+    });
+    const vortex = new THREE.Mesh(new THREE.CircleGeometry(2.8, 24), vortexMat);
+    vortex.position.set(0, 2.6, 0);
+    group.add(vortex);
+
+    const outerRingMat = new THREE.MeshBasicMaterial({
+      color: 0xffffff,
+      wireframe: true,
+    });
+    const outerRing = new THREE.Mesh(new THREE.TorusGeometry(3.6, 0.1, 8, 24), outerRingMat);
+    outerRing.position.set(0, 2.6, 0);
+    group.add(outerRing);
+
+    group.position.set(x, y, z);
+    this.scene.add(group);
+
+    this.obstacles.push({
+      id: `portal_${this.nextObstacleId++}`,
+      type: 'world-portal',
+      lane,
+      x,
+      y,
+      z,
+      width: 4.8,
+      height: 5.2,
+      depth: 1.5,
+      mesh: group,
+      isPortal: true,
+      targetBiome,
+      cleared: false,
+    });
+  }
+
   // --- Collectible Data Shards ---
 
   private spawnDataShardLine(lane: LaneIndex, startZ: number, count: number, customY?: number) {
@@ -662,6 +747,7 @@ export class ObstacleManager {
     crashedObstacle?: ObstacleInstance;
     isGrinding: boolean;
     hitBoostGate: boolean;
+    hitPortal?: { targetBiome: BiomeType };
     collectedCoins: number;
     collectedPowerUp?: PowerUpType;
   } {
@@ -671,6 +757,7 @@ export class ObstacleManager {
     let crashedObstacle: ObstacleInstance | undefined;
     let isGrinding = false;
     let hitBoostGate = false;
+    let hitPortal: { targetBiome: BiomeType } | undefined;
     let collectedCoins = 0;
     let collectedPowerUp: PowerUpType | undefined;
 
@@ -715,6 +802,15 @@ export class ObstacleManager {
 
       const halfWidth = obs.width / 2 + 0.5;
       const dx = playerPos.x - obs.x;
+
+      // Handle World Portals
+      if (obs.isPortal || obs.type === 'world-portal') {
+        if (Math.abs(dz) < 2.2 && Math.abs(dx) < 3.2) {
+          hitPortal = { targetBiome: obs.targetBiome || 'volcanic-forge' };
+          obs.cleared = true;
+        }
+        continue;
+      }
 
       // Near-Miss Style Bonus detection (passing close without hitting)
       if (!obs.nearMissAwarded && !obs.isGrindRail && !obs.isBoostGate) {
@@ -794,7 +890,7 @@ export class ObstacleManager {
       }
     }
 
-    return { hasCrashed, hasStumbled, nearMiss, crashedObstacle, isGrinding, hitBoostGate, collectedCoins, collectedPowerUp };
+    return { hasCrashed, hasStumbled, nearMiss, crashedObstacle, isGrinding, hitBoostGate, hitPortal, collectedCoins, collectedPowerUp };
   }
 
   // Magnet effect: attract nearby data shards

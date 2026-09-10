@@ -1,6 +1,6 @@
 import React, { useEffect, useRef } from 'react';
 import * as THREE from 'three';
-import { TerrainManager } from '../game/terrain';
+import { TerrainManager, setActiveBiome } from '../game/terrain';
 import { FoliageManager } from '../game/foliage';
 import { SkyManager, LIGHTING_PRESETS } from '../game/sky';
 import { PlayerManager } from '../game/player';
@@ -194,6 +194,7 @@ export const GameCanvas: React.FC<GameCanvasProps> = ({
         uChromaticAberration: { value: shaderParams.chromaticAberration ?? 0.0005 },
         uScanlines: { value: shaderParams.scanlineIntensity ?? 0.0 },
         uGlitch: { value: 0 },
+        uWarpIntensity: { value: 0 },
         uResolution: { value: new THREE.Vector2(width * dpr, height * dpr) },
       },
       depthWrite: false,
@@ -430,6 +431,25 @@ export const GameCanvas: React.FC<GameCanvasProps> = ({
 
         const collision = obstacleMgr.checkCollisions(playerMgr.position, playerMgr.isSliding);
 
+        // World Portal Warp
+        if (collision.hitPortal) {
+          const target = collision.hitPortal.targetBiome;
+          setActiveBiome(target);
+          playerMgr.triggerPortalWarp(target, audio);
+          boostGlitchTimer = 0.85;
+          const bNameMap: Record<string, string> = {
+            'neon-undercity': 'NEON UNDERCITY // SECTOR 01',
+            'quantum-desert': 'QUANTUM DESERT // SOLAR DUNES',
+            'cyber-forest': 'CYBER FOREST // BIOLUMINESCENT CANOPY',
+            'orbital-ring': 'ORBITAL RING // STRATOSPHERE',
+            'the-grid': 'THE GRID // VECTOR CYBERSPACE',
+            'volcanic-forge': 'VOLCANIC FORGE // MAGMA OBSIDIAN CORE',
+            'crystal-glacier': 'CRYSTAL GLACIER // FROST REALM',
+            'derelict-station': 'DERELICT STATION // HAZARD ZONE',
+          };
+          onNotification(`🌀 PORTAL WARP! ENTERING ${bNameMap[target] || target}!`);
+        }
+
         // Boost Gate acceleration
         if (collision.hitBoostGate) {
           playerMgr.applyBoostGateHit(audio);
@@ -504,15 +524,19 @@ export const GameCanvas: React.FC<GameCanvasProps> = ({
         lastBiomeRef.current = currentBiome;
         playerMgr.triggerBiomePullBack(); // Cinematic wide establishing shot pull-back!
         audio.playBiomeShiftSound(currentBiome);
-        const biomeNames: Record<BiomeType, string> = {
+        const biomeNames: Record<string, string> = {
           'neon-undercity': 'NEON UNDERCITY // SECTOR 01',
+          'quantum-desert': 'QUANTUM DESERT // SOLAR DUNES',
+          'cyber-forest': 'CYBER FOREST // BIOLUMINESCENT CANOPY',
           'orbital-ring': 'ORBITAL RING // STRATOSPHERE',
           'the-grid': 'THE GRID // VECTOR CYBERSPACE',
+          'volcanic-forge': 'VOLCANIC FORGE // MAGMA OBSIDIAN CORE',
+          'crystal-glacier': 'CRYSTAL GLACIER // FROST REALM',
           'derelict-station': 'DERELICT STATION // HAZARD ZONE',
           meadow: 'NEON UNDERCITY // SECTOR 01',
-          dunes: 'ORBITAL RING // STRATOSPHERE',
-          'sky-islands': 'THE GRID // VECTOR CYBERSPACE',
-          forest: 'DERELICT STATION // HAZARD ZONE',
+          dunes: 'QUANTUM DESERT // SOLAR DUNES',
+          'sky-islands': 'ORBITAL RING // STRATOSPHERE',
+          forest: 'CYBER FOREST // BIOLUMINESCENT CANOPY',
         };
         onNotification(`Entering ${biomeNames[currentBiome] || currentBiome}!`);
       }
@@ -628,6 +652,9 @@ export const GameCanvas: React.FC<GameCanvasProps> = ({
         if (postMaterial.uniforms.uChromaticAberration) postMaterial.uniforms.uChromaticAberration.value = chromaticAberration;
         if (postMaterial.uniforms.uScanlines) postMaterial.uniforms.uScanlines.value = shaderParams.scanlineIntensity ?? 0.0;
         if (postMaterial.uniforms.uGlitch) postMaterial.uniforms.uGlitch.value = glitchIntensity;
+        if (postMaterial.uniforms.uWarpIntensity) {
+          postMaterial.uniforms.uWarpIntensity.value = playerMgr.warpTimer > 0 ? playerMgr.warpTimer * 0.75 : 0.0;
+        }
         if (postMaterial.uniforms.uSpeedLines) {
           postMaterial.uniforms.uSpeedLines.value = playerMgr.stats.isBoosting ? 1.0 : speedLinesFactor;
         }
