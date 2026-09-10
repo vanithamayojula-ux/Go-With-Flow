@@ -724,5 +724,157 @@ export function createEmissiveStripTexture(glowColor = '#00f0ff'): THREE.CanvasT
   return texture;
 }
 
+export function createCyberSkaterSpriteTexture(): THREE.CanvasTexture {
+  const canvas = document.createElement('canvas');
+  canvas.width = 256;
+  canvas.height = 256;
+  const ctx = canvas.getContext('2d')!;
+
+  ctx.clearRect(0, 0, 256, 256);
+  const cx = 128;
+
+  // 1. Neon Cyan Underglow (Soft radial glow under board)
+  const glowGrad = ctx.createRadialGradient(cx, 215, 10, cx, 215, 80);
+  glowGrad.addColorStop(0, 'rgba(0, 240, 255, 0.85)');
+  glowGrad.addColorStop(0.5, 'rgba(0, 240, 255, 0.35)');
+  glowGrad.addColorStop(1, 'rgba(0, 240, 255, 0.0)');
+  ctx.fillStyle = glowGrad;
+  ctx.beginPath();
+  ctx.ellipse(cx, 215, 80, 25, 0, 0, Math.PI * 2);
+  ctx.fill();
+
+  // 2. Hover Skateboard Deck (Dark composite body + cyan neon edge)
+  ctx.fillStyle = '#0e1622';
+  ctx.strokeStyle = '#00f0ff';
+  ctx.lineWidth = 4;
+  ctx.shadowColor = '#00f0ff';
+  ctx.shadowBlur = 12;
+
+  ctx.beginPath();
+  ctx.ellipse(cx, 195, 75, 12, 0, 0, Math.PI * 2);
+  ctx.fill();
+  ctx.stroke();
+
+  // 4 Bottom Hover Thruster Rings (Glowing cyan rings matching reference image)
+  ctx.shadowBlur = 15;
+  ctx.fillStyle = '#00f0ff';
+  [-50, -20, 20, 50].forEach(ox => {
+    ctx.beginPath();
+    ctx.arc(cx + ox, 202, 7, 0, Math.PI * 2);
+    ctx.fill();
+  });
+
+  // Top Deck Central Glowing Cyan Triangle Emblem
+  ctx.fillStyle = '#00f0ff';
+  ctx.beginPath();
+  ctx.moveTo(cx, 189);
+  ctx.lineTo(cx - 10, 198);
+  ctx.lineTo(cx + 10, 198);
+  ctx.closePath();
+  ctx.fill();
+
+  // 3. Cyber Skater Rider Body & Legs
+  ctx.shadowBlur = 0;
+
+  // Sneakers (Black high-tops with glowing cyan soles)
+  ctx.fillStyle = '#00f0ff';
+  ctx.shadowColor = '#00f0ff';
+  ctx.shadowBlur = 8;
+  ctx.fillRect(cx - 52, 187, 24, 7);
+  ctx.fillRect(cx + 28, 187, 24, 7);
+
+  ctx.fillStyle = '#121824';
+  ctx.shadowBlur = 0;
+  ctx.fillRect(cx - 50, 175, 20, 13);
+  ctx.fillRect(cx + 30, 175, 20, 13);
+
+  // Cargo Pants (Dark navy/black pants)
+  ctx.fillStyle = '#0a0d14';
+  ctx.beginPath();
+  ctx.moveTo(cx - 42, 175);
+  ctx.lineTo(cx - 20, 120);
+  ctx.lineTo(cx + 20, 120);
+  ctx.lineTo(cx + 42, 175);
+  ctx.lineTo(cx + 26, 175);
+  ctx.lineTo(cx, 135);
+  ctx.lineTo(cx - 26, 175);
+  ctx.closePath();
+  ctx.fill();
+
+  // Black Hoodie Jacket & Torso
+  ctx.fillStyle = '#0e1420';
+  ctx.beginPath();
+  ctx.roundRect(cx - 28, 65, 56, 60, 10);
+  ctx.fill();
+
+  // Glowing Neon Cyan Back/Chest Emblem
+  ctx.shadowColor = '#00f0ff';
+  ctx.shadowBlur = 10;
+  ctx.fillStyle = '#00f0ff';
+  ctx.beginPath();
+  ctx.moveTo(cx, 75);
+  ctx.lineTo(cx - 14, 95);
+  ctx.lineTo(cx + 14, 95);
+  ctx.closePath();
+  ctx.fill();
+
+  // Cyan Piping along Collar & Zipper
+  ctx.strokeStyle = '#00f0ff';
+  ctx.lineWidth = 3;
+  ctx.beginPath();
+  ctx.moveTo(cx, 65);
+  ctx.lineTo(cx, 125);
+  ctx.stroke();
+
+  // Arms & Glowing Wrist Cuffs
+  ctx.fillStyle = '#0e1420';
+  ctx.shadowBlur = 0;
+  ctx.beginPath();
+  ctx.arc(cx - 36, 85, 12, 0, Math.PI * 2);
+  ctx.arc(cx + 36, 85, 12, 0, Math.PI * 2);
+  ctx.fill();
+
+  ctx.fillStyle = '#00f0ff';
+  ctx.shadowColor = '#00f0ff';
+  ctx.shadowBlur = 8;
+  ctx.fillRect(cx - 44, 94, 16, 5);
+  ctx.fillRect(cx + 28, 94, 16, 5);
+
+  // Head, Spiky Hair & Black Mask
+  ctx.shadowBlur = 0;
+  ctx.fillStyle = '#d5aa82'; // Skin
+  ctx.beginPath();
+  ctx.arc(cx, 48, 18, 0, Math.PI * 2);
+  ctx.fill();
+
+  // Black Face Mask
+  ctx.fillStyle = '#06080e';
+  ctx.beginPath();
+  ctx.arc(cx, 52, 17, 0, Math.PI);
+  ctx.fill();
+
+  // Glowing Cyan Visor Line
+  ctx.fillStyle = '#00f0ff';
+  ctx.shadowColor = '#00f0ff';
+  ctx.shadowBlur = 10;
+  ctx.fillRect(cx - 14, 40, 28, 4);
+
+  // Dark Spiky Anime Hair
+  ctx.fillStyle = '#121722';
+  ctx.shadowBlur = 0;
+  for (let i = -4; i <= 4; i++) {
+    ctx.beginPath();
+    ctx.moveTo(cx + i * 7, 36);
+    ctx.lineTo(cx + i * 9 - 4, 18 + Math.abs(i) * 3);
+    ctx.lineTo(cx + i * 7 + 6, 36);
+    ctx.closePath();
+    ctx.fill();
+  }
+
+  const texture = new THREE.CanvasTexture(canvas);
+  texture.needsUpdate = true;
+  return texture;
+}
+
 
 
