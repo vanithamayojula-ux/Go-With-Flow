@@ -6,6 +6,7 @@ import { SkyManager, LIGHTING_PRESETS } from '../game/sky';
 import { PlayerManager } from '../game/player';
 import { ObstacleManager } from '../game/obstacles';
 import { AudioManager } from '../game/audio';
+import { ThemeManager } from '../game/themeManager';
 import { PostProcessShader } from '../graphics/shaders';
 import { BiomeType, CosmeticsConfig, GraphicsConfig, LightingMode, PlayerStats, ShaderParams, TrickType } from '../types';
 
@@ -54,6 +55,7 @@ export const GameCanvas: React.FC<GameCanvasProps> = ({
   const skyMgrRef = useRef<SkyManager | null>(null);
   const playerMgrRef = useRef<PlayerManager | null>(null);
   const obstacleMgrRef = useRef<ObstacleManager | null>(null);
+  const themeMgrRef = useRef<ThemeManager | null>(null);
 
   // Post-processing
   const renderTargetRef = useRef<THREE.WebGLRenderTarget | null>(null);
@@ -223,6 +225,9 @@ export const GameCanvas: React.FC<GameCanvasProps> = ({
 
     const obstacleMgr = new ObstacleManager(scene);
     obstacleMgrRef.current = obstacleMgr;
+
+    const themeMgr = new ThemeManager(scene);
+    themeMgrRef.current = themeMgr;
 
     // Initial terrain & foliage population
     terrainMgr.update(playerMgr.position.z, playerMgr.position.x, 3);
@@ -436,6 +441,7 @@ export const GameCanvas: React.FC<GameCanvasProps> = ({
           const target = collision.hitPortal.targetBiome;
           setActiveBiome(target);
           playerMgr.triggerPortalWarp(target, audio);
+          themeMgr.triggerPortalWarp(target, playerMgr.position);
           obstacleMgr.clearAhead(playerMgr.position.z, 90);
           terrainMgr.rebuildAroundPlayer(playerMgr.position.z, playerMgr.position.x, 3);
           boostGlitchTimer = 0.85;
@@ -449,7 +455,7 @@ export const GameCanvas: React.FC<GameCanvasProps> = ({
             'crystal-glacier': 'CRYSTAL GLACIER // FROST REALM',
             'derelict-station': 'DERELICT STATION // HAZARD ZONE',
           };
-          onNotification(`🌀 PORTAL WARP! ENTERING ${bNameMap[target] || target}!`);
+          onNotification(`🌀 PORTAL WARP! ENTERING ${bNameMap[target] || themeMgr.currentTheme.name.toUpperCase()}!`);
         }
 
         // Boost Gate acceleration
@@ -590,6 +596,9 @@ export const GameCanvas: React.FC<GameCanvasProps> = ({
         skyMgr.skyMaterial.uniforms.uGridMode.value = currentBiome === 'the-grid' ? 1.0 : 0.0;
       }
 
+      // Update Multiverse Visual Theme & Particles
+      themeMgr.update(dt, skyMgr, terrainMgr, obstacleMgr, playerMgr.position, timeSeconds);
+
       // Update Camera (Surfer Cam or Cinematic Fly Cam)
       if (isCinematicCam) {
         camera.up.set(0, 1, 0);
@@ -695,6 +704,7 @@ export const GameCanvas: React.FC<GameCanvasProps> = ({
       skyMgr.dispose();
       playerMgr.dispose();
       obstacleMgr.dispose();
+      themeMgr.dispose();
       rt.dispose();
       postMaterial.dispose();
       renderer.dispose();
