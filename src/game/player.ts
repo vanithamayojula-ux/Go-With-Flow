@@ -1,5 +1,6 @@
 import * as THREE from 'three';
 import { getBiomeAt, getBiomeFriction, getTerrainHeight, getTerrainNormal, TerrainManager } from './terrain';
+import { createPlayerCharacter } from './characterModel';
 import { BoardTrailShader } from '../graphics/shaders';
 import { createDustParticleTexture, createPetalParticleTexture } from '../graphics/textures';
 import { AudioManager } from './audio';
@@ -162,9 +163,6 @@ export class PlayerManager {
   dustTexture!: THREE.CanvasTexture;
   petalTexture!: THREE.CanvasTexture;
 
-  // Uploaded Character Image Sprite Binding
-  playerSpriteMesh?: THREE.Sprite;
-
   constructor(scene: THREE.Scene) {
     this.scene = scene;
     this.group = new THREE.Group();
@@ -174,283 +172,24 @@ export class PlayerManager {
     this.position.set(0, h + this.hoverHeight, 0);
     this.group.position.copy(this.position);
 
-    // 0. Bind Uploaded Character Image Asset (/assets/aistudio/player_character.png) Directly to Player Visual Layer
-    const textureLoader = new THREE.TextureLoader();
-    const uploadedSpriteTex = textureLoader.load('/assets/aistudio/player_character.png');
-    const playerSpriteMat = new THREE.SpriteMaterial({
-      map: uploadedSpriteTex,
-      transparent: true,
-      depthTest: true,
-      depthWrite: false,
-    });
-    this.playerSpriteMesh = new THREE.Sprite(playerSpriteMat);
-    // Center Alignment & Hitbox Scaling:
-    // THREE.Sprite anchor is centered (0.5, 0.5), rendering at renderX = player.x - width/2 & renderY = player.y - height/2
-    this.playerSpriteMesh.scale.set(1.5, 2.2, 1.0);
-    this.playerSpriteMesh.position.set(0, 1.0, 0);
-    this.group.add(this.playerSpriteMesh);
+    // Build Procedural Low-Poly 3D Cyberpunk Skater Character & Hoverboard
+    const playerModel = createPlayerCharacter();
+    this.characterMesh = playerModel.characterMesh;
+    this.torsoMesh = playerModel.torsoMesh;
+    this.headMesh = playerModel.headMesh;
+    this.visorMesh = playerModel.visorMesh;
+    this.capeMesh = playerModel.capeMesh;
+    this.leftArmMesh = playerModel.leftArmMesh;
+    this.rightArmMesh = playerModel.rightArmMesh;
+    this.boardMesh = playerModel.boardMesh;
+    this.boardDeckMesh = playerModel.boardDeckMesh;
+    this.boardFoilMesh = playerModel.boardFoilMesh;
+    this.underglowMesh = playerModel.underglowMesh;
+    this.underglowLight = playerModel.underglowLight;
 
-    // 1. Build Cyber Hover Skateboard (Matching reference sheet media_1789016216399.jpg)
-    this.boardMesh = new THREE.Group();
-
-    const deckMat = new THREE.MeshStandardMaterial({
-      color: 0x0a0f18, // Dark stealth composite deck
-      roughness: 0.3,
-      metalness: 0.8,
-    });
-
-    const neonCyanMat = new THREE.MeshBasicMaterial({ color: 0x00f0ff });
-    const whiteNeonMat = new THREE.MeshBasicMaterial({ color: 0xe0f7ff });
-
-    // Skateboard Main Deck (Symmetric contoured deck with kicktail & nose)
-    const deckGeom = new THREE.BoxGeometry(0.76, 0.08, 2.7);
-    this.boardDeckMesh = new THREE.Mesh(deckGeom, deckMat);
-    this.boardDeckMesh.position.set(0, 0, 0);
-    this.boardMesh.add(this.boardDeckMesh);
-
-    // Curved Nose & Kicktail Tips
-    const noseGeom = new THREE.BoxGeometry(0.74, 0.08, 0.4);
-    const nose = new THREE.Mesh(noseGeom, deckMat);
-    nose.position.set(0, 0.06, 1.45);
-    nose.rotation.x = -0.15;
-    this.boardMesh.add(nose);
-
-    const tail = new THREE.Mesh(noseGeom, deckMat);
-    tail.position.set(0, 0.06, -1.45);
-    tail.rotation.x = 0.15;
-    this.boardMesh.add(tail);
-
-    // Glowing Neon Cyan Edge Trim (Perimeter Border)
-    const edgeGeom = new THREE.BoxGeometry(0.80, 0.09, 2.76);
-    this.boardFoilMesh = new THREE.Mesh(edgeGeom, whiteNeonMat);
-    this.boardFoilMesh.position.set(0, -0.005, 0);
-    this.boardMesh.add(this.boardFoilMesh);
-
-    // Top Deck Central Glowing Cyan Triangle Logo (Matching Top View in reference image)
-    const emblemGeom = new THREE.ConeGeometry(0.22, 0.02, 3);
-    emblemGeom.rotateX(Math.PI / 2);
-    const topEmblem = new THREE.Mesh(emblemGeom, neonCyanMat);
-    topEmblem.position.set(0, 0.045, 0.1);
-    this.boardMesh.add(topEmblem);
-
-    // Bottom Deck Central Thruster Core Engine (Matching Bottom View in reference image)
-    const coreRing = new THREE.Mesh(new THREE.TorusGeometry(0.22, 0.04, 8, 16), neonCyanMat);
-    coreRing.rotateX(Math.PI / 2);
-    coreRing.position.set(0, -0.06, 0);
-    this.boardMesh.add(coreRing);
-
-    // 4 Hover Thruster Rings (Matching the 4 glowing blue thrusters on bottom of board in reference image)
-    const thrusterGeom = new THREE.TorusGeometry(0.14, 0.035, 8, 16);
-    thrusterGeom.rotateX(Math.PI / 2);
-
-    const thrusterPositions: [number, number, number][] = [
-      [-0.26, -0.10, 0.85],  // Front Left
-      [0.26, -0.10, 0.85],   // Front Right
-      [-0.26, -0.10, -0.85], // Rear Left
-      [0.26, -0.10, -0.85],  // Rear Right
-    ];
-
-    thrusterPositions.forEach(([tx, ty, tz]) => {
-      const tRing = new THREE.Mesh(thrusterGeom, neonCyanMat);
-      tRing.position.set(tx, ty, tz);
-      this.boardMesh.add(tRing);
-
-      const tLight = new THREE.PointLight(0x00f0ff, 0.6, 2.5);
-      tLight.position.set(tx, ty - 0.05, tz);
-      this.boardMesh.add(tLight);
-    });
-
-    // Hover Underglow Plane & Point Light
-    const underglowGeom = new THREE.PlaneGeometry(1.3, 3.0);
-    underglowGeom.rotateX(-Math.PI / 2);
-    const underglowMat = new THREE.MeshBasicMaterial({
-      color: 0x00f0ff,
-      transparent: true,
-      opacity: 0.85,
-      blending: THREE.AdditiveBlending,
-    });
-    this.underglowMesh = new THREE.Mesh(underglowGeom, underglowMat);
-    this.underglowMesh.position.set(0, -0.12, 0);
-    this.boardMesh.add(this.underglowMesh);
-
-    this.underglowLight = new THREE.PointLight(0x00f0ff, 2.2, 8.0, 1.8);
-    this.underglowLight.position.set(0, -0.2, 0);
-    this.boardMesh.add(this.underglowLight);
-
-    this.group.add(this.boardMesh);
-
-    // 2. Build Cyber Rider Character (Matching reference sheet media_1789015071091.jpg)
-    this.characterMesh = new THREE.Group();
-
-    const hoodieMat = new THREE.MeshStandardMaterial({
-      color: 0x0d121c, // Black hoodie jacket
-      roughness: 0.4,
-      metalness: 0.3,
-    });
-    const pantsMat = new THREE.MeshStandardMaterial({
-      color: 0x080b12, // Dark cargo pants
-      roughness: 0.6,
-      metalness: 0.2,
-    });
-    const hairMat = new THREE.MeshStandardMaterial({
-      color: 0x121722, // Dark anime spiky hair
-      roughness: 0.5,
-    });
-    const maskMat = new THREE.MeshStandardMaterial({
-      color: 0x06080e, // Black face mask
-      roughness: 0.3,
-    });
-    const skinMat = new THREE.MeshStandardMaterial({
-      color: 0xd5aa82, // Skin tone
-      roughness: 0.6,
-    });
-    const sneakerMat = new THREE.MeshStandardMaterial({
-      color: 0x121824, // High-top sneakers
-      roughness: 0.3,
-    });
-
-    // Torso (Black Hoodie)
-    const torsoGeom = new THREE.CylinderGeometry(0.24, 0.32, 0.62, 10);
-    this.torsoMesh = new THREE.Mesh(torsoGeom, hoodieMat);
-    this.torsoMesh.position.set(0, 0.68, 0);
-    this.torsoMesh.castShadow = true;
-    this.characterMesh.add(this.torsoMesh);
-
-    // Glowing Neon Cyan Back Emblem (Matching triangular symbol on back of hoodie in reference image)
-    const backEmblemGeom = new THREE.ConeGeometry(0.18, 0.02, 3);
-    backEmblemGeom.rotateX(-Math.PI / 2);
-    const backEmblem = new THREE.Mesh(backEmblemGeom, neonCyanMat);
-    backEmblem.position.set(0, 0.72, -0.17);
-    this.characterMesh.add(backEmblem);
-
-    // Neon Cyan Piping on Hood & Collar
-    const collarGeom = new THREE.TorusGeometry(0.26, 0.025, 8, 16);
-    collarGeom.rotateX(Math.PI / 2);
-    const collarPiping = new THREE.Mesh(collarGeom, neonCyanMat);
-    collarPiping.position.set(0, 0.96, 0);
-    this.characterMesh.add(collarPiping);
-
-    // Left Arm & Glowing Cuffs
-    this.leftArmMesh = new THREE.Group();
-    this.leftArmMesh.position.set(-0.28, 0.78, 0);
-    const leftArmUpper = new THREE.Mesh(new THREE.CylinderGeometry(0.06, 0.05, 0.44, 8), hoodieMat);
-    leftArmUpper.position.set(-0.16, -0.08, -0.08);
-    leftArmUpper.rotation.z = 0.8;
-    leftArmUpper.rotation.x = -0.3;
-    this.leftArmMesh.add(leftArmUpper);
-
-    const leftCuff = new THREE.Mesh(new THREE.CylinderGeometry(0.065, 0.065, 0.06, 8), neonCyanMat);
-    leftCuff.position.set(-0.30, -0.14, -0.16);
-    this.leftArmMesh.add(leftCuff);
-
-    const leftHand = new THREE.Mesh(new THREE.SphereGeometry(0.048, 8, 8), skinMat);
-    leftHand.position.set(-0.35, -0.16, -0.20);
-    this.leftArmMesh.add(leftHand);
-    this.characterMesh.add(this.leftArmMesh);
-
-    // Right Arm & Glowing Cuffs
-    this.rightArmMesh = new THREE.Group();
-    this.rightArmMesh.position.set(0.28, 0.78, 0);
-    const rightArmUpper = new THREE.Mesh(new THREE.CylinderGeometry(0.06, 0.05, 0.44, 8), hoodieMat);
-    rightArmUpper.position.set(0.14, -0.10, 0.12);
-    rightArmUpper.rotation.z = -0.7;
-    rightArmUpper.rotation.x = 0.4;
-    this.rightArmMesh.add(rightArmUpper);
-
-    const rightCuff = new THREE.Mesh(new THREE.CylinderGeometry(0.065, 0.065, 0.06, 8), neonCyanMat);
-    rightCuff.position.set(0.28, -0.18, 0.22);
-    this.rightArmMesh.add(rightCuff);
-
-    const rightHand = new THREE.Mesh(new THREE.SphereGeometry(0.048, 8, 8), skinMat);
-    rightHand.position.set(0.33, -0.22, 0.26);
-    this.rightArmMesh.add(rightHand);
-    this.characterMesh.add(this.rightArmMesh);
-
-    // Legs & Cargo Pants
-    const legGeom = new THREE.CylinderGeometry(0.085, 0.065, 0.54, 8);
-    const leftLeg = new THREE.Mesh(legGeom, pantsMat);
-    leftLeg.position.set(-0.16, 0.26, -0.32);
-    leftLeg.rotation.x = -0.24;
-    this.characterMesh.add(leftLeg);
-
-    const rightLeg = new THREE.Mesh(legGeom, pantsMat);
-    rightLeg.position.set(0.16, 0.26, 0.32);
-    rightLeg.rotation.x = 0.24;
-    this.characterMesh.add(rightLeg);
-
-    // High-Top Sneakers with Glowing Cyan Soles & Triangular Accents (Matching shoe closeup in reference image)
-    const shoeGeom = new THREE.BoxGeometry(0.13, 0.12, 0.32);
-    const shoeSoleGeom = new THREE.BoxGeometry(0.14, 0.03, 0.33);
-
-    const leftShoe = new THREE.Mesh(shoeGeom, sneakerMat);
-    leftShoe.position.set(-0.18, 0.06, -0.42);
-    leftShoe.rotation.y = 0.1;
-    this.characterMesh.add(leftShoe);
-
-    const leftSole = new THREE.Mesh(shoeSoleGeom, neonCyanMat);
-    leftSole.position.set(-0.18, 0.015, -0.42);
-    leftSole.rotation.y = 0.1;
-    this.characterMesh.add(leftSole);
-
-    const rightShoe = new THREE.Mesh(shoeGeom, sneakerMat);
-    rightShoe.position.set(0.18, 0.06, 0.42);
-    rightShoe.rotation.y = -0.1;
-    this.characterMesh.add(rightShoe);
-
-    const rightSole = new THREE.Mesh(shoeSoleGeom, neonCyanMat);
-    rightSole.position.set(0.18, 0.015, 0.42);
-    rightSole.rotation.y = -0.1;
-    this.characterMesh.add(rightSole);
-
-    // Head, Spiky Hair & Black Mask (Matching Head Closeup in reference image)
-    const headGroup = new THREE.Group();
-    headGroup.position.set(0, 1.12, 0);
-
-    const headSphere = new THREE.SphereGeometry(0.32, 16, 16);
-    this.headMesh = new THREE.Mesh(headSphere, skinMat);
-    headGroup.add(this.headMesh);
-
-    // Spiky Hair Cluster
-    const hairGroup = new THREE.Group();
-    for (let i = 0; i < 14; i++) {
-      const spike = new THREE.Mesh(new THREE.ConeGeometry(0.08, 0.26, 5), hairMat);
-      const angle = (i / 14) * Math.PI * 2;
-      spike.position.set(Math.sin(angle) * 0.22, 0.18 + Math.random() * 0.1, Math.cos(angle) * 0.22);
-      spike.rotation.set(Math.random() * 0.4, angle, Math.random() * 0.4);
-      hairGroup.add(spike);
-    }
-    headGroup.add(hairGroup);
-
-    // Black Face Mask (Matching reference image)
-    const maskGeom = new THREE.CylinderGeometry(0.26, 0.24, 0.20, 12, 1, false, 0, Math.PI);
-    maskGeom.rotateY(Math.PI / 2);
-    const maskMesh = new THREE.Mesh(maskGeom, maskMat);
-    maskMesh.position.set(0, -0.06, 0.08);
-    headGroup.add(maskMesh);
-
-    // Glowing Cyan Visor Line
-    const visorGeom = new THREE.BoxGeometry(0.24, 0.035, 0.12);
-    this.visorMesh = new THREE.Mesh(visorGeom, neonCyanMat);
-    this.visorMesh.position.set(0, 0.04, 0.20);
-    headGroup.add(this.visorMesh);
-
-    this.characterMesh.add(headGroup);
-
-    // Flowing Hoodie Cape/Scarf
-    const capeGeom = new THREE.PlaneGeometry(0.32, 0.85, 2, 4);
-    capeGeom.translate(0, -0.42, 0);
-    const capeMat = new THREE.MeshStandardMaterial({
-      color: 0x0a0e16,
-      side: THREE.DoubleSide,
-      roughness: 0.5,
-    });
-    this.capeMesh = new THREE.Mesh(capeGeom, capeMat);
-    this.capeMesh.position.set(0, 0.92, -0.20);
-    this.characterMesh.add(this.capeMesh);
-
-    // Orient Character Sideways on hoverboard deck (Matching dynamic skater stance in reference image)
+    // Orient Character Sideways on hoverboard deck (Matching skater stance)
     this.characterMesh.rotation.y = Math.PI / 2.2;
-    this.group.add(this.characterMesh);
+    this.group.add(playerModel.group);
 
     // 3. Autonomous Cyber Drone Companion (Stable Hovering Recon Drone)
     this.cyberDroneMesh = new THREE.Group();
@@ -1001,14 +740,8 @@ export class PlayerManager {
 
     this.group.position.copy(this.position);
 
-    // Step 5: Safe Visual Hover Effect & Center Alignment (Visual only, does NOT modify physics or player.y)
+    // Step 5: Safe Visual Hover Effect (Visual only, does NOT modify physics or player.y)
     const visualHoverY = Math.sin(time * 3.5) * 0.06;
-
-    if (this.playerSpriteMesh) {
-      // Center Alignment: renderX = player.x - spriteWidth / 2 (relative x = 0 centered in lane)
-      // renderY = player.y - spriteHeight / 2 + sin(time * 0.005) * 2
-      this.playerSpriteMesh.position.set(0, 1.0 + visualHoverY, 0);
-    }
 
     this.boardMesh.position.set(0, visualHoverY, 0);
     this.boardMesh.rotation.z = -this.carveAngle * 1.5;
