@@ -174,9 +174,9 @@ export class PlayerManager {
     this.position.set(0, h + this.hoverHeight, 0);
     this.group.position.copy(this.position);
 
-    // 0. Bind Uploaded Character Image Asset (/player_sprite.jpg) Directly to Player Visual Layer
+    // 0. Bind Uploaded Character Image Asset (/assets/aistudio/player_character.png) Directly to Player Visual Layer
     const textureLoader = new THREE.TextureLoader();
-    const uploadedSpriteTex = textureLoader.load('/player_sprite.jpg');
+    const uploadedSpriteTex = textureLoader.load('/assets/aistudio/player_character.png');
     const playerSpriteMat = new THREE.SpriteMaterial({
       map: uploadedSpriteTex,
       transparent: true,
@@ -184,7 +184,8 @@ export class PlayerManager {
       depthWrite: false,
     });
     this.playerSpriteMesh = new THREE.Sprite(playerSpriteMat);
-    // Center Alignment: Sprite center anchor (0.5, 0.5) ensures renderX = player.x - width/2 & renderY = player.y - height/2
+    // Center Alignment & Hitbox Scaling:
+    // THREE.Sprite anchor is centered (0.5, 0.5), rendering at renderX = player.x - width/2 & renderY = player.y - height/2
     this.playerSpriteMesh.scale.set(1.5, 2.2, 1.0);
     this.playerSpriteMesh.position.set(0, 1.0, 0);
     this.group.add(this.playerSpriteMesh);
