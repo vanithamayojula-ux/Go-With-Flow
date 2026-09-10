@@ -162,6 +162,9 @@ export class PlayerManager {
   dustTexture!: THREE.CanvasTexture;
   petalTexture!: THREE.CanvasTexture;
 
+  // Uploaded Character Image Sprite Binding
+  playerSpriteMesh?: THREE.Sprite;
+
   constructor(scene: THREE.Scene) {
     this.scene = scene;
     this.group = new THREE.Group();
@@ -171,7 +174,22 @@ export class PlayerManager {
     this.position.set(0, h + this.hoverHeight, 0);
     this.group.position.copy(this.position);
 
-    // 1. Build Cyber Hover Skateboard (Matching reference sheet media_1789015071091.jpg)
+    // 0. Bind Uploaded Character Image Asset (/player_sprite.jpg) Directly to Player Visual Layer
+    const textureLoader = new THREE.TextureLoader();
+    const uploadedSpriteTex = textureLoader.load('/player_sprite.jpg');
+    const playerSpriteMat = new THREE.SpriteMaterial({
+      map: uploadedSpriteTex,
+      transparent: true,
+      depthTest: true,
+      depthWrite: false,
+    });
+    this.playerSpriteMesh = new THREE.Sprite(playerSpriteMat);
+    // Center Alignment: Sprite center anchor (0.5, 0.5) ensures renderX = player.x - width/2 & renderY = player.y - height/2
+    this.playerSpriteMesh.scale.set(1.5, 2.2, 1.0);
+    this.playerSpriteMesh.position.set(0, 1.0, 0);
+    this.group.add(this.playerSpriteMesh);
+
+    // 1. Build Cyber Hover Skateboard (Matching reference sheet media_1789016216399.jpg)
     this.boardMesh = new THREE.Group();
 
     const deckMat = new THREE.MeshStandardMaterial({
@@ -982,8 +1000,14 @@ export class PlayerManager {
 
     this.group.position.copy(this.position);
 
-    // Step 6: Visual Hover Effect (Visual only, does not affect physics or collision)
+    // Step 5: Safe Visual Hover Effect & Center Alignment (Visual only, does NOT modify physics or player.y)
     const visualHoverY = Math.sin(time * 3.5) * 0.06;
+
+    if (this.playerSpriteMesh) {
+      // Center Alignment: renderX = player.x - spriteWidth / 2 (relative x = 0 centered in lane)
+      // renderY = player.y - spriteHeight / 2 + sin(time * 0.005) * 2
+      this.playerSpriteMesh.position.set(0, 1.0 + visualHoverY, 0);
+    }
 
     this.boardMesh.position.set(0, visualHoverY, 0);
     this.boardMesh.rotation.z = -this.carveAngle * 1.5;
