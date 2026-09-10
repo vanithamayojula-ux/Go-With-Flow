@@ -680,13 +680,20 @@ export class PlayerManager {
 
     // Solid ground physics: evaluate surface height (terrain + train roofs/ramps) at exact updated (x, z)
     const groundH = getTerrainHeight(this.position.x, this.position.z);
-    const obstacleSurfaceH = obstacleManager && typeof obstacleManager.getObstacleSurfaceHeight === 'function'
-      ? obstacleManager.getObstacleSurfaceHeight(this.position.x, this.position.z, this.position.y)
-      : 0;
+    let obstacleSurfaceH = 0;
+    if (this.gameState === 'playing' && obstacleManager && typeof obstacleManager.getObstacleSurfaceHeight === 'function') {
+      obstacleSurfaceH = obstacleManager.getObstacleSurfaceHeight(this.position.x, this.position.z, this.position.y);
+    }
 
     const activeSurfaceH = Math.max(groundH, obstacleSurfaceH);
     const minY = activeSurfaceH + this.hoverHeight;
     const maxY = activeSurfaceH + 6.5; // Strict vertical ceiling clamp
+
+    // Automatic Edge-Fall Detection: If player was grounded but platform underneath ended (stepping off train roof into thin air)
+    if (this.isGrounded && this.position.y > minY + 0.18) {
+      this.isGrounded = false;
+      this.jumpVelocity = Math.min(this.jumpVelocity, 0); // Immediately start falling under gravity!
+    }
 
     const gravityRate = this.stats.slowMoActive ? 22.0 : 30.0;
 

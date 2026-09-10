@@ -764,9 +764,11 @@ export class ObstacleManager {
           }
         }
 
-        // On top of train roof
+        // On top of train roof: only support if player is actually elevated up at roof height!
         if (z >= obs.z - trainHalfD && z <= obs.z + trainHalfD) {
-          if (trainTop > maxSurfaceH) maxSurfaceH = trainTop;
+          if (playerY >= trainTop - 0.75 && trainTop > maxSurfaceH) {
+            maxSurfaceH = trainTop;
+          }
         }
       } else if (obs.isGrindRail) {
         if (Math.abs(z - obs.z) <= obs.depth / 2 + 0.5) {
