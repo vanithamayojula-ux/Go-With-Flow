@@ -1,6 +1,6 @@
 import * as THREE from 'three';
 import { getBiomeAt, getBiomeFriction, getTerrainHeight, getTerrainNormal, TerrainManager } from './terrain';
-import { createPlayerCharacter } from './characterModel';
+import { createPlayerCharacter, animatePlayerCharacter, PlayerCharacter } from './characterModel';
 import { BoardTrailShader } from '../graphics/shaders';
 import { createDustParticleTexture, createPetalParticleTexture } from '../graphics/textures';
 import { AudioManager } from './audio';
@@ -22,21 +22,24 @@ export class PlayerManager {
   scene: THREE.Scene;
   group: THREE.Group;
 
+  // Character Model
+  playerCharacter: PlayerCharacter;
+
   // Meshes
   characterMesh: THREE.Group;
-  torsoMesh: THREE.Mesh;
-  headMesh: THREE.Mesh;
-  visorMesh: THREE.Mesh;
-  capeMesh: THREE.Mesh;
-  leftArmMesh: THREE.Group;
-  rightArmMesh: THREE.Group;
+  torsoMesh?: THREE.Mesh;
+  headMesh?: THREE.Mesh;
+  visorMesh?: THREE.Mesh;
+  capeMesh?: THREE.Mesh;
+  leftArmMesh?: THREE.Group;
+  rightArmMesh?: THREE.Group;
 
   // Cyber Hoverboard & Real-Time Neon Underglow
   boardMesh: THREE.Group;
-  boardDeckMesh: THREE.Mesh;
-  boardFoilMesh: THREE.Mesh;
-  underglowMesh: THREE.Mesh;
-  underglowLight!: THREE.PointLight;
+  boardDeckMesh?: THREE.Mesh;
+  boardFoilMesh?: THREE.Mesh;
+  underglowMesh?: THREE.Mesh;
+  underglowLight?: THREE.PointLight;
 
   // Cyber Recon Drone Companion
   cyberDroneMesh: THREE.Group;
@@ -173,23 +176,11 @@ export class PlayerManager {
     this.group.position.copy(this.position);
 
     // Build Procedural Low-Poly 3D Cyberpunk Skater Character & Hoverboard
-    const playerModel = createPlayerCharacter();
-    this.characterMesh = playerModel.characterMesh;
-    this.torsoMesh = playerModel.torsoMesh;
-    this.headMesh = playerModel.headMesh;
-    this.visorMesh = playerModel.visorMesh;
-    this.capeMesh = playerModel.capeMesh;
-    this.leftArmMesh = playerModel.leftArmMesh;
-    this.rightArmMesh = playerModel.rightArmMesh;
-    this.boardMesh = playerModel.boardMesh;
-    this.boardDeckMesh = playerModel.boardDeckMesh;
-    this.boardFoilMesh = playerModel.boardFoilMesh;
-    this.underglowMesh = playerModel.underglowMesh;
-    this.underglowLight = playerModel.underglowLight;
+    this.playerCharacter = createPlayerCharacter();
+    this.characterMesh = this.playerCharacter.group;
+    this.boardMesh = this.playerCharacter.board;
 
-    // Orient Character Sideways on hoverboard deck (Matching skater stance)
-    this.characterMesh.rotation.y = Math.PI / 2.2;
-    this.group.add(playerModel.group);
+    this.group.add(this.playerCharacter.group);
 
     // 3. Autonomous Cyber Drone Companion (Stable Hovering Recon Drone)
     this.cyberDroneMesh = new THREE.Group();
@@ -740,10 +731,10 @@ export class PlayerManager {
 
     this.group.position.copy(this.position);
 
-    // Step 5: Safe Visual Hover Effect (Visual only, does NOT modify physics or player.y)
-    const visualHoverY = Math.sin(time * 3.5) * 0.06;
+    // Drive Procedural 3D Skater & Board Animations
+    const speedFactor = Math.min(1.8, Math.max(0.5, this.velocity.z / 25));
+    animatePlayerCharacter(this.playerCharacter, time, speedFactor);
 
-    this.boardMesh.position.set(0, visualHoverY, 0);
     this.boardMesh.rotation.z = -this.carveAngle * 1.5;
     this.boardMesh.rotation.x = this.pitchAngle + (this.activeTrick === 'flip' ? this.flipAngle : 0);
     this.boardMesh.rotation.y = this.spinAngle;
@@ -760,6 +751,7 @@ export class PlayerManager {
       this.stats.stumbleTimer = this.stumbleTimer;
     }
     const stumbleOffset = this.stumbleTimer > 0 ? Math.sin(this.stumbleTimer * 28.0) * 0.12 : 0;
+    const visualHoverY = Math.sin(time * 3.5) * 0.06;
     const slideCrouchY = (this.isSliding ? -0.55 : (-this.grabPoseWeight * 0.25 + stumbleOffset)) + visualHoverY;
     const slidePitch = this.isSliding ? 0.65 : (this.flipAngle - this.grabPoseWeight * 0.5 + (this.stumbleTimer > 0 ? 0.18 : 0));
 
