@@ -567,7 +567,8 @@ export class PlayerManager {
     },
     time: number,
     terrainManager?: TerrainManager,
-    audioManager?: AudioManager | null
+    audioManager?: AudioManager | null,
+    obstacleManager?: any
   ) {
     const currentBiome = getBiomeAt(this.position.z);
     const friction = getBiomeFriction(currentBiome);
@@ -646,7 +647,7 @@ export class PlayerManager {
       this.stats.activeTrickName = null;
     }
 
-    // Step 1: Fix Lane System - Snap X position strictly to target lane values with zero drift
+    // Snap X position strictly to target lane values with zero drift
     this.targetLaneX = getLaneX(this.currentLane);
     this.position.x = THREE.MathUtils.lerp(this.position.x, this.targetLaneX, 24.0 * effectiveDt);
     if (Math.abs(this.position.x - this.targetLaneX) < 0.02) {
@@ -660,9 +661,9 @@ export class PlayerManager {
       this.stats.warpTimer = this.warpTimer;
     }
 
-    // Dynamic distance-based speed scaling: starting at ~14.0, ramping up smoothly as distance increases
-    const distanceKm = this.stats.distance / 1000;
-    const distanceSpeedBonus = Math.min(32.0, distanceKm * 5.0);
+    // Dynamic distance-based speed scaling: starting at ~14.0, ramping up smoothly as distance increases (Subway Surfers style)
+    const distanceKm = this.stats.distance / 600;
+    const distanceSpeedBonus = Math.min(32.0, distanceKm * 8.0);
     let targetSpeed = 14.0 + distanceSpeedBonus;
 
     if (input.forward) targetSpeed += 12.0;
@@ -674,7 +675,21 @@ export class PlayerManager {
 
     this.velocity.z = THREE.MathUtils.lerp(this.velocity.z, targetSpeed, 3.5 * effectiveDt);
 
-    // Step 4: Anti-Gravity Physics (Minimal change: clamp vertical position within bounds)
+    // Forward translation FIRST so terrain height is computed at updated position
+    this.position.z += this.velocity.z * effectiveDt;
+
+    // Solid ground physics: evaluate surface height (terrain + train roofs/ramps) at exact updated (x, z)
+    const groundH = getTerrainHeight(this.position.x, this.position.z);
+    const obstacleSurfaceH = obstacleManager && typeof obstacleManager.getObstacleSurfaceHeight === 'function'
+      ? obstacleManager.getObstacleSurfaceHeight(this.position.x, this.position.z, this.position.y)
+      : 0;
+
+    const activeSurfaceH = Math.max(groundH, obstacleSurfaceH);
+    const minY = activeSurfaceH + this.hoverHeight;
+    const maxY = activeSurfaceH + 6.5; // Strict vertical ceiling clamp
+
+    const gravityRate = this.stats.slowMoActive ? 22.0 : 30.0;
+
     if (input.jump && this.isGrounded) {
       this.jumpVelocity = 15.5;
       this.isGrounded = false;
@@ -682,11 +697,6 @@ export class PlayerManager {
       this.emitJumpDust(this.position, 6);
     }
 
-    const groundH = getTerrainHeight(this.position.x, this.position.z);
-    const minY = groundH + this.hoverHeight;
-    const maxY = groundH + 6.5; // Strict vertical ceiling clamp
-
-    const gravityRate = this.stats.slowMoActive ? 22.0 : 30.0;
     if (!this.isGrounded) {
       this.jumpVelocity = THREE.MathUtils.clamp(this.jumpVelocity - gravityRate * effectiveDt, -18.0, 16.0);
       this.position.y += this.jumpVelocity * effectiveDt;
@@ -702,26 +712,22 @@ export class PlayerManager {
       else if (this.activeTrick === 'flip') this.flipAngle += effectiveDt * 12.0;
       else if (this.activeTrick === 'grab') this.grabPoseWeight = Math.min(1.0, this.grabPoseWeight + effectiveDt * 6);
       else if (this.activeTrick === 'pose') this.grabPoseWeight = Math.min(1.0, this.grabPoseWeight + effectiveDt * 4);
-    } else {
-      this.position.y = minY;
-      this.spinAngle = THREE.MathUtils.lerp(this.spinAngle, 0, 10 * effectiveDt);
-      this.flipAngle = THREE.MathUtils.lerp(this.flipAngle, 0, 10 * effectiveDt);
-      this.grabPoseWeight = THREE.MathUtils.lerp(this.grabPoseWeight, 0, 12 * effectiveDt);
     }
 
-    // Forward translation
-    this.position.z += this.velocity.z * effectiveDt;
-
-    // Ground snap clamp check
-    if (this.position.y < minY) {
+    // Ground & platform solid snap check at updated (x, z) position
+    if (this.position.y <= minY) {
+      const wereAirborne = !this.isGrounded;
       this.position.y = minY;
-      if (!this.isGrounded && this.jumpVelocity < -2.0) {
+      if (wereAirborne && this.jumpVelocity < -2.0) {
         if (audioManager) audioManager.playLanding();
         this.emitJumpDust(this.position, 5);
       }
       this.jumpVelocity = 0;
       this.isGrounded = true;
       this.stats.airTime = 0;
+      this.spinAngle = THREE.MathUtils.lerp(this.spinAngle, 0, 10 * effectiveDt);
+      this.flipAngle = THREE.MathUtils.lerp(this.flipAngle, 0, 10 * effectiveDt);
+      this.grabPoseWeight = THREE.MathUtils.lerp(this.grabPoseWeight, 0, 12 * effectiveDt);
     }
 
     // Rotations & Locked Relative Board Positioning
@@ -735,7 +741,9 @@ export class PlayerManager {
     const speedFactor = Math.min(1.8, Math.max(0.5, this.velocity.z / 25));
     animatePlayerCharacter(this.playerCharacter, time, speedFactor);
 
-    this.boardMesh.rotation.z = -this.carveAngle * 1.5;
+    // Unified lean angle so character feet and board lean together without clipping
+    const unifiedCarveTilt = -this.carveAngle * 1.1;
+    this.boardMesh.rotation.z = unifiedCarveTilt;
     this.boardMesh.rotation.x = this.pitchAngle + (this.activeTrick === 'flip' ? this.flipAngle : 0);
     this.boardMesh.rotation.y = this.spinAngle;
 
@@ -755,9 +763,9 @@ export class PlayerManager {
     const slideCrouchY = (this.isSliding ? -0.55 : (-this.grabPoseWeight * 0.25 + stumbleOffset)) + visualHoverY;
     const slidePitch = this.isSliding ? 0.65 : (this.flipAngle - this.grabPoseWeight * 0.5 + (this.stumbleTimer > 0 ? 0.18 : 0));
 
-    this.characterMesh.rotation.z = -this.carveAngle * 0.9;
+    this.characterMesh.rotation.z = unifiedCarveTilt;
     this.characterMesh.rotation.x = slidePitch;
-    this.characterMesh.rotation.y = Math.PI / 2.2 - this.carveAngle * 0.4 + (this.isGrounded ? 0 : this.spinAngle);
+    this.characterMesh.rotation.y = Math.PI / 2.2 + (this.isGrounded ? 0 : this.spinAngle);
     this.characterMesh.position.y = slideCrouchY;
 
     // Cyber Recon Drone Companion stable hover/bob beside player shoulder (No yaw-spin-away bug)

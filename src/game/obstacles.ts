@@ -62,17 +62,17 @@ export class ObstacleManager {
   nextObstacleId = 0;
 
   // Shared Cyber Geometries & Materials
-  private pylonGeom = new THREE.CylinderGeometry(0.18, 0.22, 1.2, 8);
+  private pylonGeom = new THREE.CylinderGeometry(0.2, 0.28, 1.4, 8);
   private pylonMat = new THREE.MeshLambertMaterial({ color: 0x0a101d });
-  private laserBeamGeom = new THREE.BoxGeometry(3.6, 0.2, 0.2);
+  private laserBeamGeom = new THREE.BoxGeometry(3.8, 0.45, 0.45); // Thick glowing neon laser beam
   private laserBeamMat = new THREE.MeshBasicMaterial({ color: 0xff0055 }); // Hot neon red/magenta laser
 
-  private overheadArchPillarGeom = new THREE.CylinderGeometry(0.18, 0.22, 3.4, 6);
-  private overheadArchBeamGeom = new THREE.BoxGeometry(4.2, 0.45, 0.45);
+  private overheadArchPillarGeom = new THREE.CylinderGeometry(0.2, 0.25, 3.4, 6);
+  private overheadArchBeamGeom = new THREE.BoxGeometry(4.2, 0.55, 0.55);
   private overheadBeamMat = new THREE.MeshBasicMaterial({ color: 0x00f0ff }); // Electric Cyan laser conduit
 
   // Data Shard Diamond Geometry
-  private dataShardGeom = new THREE.OctahedronGeometry(0.42);
+  private dataShardGeom = new THREE.OctahedronGeometry(0.48);
   private dataShardMat = new THREE.MeshBasicMaterial({ color: 0x00f0ff });
 
   // Boost Gate Hexagonal Arch
@@ -80,25 +80,25 @@ export class ObstacleManager {
   private boostGateMat = new THREE.MeshBasicMaterial({ color: 0x00ffaa });
 
   // Grind Rail Geometry
-  private grindRailGeom = new THREE.CylinderGeometry(0.14, 0.14, 22, 8);
+  private grindRailGeom = new THREE.CylinderGeometry(0.16, 0.16, 22, 8);
   private grindRailMat = new THREE.MeshBasicMaterial({ color: 0xff007f });
 
   // Drone Hazard & Energy Fence Materials
-  private droneBodyGeom = new THREE.OctahedronGeometry(0.5);
-  private droneEyeGeom = new THREE.SphereGeometry(0.2, 8, 8);
+  private droneBodyGeom = new THREE.OctahedronGeometry(0.6);
+  private droneEyeGeom = new THREE.SphereGeometry(0.25, 8, 8);
   private droneHazardMat = new THREE.MeshBasicMaterial({ color: 0xff0033 });
   private droneChassisMat = new THREE.MeshStandardMaterial({ color: 0x090e1a, metalness: 0.9, roughness: 0.2 });
 
-  private fenceBarGeom = new THREE.BoxGeometry(3.8, 0.4, 0.15);
+  private fenceBarGeom = new THREE.BoxGeometry(3.8, 0.5, 0.2);
   private fenceMat = new THREE.MeshBasicMaterial({ color: 0xffaa00 });
 
   // Phase 4: New Obstacle Geometries & High-Contrast Neon Materials
-  private movingBarrierGeom = new THREE.BoxGeometry(3.6, 0.6, 0.4);
+  private movingBarrierGeom = new THREE.BoxGeometry(3.6, 0.7, 0.5);
   private movingBarrierMat = new THREE.MeshBasicMaterial({ color: 0xffcc00 });
 
   private fallingBlockGeom = new THREE.BoxGeometry(2.4, 2.4, 2.4);
-  private fallingBlockMat = new THREE.MeshStandardMaterial({ color: 0x111625, metalness: 0.85, roughness: 0.2 });
-  private fallingBlockGlowMat = new THREE.MeshBasicMaterial({ color: 0xff0044 });
+  private fallingBlockMat = new THREE.MeshStandardMaterial({ color: 0x1f293d, metalness: 0.85, roughness: 0.2 });
+  private fallingBlockGlowMat = new THREE.MeshBasicMaterial({ color: 0xffaa00 });
 
   private pulsingLaserGeom = new THREE.CylinderGeometry(0.08, 0.08, 4.4, 8);
   private pulsingLaserMat = new THREE.MeshBasicMaterial({ color: 0xff0033, transparent: true, opacity: 0.9, blending: THREE.AdditiveBlending });
@@ -682,7 +682,7 @@ export class ObstacleManager {
     const x = getLaneX(lane);
     for (let i = 0; i < count; i++) {
       const frac = i / (count - 1);
-      const arcY = Math.sin(frac * Math.PI) * 3.8;
+      const arcY = Math.sin(frac * Math.PI) * 2.5; // Capped arc height (2.5m) so all tokens are easily reachable
       const z = startZ + i * 3.2;
       const y = getTerrainHeight(x, z) + 1.2 + arcY;
 
@@ -737,6 +737,49 @@ export class ObstacleManager {
     });
   }
 
+  /**
+   * Computes height of obstacle surfaces (train roofs, train ramps, grind rails)
+   * under player's current (x, z) coordinate.
+   */
+  getObstacleSurfaceHeight(x: number, z: number, playerY: number): number {
+    let maxSurfaceH = 0;
+    for (const obs of this.obstacles) {
+      if (obs.cleared) continue;
+      const halfW = obs.width / 2 + 0.6;
+      if (Math.abs(x - obs.x) > halfW) continue;
+
+      if (obs.type === 'maglev-hauler' || obs.type === 'maglev-ramp' || obs.type === 'spirit-train' || obs.type === 'spirit-train-ramp') {
+        const trainHalfD = obs.depth / 2;
+        const trainTop = obs.y + obs.height;
+
+        if (obs.hasRamp && obs.rampStartZ !== undefined) {
+          const rampStart = obs.rampStartZ;
+          const rampEnd = obs.z - trainHalfD;
+          if (z >= rampStart && z <= rampEnd) {
+            // Player is surfing up the front ramp!
+            const rampProgress = (z - rampStart) / (rampEnd - rampStart);
+            const rampH = obs.y + rampProgress * obs.height;
+            if (rampH > maxSurfaceH) maxSurfaceH = rampH;
+            continue;
+          }
+        }
+
+        // On top of train roof
+        if (z >= obs.z - trainHalfD && z <= obs.z + trainHalfD) {
+          if (trainTop > maxSurfaceH) maxSurfaceH = trainTop;
+        }
+      } else if (obs.isGrindRail) {
+        if (Math.abs(z - obs.z) <= obs.depth / 2 + 0.5) {
+          const railTop = obs.y + 1.25;
+          if (playerY >= obs.y + 0.4 && railTop > maxSurfaceH) {
+            maxSurfaceH = railTop;
+          }
+        }
+      }
+    }
+    return maxSurfaceH;
+  }
+
   // --- Collision Detection ---
 
   checkCollisions(
@@ -761,7 +804,7 @@ export class ObstacleManager {
     let collectedCoins = 0;
     let collectedPowerUp: PowerUpType | undefined;
 
-    // 1. Data Shards Collection
+    // 1. Data Shards Collection (3.2m reach radius for smooth token harvesting)
     for (const shard of this.coins) {
       if (shard.collected) continue;
       const dx = playerPos.x - shard.x;
@@ -769,7 +812,7 @@ export class ObstacleManager {
       const dz = playerPos.z - shard.z;
       const distSq = dx * dx + dy * dy + dz * dz;
 
-      if (distSq < 2.6 * 2.6) {
+      if (distSq < 3.2 * 3.2) {
         shard.collected = true;
         this.scene.remove(shard.mesh);
         shard.mesh.geometry.dispose();
@@ -785,7 +828,7 @@ export class ObstacleManager {
       const dz = playerPos.z - p.z;
       const distSq = dx * dx + dy * dy + dz * dz;
 
-      if (distSq < 3.0 * 3.0) {
+      if (distSq < 3.4 * 3.4) {
         p.collected = true;
         this.scene.remove(p.mesh);
         collectedPowerUp = p.type;
@@ -798,6 +841,7 @@ export class ObstacleManager {
 
       const halfDepth = obs.depth / 2 + 0.8;
       const dz = playerPos.z - obs.z;
+
       if (Math.abs(dz) > halfDepth + 1.5) continue;
 
       const halfWidth = obs.width / 2 + 0.5;
@@ -843,13 +887,27 @@ export class ObstacleManager {
         continue;
       }
 
-      // Handle Laser Barrier, Low Energy Fence, Moving Horizontal Barrier, Falling Block, Pulsing Laser (Jump over / avoid)
+      // Handle Falling Security Block separately (Check 3D Bounding Box Center so player can pass underneath elevated blocks)
+      if (obs.type === 'falling-security-block') {
+        const blockCenterY = obs.y;
+        const blockHalfH = obs.height / 2 + 0.3;
+        if (Math.abs(playerPos.y - blockCenterY) < blockHalfH) {
+          hasCrashed = true;
+          crashedObstacle = obs;
+          obs.cleared = true;
+          break;
+        } else if (playerPos.z > obs.z + halfDepth) {
+          obs.cleared = true;
+        }
+        continue;
+      }
+
+      // Handle Laser Barrier, Low Energy Fence, Moving Horizontal Barrier, Pulsing Laser (Jump over / avoid)
       if (
         obs.type === 'laser-barrier' ||
         obs.type === 'energy-fence' ||
         obs.type === 'low-hurdle' ||
         obs.type === 'moving-horizontal-barrier' ||
-        obs.type === 'falling-security-block' ||
         obs.type === 'pulsing-laser-beam'
       ) {
         const barrierTop = obs.y + obs.height;
@@ -877,11 +935,13 @@ export class ObstacleManager {
         break;
       } else if (obs.type === 'maglev-hauler' || obs.type === 'maglev-ramp' || obs.type === 'spirit-train' || obs.type === 'spirit-train-ramp') {
         const trainTop = obs.y + obs.height;
-        if (playerPos.y >= trainTop - 0.3) {
-          // Skating along roof!
-        } else if (obs.hasRamp && dz < 0 && dz > -obs.depth / 2 - 7.5) {
-          // Riding up front ramp!
-        } else {
+        const trainHalfD = obs.depth / 2;
+
+        if (playerPos.y >= trainTop - 0.35) {
+          // Skating along roof! Safe!
+        } else if (obs.hasRamp && obs.rampStartZ !== undefined && playerPos.z >= obs.rampStartZ && playerPos.z <= obs.z - trainHalfD) {
+          // Riding up front ramp! Safe!
+        } else if (Math.abs(dz) < trainHalfD) {
           hasCrashed = true;
           crashedObstacle = obs;
           obs.cleared = true;

@@ -57,26 +57,10 @@ export function getBiomeFriction(biome: BiomeType): number {
 }
 
 export function getTerrainHeight(x: number, z: number): number {
-  const biome = getBiomeAt(z);
-
-  if (biome === 'orbital-ring' || biome === 'sky-islands') {
-    return Math.sin(z * 0.015) * 4.5 + Math.cos(z * 0.008) * 3.0;
-  } else if (biome === 'the-grid') {
-    return Math.floor(Math.sin(z * 0.02) * 2.0) * 1.5;
-  } else if (biome === 'volcanic-forge') {
-    return Math.sin(z * 0.03) * 5.0 + Math.cos(z * 0.015) * 2.5;
-  } else if (biome === 'crystal-glacier') {
-    return Math.sin(z * 0.01) * 6.0 + Math.sin(x * 0.05) * 1.5;
-  } else if (biome === 'quantum-desert' || biome === 'dunes') {
-    return Math.sin(z * 0.02) * 4.0 + Math.cos(x * 0.04) * 2.0;
-  } else if (biome === 'cyber-forest' || biome === 'forest') {
-    return Math.sin(z * 0.025) * 3.0 + Math.sin(z * 0.01) * 2.0;
-  } else if (biome === 'derelict-station') {
-    return Math.sin(z * 0.025) * 3.0 + Math.cos(z * 0.04) * 1.2;
-  } else {
-    // Neon Undercity
-    return Math.sin(z * 0.018) * 3.5;
-  }
+  // Smooth, continuous highway surface elevation curve.
+  // Using a single unified formula guarantees 100% exact alignment between
+  // 3D road mesh vertices and player physics height in every biome and across portal warps.
+  return Math.sin(z * 0.015) * 2.5;
 }
 
 export function getTerrainNormal(x: number, z: number): THREE.Vector3 {
@@ -282,6 +266,16 @@ export class TerrainManager {
     group.add(signMesh);
 
     return group;
+  }
+
+  rebuildAroundPlayer(playerZ: number, playerX: number, renderDistance = 3) {
+    for (const chunk of this.chunks.values()) {
+      this.scene.remove(chunk.mesh);
+      chunk.mesh.geometry.dispose();
+      chunk.decorations.forEach(obj => this.scene.remove(obj));
+    }
+    this.chunks.clear();
+    this.update(playerZ, playerX, renderDistance);
   }
 
   update(playerZ: number, playerX: number, renderDistance = 3, time = 0) {

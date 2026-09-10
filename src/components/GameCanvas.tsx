@@ -418,8 +418,8 @@ export const GameCanvas: React.FC<GameCanvasProps> = ({
         fpsAccum = 0;
       }
 
-      // Update Player with terrainManager and audioManager
-      playerMgr.update(dt, keysRef.current, timeSeconds, terrainMgr, audio);
+      // Update Player with terrainManager, audioManager, and obstacleManager
+      playerMgr.update(dt, keysRef.current, timeSeconds, terrainMgr, audio, obstacleMgr);
 
       // Obstacles, Pickups & Collision Loop
       if (playerMgr.gameState === 'playing') {
@@ -431,11 +431,13 @@ export const GameCanvas: React.FC<GameCanvasProps> = ({
 
         const collision = obstacleMgr.checkCollisions(playerMgr.position, playerMgr.isSliding);
 
-        // World Portal Warp
+        // World Portal Warp - Clear ahead for 90m & rebuild chunks to give seamless transition
         if (collision.hitPortal) {
           const target = collision.hitPortal.targetBiome;
           setActiveBiome(target);
           playerMgr.triggerPortalWarp(target, audio);
+          obstacleMgr.clearAhead(playerMgr.position.z, 90);
+          terrainMgr.rebuildAroundPlayer(playerMgr.position.z, playerMgr.position.x, 3);
           boostGlitchTimer = 0.85;
           const bNameMap: Record<string, string> = {
             'neon-undercity': 'NEON UNDERCITY // SECTOR 01',
