@@ -3,6 +3,7 @@ import { WorldTheme, WORLD_THEMES, getNextTheme } from './worldThemes';
 import { SkyManager } from './sky';
 import { TerrainManager } from './terrain';
 import { ObstacleManager } from './obstacles';
+import { createWindPetalTexture } from '../graphics/textures';
 
 export class ThemeManager {
   scene: THREE.Scene;
@@ -10,6 +11,7 @@ export class ThemeManager {
   targetTheme: WorldTheme | null = null;
   transitionTimer: number = 0;
   transitionDuration: number = 1.25;
+  private petalTex: THREE.CanvasTexture | null = null;
 
   // Lerp targets & animated states
   skyTopColor: THREE.Color;
@@ -35,6 +37,7 @@ export class ThemeManager {
   constructor(scene: THREE.Scene) {
     this.scene = scene;
     this.currentTheme = WORLD_THEMES[0];
+    this.petalTex = createWindPetalTexture();
 
     this.skyTopColor = new THREE.Color(this.currentTheme.skyColorTop);
     this.skyBottomColor = new THREE.Color(this.currentTheme.skyColorBottom);
@@ -134,14 +137,21 @@ export class ThemeManager {
     if (theme.particleType === 'embers') particleSize = 2.2;
     if (theme.particleType === 'stars') particleSize = 1.2;
 
-    const material = new THREE.PointsMaterial({
+    const materialParams: THREE.PointsMaterialParameters = {
       color: theme.particleColor,
       size: particleSize,
       transparent: true,
       opacity: 0.85,
       blending: THREE.AdditiveBlending,
       depthWrite: false,
-    });
+    };
+
+    if (theme.id === 'sky-realm' && this.petalTex) {
+      materialParams.map = this.petalTex;
+      materialParams.size = 2.8;
+    }
+
+    const material = new THREE.PointsMaterial(materialParams);
 
     this.activeParticlePoints = new THREE.Points(geometry, material);
     this.scene.add(this.activeParticlePoints);

@@ -16,6 +16,12 @@ export type QualityPreset = 'desktop-full' | 'mobile-opt' | 'webgl-min';
 
 export type BiomeType =
   | 'neon-undercity'
+  | 'dune-nomad'
+  | 'aurora-frost'
+  | 'bioluminescent-jungle'
+  | 'ember-core'
+  | 'nebula-drift'
+  | 'sky-realm'
   | 'quantum-desert'
   | 'cyber-forest'
   | 'orbital-ring'

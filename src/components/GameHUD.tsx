@@ -65,29 +65,58 @@ export const GameHUD: React.FC<GameHUDProps> = ({
 
   const getBiomeBadge = (biome: BiomeType) => {
     switch (biome) {
+      case 'dune-nomad':
       case 'quantum-desert':
       case 'dunes':
-        return { name: 'QUANTUM DESERT // SOLAR DUNES', tag: 'ZONE-02', color: 'border-amber-400 text-amber-300' };
+        return { name: 'DUNE NOMAD // AMBER MESAS', tag: 'WORLD 2', color: 'border-amber-400 text-amber-300' };
+      case 'aurora-frost':
+      case 'crystal-glacier':
+        return { name: 'AURORA FROST // GLACIER TUNDRA', tag: 'WORLD 3', color: 'border-cyan-300 text-cyan-200' };
+      case 'bioluminescent-jungle':
       case 'cyber-forest':
       case 'forest':
-        return { name: 'CYBER FOREST // BIOLUMINESCENT', tag: 'ZONE-03', color: 'border-emerald-400 text-emerald-300' };
-      case 'orbital-ring':
-      case 'sky-islands':
-        return { name: 'ORBITAL RING // ZERO-G', tag: 'ZONE-04', color: 'border-cyan-400 text-cyan-300' };
-      case 'the-grid':
-        return { name: 'THE GRID // VECTOR VOID', tag: 'ZONE-05', color: 'border-pink-400 text-pink-300' };
+        return { name: 'BIOLUMINESCENT JUNGLE', tag: 'WORLD 4', color: 'border-emerald-400 text-emerald-300' };
+      case 'ember-core':
       case 'volcanic-forge':
-        return { name: 'VOLCANIC FORGE // MAGMA CORE', tag: 'ZONE-06', color: 'border-red-400 text-red-300' };
-      case 'crystal-glacier':
-        return { name: 'CRYSTAL GLACIER // FROST REALM', tag: 'ZONE-07', color: 'border-sky-300 text-sky-200' };
-      case 'derelict-station':
-        return { name: 'DERELICT // STATION-09', tag: 'ZONE-08', color: 'border-yellow-500 text-yellow-300' };
+        return { name: 'EMBER CORE // MAGMA OBSIDIAN', tag: 'WORLD 5', color: 'border-red-500 text-red-400' };
+      case 'nebula-drift':
+      case 'orbital-ring':
+        return { name: 'NEBULA DRIFT // STELLAR VOID', tag: 'WORLD 6', color: 'border-purple-400 text-purple-300' };
+      case 'sky-realm':
+      case 'sky-islands':
+        return { name: 'SKY REALM // GHIBLI NATURE', tag: 'WORLD 7', color: 'border-sky-300 text-sky-200' };
       default:
-        return { name: 'NEON UNDERCITY // SECTOR-01', tag: 'ZONE-01', color: 'border-fuchsia-400 text-fuchsia-300' };
+        return { name: 'NEON UNDERCITY // SECTOR-01', tag: 'WORLD 1', color: 'border-fuchsia-400 text-fuchsia-300' };
     }
   };
 
+  const getNextThemeInfo = (current: BiomeType) => {
+    const list: BiomeType[] = ['neon-undercity', 'dune-nomad', 'aurora-frost', 'bioluminescent-jungle', 'ember-core', 'nebula-drift', 'sky-realm'];
+    const idx = list.indexOf(current);
+    const nextId = idx === -1 ? 'dune-nomad' : list[(idx + 1) % list.length];
+    const swatchColors: Record<string, string> = {
+      'neon-undercity': 'bg-fuchsia-500',
+      'dune-nomad': 'bg-amber-500',
+      'aurora-frost': 'bg-cyan-400',
+      'bioluminescent-jungle': 'bg-emerald-400',
+      'ember-core': 'bg-red-500',
+      'nebula-drift': 'bg-purple-500',
+      'sky-realm': 'bg-sky-400',
+    };
+    const names: Record<string, string> = {
+      'neon-undercity': 'Neon Undercity',
+      'dune-nomad': 'Dune Nomad',
+      'aurora-frost': 'Aurora Frost',
+      'bioluminescent-jungle': 'Bio Jungle',
+      'ember-core': 'Ember Core',
+      'nebula-drift': 'Nebula Drift',
+      'sky-realm': 'Sky Realm',
+    };
+    return { name: names[nextId] || 'Next World', swatch: swatchColors[nextId] || 'bg-cyan-400' };
+  };
+
   const biomeBadge = getBiomeBadge(stats.currentBiome);
+  const nextThemeInfo = getNextThemeInfo(stats.currentBiome);
   const overdrivePercent = Math.round(stats.overdriveMeter || stats.styleMeter || 0);
 
   return (
@@ -110,6 +139,13 @@ export const GameHUD: React.FC<GameHUDProps> = ({
             <div className={`px-2.5 py-1.5 rounded-lg bg-black/75 backdrop-blur-md border text-xs font-bold flex items-center space-x-1.5 shadow-md ${biomeBadge.color}`}>
               <span className="text-[10px] bg-white/10 px-1 py-0.5 rounded font-black">{biomeBadge.tag}</span>
               <span>{biomeBadge.name}</span>
+            </div>
+
+            {/* Next World Preview Swatch */}
+            <div className="px-2.5 py-1.5 rounded-lg bg-black/75 backdrop-blur-md border border-slate-700 text-xs font-bold flex items-center space-x-1.5 shadow-md">
+              <span className="text-[9px] text-slate-400 font-bold uppercase">NEXT:</span>
+              <div className={`w-2.5 h-2.5 rounded-full ${nextThemeInfo.swatch} animate-pulse`} />
+              <span className="text-slate-200">{nextThemeInfo.name}</span>
             </div>
 
             {stats.isGrinding && (

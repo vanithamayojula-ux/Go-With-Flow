@@ -876,5 +876,320 @@ export function createCyberSkaterSpriteTexture(): THREE.CanvasTexture {
   return texture;
 }
 
+/** Dune Nomad Mesa & Desert Backdrop Texture (1024x1024) */
+export function createDuneBackdropTexture(): THREE.CanvasTexture {
+  const canvas = document.createElement('canvas');
+  canvas.width = 1024;
+  canvas.height = 1024;
+  const ctx = canvas.getContext('2d')!;
+
+  const skyGrad = ctx.createLinearGradient(0, 0, 0, 1024);
+  skyGrad.addColorStop(0, '#3a1c00');
+  skyGrad.addColorStop(0.4, '#8a4b00');
+  skyGrad.addColorStop(0.75, '#d97706');
+  skyGrad.addColorStop(1, '#f59e0b');
+  ctx.fillStyle = skyGrad;
+  ctx.fillRect(0, 0, 1024, 1024);
+
+  // Golden Sun Disc
+  const sunGrad = ctx.createRadialGradient(512, 450, 20, 512, 450, 180);
+  sunGrad.addColorStop(0, 'rgba(255, 245, 200, 0.95)');
+  sunGrad.addColorStop(0.4, 'rgba(251, 191, 36, 0.6)');
+  sunGrad.addColorStop(1, 'rgba(217, 119, 6, 0)');
+  ctx.fillStyle = sunGrad;
+  ctx.beginPath(); ctx.arc(512, 450, 180, 0, Math.PI * 2); ctx.fill();
+
+  // Far Mesa Silhouette Layer
+  ctx.fillStyle = '#451a03';
+  ctx.beginPath();
+  ctx.moveTo(0, 700);
+  ctx.lineTo(120, 550); ctx.lineTo(340, 560); ctx.lineTo(420, 700);
+  ctx.lineTo(600, 520); ctx.lineTo(820, 530); ctx.lineTo(950, 700); ctx.lineTo(1024, 700);
+  ctx.lineTo(1024, 1024); ctx.lineTo(0, 1024);
+  ctx.fill();
+
+  // Mid Mesa & Sand Strata Layer
+  ctx.fillStyle = '#290e02';
+  ctx.beginPath();
+  ctx.moveTo(0, 780);
+  ctx.quadraticCurveTo(250, 680, 500, 760);
+  ctx.quadraticCurveTo(750, 840, 1024, 720);
+  ctx.lineTo(1024, 1024); ctx.lineTo(0, 1024);
+  ctx.fill();
+
+  // Sandstone Strata Lines
+  ctx.strokeStyle = 'rgba(217, 119, 6, 0.25)';
+  ctx.lineWidth = 4;
+  for (let y = 600; y < 1000; y += 45) {
+    ctx.beginPath();
+    ctx.moveTo(0, y);
+    ctx.quadraticCurveTo(512, y + Math.sin(y) * 30, 1024, y);
+    ctx.stroke();
+  }
+
+  const texture = new THREE.CanvasTexture(canvas);
+  texture.wrapS = THREE.ClampToEdgeWrapping;
+  texture.wrapT = THREE.ClampToEdgeWrapping;
+  return texture;
+}
+
+/** Aurora Frost Glacier & Tundra Backdrop Texture (1024x1024) */
+export function createGlacierBackdropTexture(): THREE.CanvasTexture {
+  const canvas = document.createElement('canvas');
+  canvas.width = 1024;
+  canvas.height = 1024;
+  const ctx = canvas.getContext('2d')!;
+
+  const skyGrad = ctx.createLinearGradient(0, 0, 0, 1024);
+  skyGrad.addColorStop(0, '#001020');
+  skyGrad.addColorStop(0.5, '#002b3d');
+  skyGrad.addColorStop(1, '#004455');
+  ctx.fillStyle = skyGrad;
+  ctx.fillRect(0, 0, 1024, 1024);
+
+  // Aurora Borealis Ribbons
+  for (let i = 0; i < 3; i++) {
+    const auroraGrad = ctx.createLinearGradient(0, 150 + i * 80, 1024, 300 + i * 80);
+    auroraGrad.addColorStop(0, 'rgba(0, 255, 170, 0)');
+    auroraGrad.addColorStop(0.4, i % 2 === 0 ? 'rgba(0, 255, 204, 0.45)' : 'rgba(168, 85, 247, 0.4)');
+    auroraGrad.addColorStop(0.8, 'rgba(56, 189, 248, 0.35)');
+    auroraGrad.addColorStop(1, 'rgba(0, 255, 170, 0)');
+    ctx.fillStyle = auroraGrad;
+    ctx.beginPath();
+    ctx.moveTo(0, 200 + i * 100);
+    ctx.bezierCurveTo(300, 100 + i * 80, 700, 350 + i * 60, 1024, 180 + i * 100);
+    ctx.lineTo(1024, 400 + i * 100);
+    ctx.bezierCurveTo(700, 500 + i * 60, 300, 250 + i * 80, 0, 350 + i * 100);
+    ctx.fill();
+  }
+
+  // Glacier Ice Wall Spires
+  ctx.fillStyle = '#001d2d';
+  ctx.beginPath();
+  ctx.moveTo(0, 1024);
+  for (let x = 0; x <= 1024; x += 80) {
+    const h = 500 + Math.sin(x * 0.05) * 150 + (x % 160 === 0 ? 180 : 0);
+    ctx.lineTo(x, 1024 - h);
+    ctx.lineTo(x + 40, 1024 - h + 60);
+  }
+  ctx.lineTo(1024, 1024); ctx.fill();
+
+  // Ice Crystal Highlight Glint Edges
+  ctx.strokeStyle = 'rgba(128, 255, 255, 0.5)';
+  ctx.lineWidth = 3;
+  for (let x = 40; x < 1000; x += 120) {
+    ctx.beginPath();
+    ctx.moveTo(x, 520); ctx.lineTo(x + 20, 420); ctx.lineTo(x + 40, 540);
+    ctx.stroke();
+  }
+
+  const texture = new THREE.CanvasTexture(canvas);
+  texture.wrapS = THREE.ClampToEdgeWrapping;
+  texture.wrapT = THREE.ClampToEdgeWrapping;
+  return texture;
+}
+
+/** Bioluminescent Jungle Tree Trunk Backdrop Texture (1024x1024) */
+export function createJungleBackdropTexture(): THREE.CanvasTexture {
+  const canvas = document.createElement('canvas');
+  canvas.width = 1024;
+  canvas.height = 1024;
+  const ctx = canvas.getContext('2d')!;
+
+  const bgGrad = ctx.createLinearGradient(0, 0, 0, 1024);
+  bgGrad.addColorStop(0, '#021207');
+  bgGrad.addColorStop(0.5, '#052b12');
+  bgGrad.addColorStop(1, '#02180a');
+  ctx.fillStyle = bgGrad;
+  ctx.fillRect(0, 0, 1024, 1024);
+
+  // Giant Rainforest Tree Trunks
+  const trunkX = [120, 380, 680, 910];
+  trunkX.forEach(tx => {
+    const tGrad = ctx.createLinearGradient(tx - 70, 0, tx + 70, 0);
+    tGrad.addColorStop(0, '#020d05');
+    tGrad.addColorStop(0.5, '#07240f');
+    tGrad.addColorStop(1, '#010803');
+    ctx.fillStyle = tGrad;
+    ctx.fillRect(tx - 70, 0, 140, 1024);
+
+    // Glowing Bioluminescent Vines & Moss Strands
+    ctx.strokeStyle = tx % 2 === 0 ? 'rgba(168, 85, 247, 0.65)' : 'rgba(57, 255, 20, 0.65)';
+    ctx.lineWidth = 6;
+    ctx.beginPath();
+    ctx.moveTo(tx, 0);
+    ctx.quadraticCurveTo(tx + 40, 512, tx - 20, 1024);
+    ctx.stroke();
+  });
+
+  // Floating Bioluminescent Fungi / Orbs
+  for (let i = 0; i < 40; i++) {
+    const fx = Math.random() * 1024;
+    const fy = Math.random() * 1024;
+    const fr = 6 + Math.random() * 12;
+    const fGrad = ctx.createRadialGradient(fx, fy, 1, fx, fy, fr);
+    fGrad.addColorStop(0, 'rgba(236, 72, 153, 0.9)');
+    fGrad.addColorStop(0.5, 'rgba(168, 85, 247, 0.5)');
+    fGrad.addColorStop(1, 'rgba(0, 0, 0, 0)');
+    ctx.fillStyle = fGrad;
+    ctx.beginPath(); ctx.arc(fx, fy, fr, 0, Math.PI * 2); ctx.fill();
+  }
+
+  const texture = new THREE.CanvasTexture(canvas);
+  texture.wrapS = THREE.ClampToEdgeWrapping;
+  texture.wrapT = THREE.ClampToEdgeWrapping;
+  return texture;
+}
+
+/** Ember Core Obsidian Canyon Backdrop Texture (1024x1024) */
+export function createEmberBackdropTexture(): THREE.CanvasTexture {
+  const canvas = document.createElement('canvas');
+  canvas.width = 1024;
+  canvas.height = 1024;
+  const ctx = canvas.getContext('2d')!;
+
+  const skyGrad = ctx.createLinearGradient(0, 0, 0, 1024);
+  skyGrad.addColorStop(0, '#150000');
+  skyGrad.addColorStop(0.5, '#3b0700');
+  skyGrad.addColorStop(0.85, '#7c1500');
+  skyGrad.addColorStop(1, '#ff3300');
+  ctx.fillStyle = skyGrad;
+  ctx.fillRect(0, 0, 1024, 1024);
+
+  // Lava Glow Horizon
+  const lavaGrad = ctx.createLinearGradient(0, 700, 0, 1024);
+  lavaGrad.addColorStop(0, 'rgba(255, 51, 0, 0)');
+  lavaGrad.addColorStop(0.6, 'rgba(255, 102, 0, 0.6)');
+  lavaGrad.addColorStop(1, 'rgba(255, 204, 0, 0.9)');
+  ctx.fillStyle = lavaGrad;
+  ctx.fillRect(0, 700, 1024, 324);
+
+  // Jagged Obsidian Rock Spires
+  ctx.fillStyle = '#0f0202';
+  ctx.beginPath();
+  ctx.moveTo(0, 1024);
+  for (let x = 0; x <= 1024; x += 100) {
+    const spH = 450 + Math.cos(x * 0.08) * 180 + (x % 200 === 0 ? 150 : 0);
+    ctx.lineTo(x, 1024 - spH);
+    ctx.lineTo(x + 50, 1024 - spH + 90);
+  }
+  ctx.lineTo(1024, 1024); ctx.fill();
+
+  // Glowing Lava Crack Fissures
+  ctx.strokeStyle = '#ff5500';
+  ctx.lineWidth = 4;
+  for (let i = 0; i < 6; i++) {
+    const lx = i * 180 + 50;
+    ctx.beginPath();
+    ctx.moveTo(lx, 1024);
+    ctx.lineTo(lx - 20, 850); ctx.lineTo(lx + 30, 750); ctx.lineTo(lx - 10, 680);
+    ctx.stroke();
+  }
+
+  const texture = new THREE.CanvasTexture(canvas);
+  texture.wrapS = THREE.ClampToEdgeWrapping;
+  texture.wrapT = THREE.ClampToEdgeWrapping;
+  return texture;
+}
+
+/** Nebula Drift Space Station Backdrop Texture (1024x1024) */
+export function createNebulaBackdropTexture(): THREE.CanvasTexture {
+  const canvas = document.createElement('canvas');
+  canvas.width = 1024;
+  canvas.height = 1024;
+  const ctx = canvas.getContext('2d')!;
+
+  ctx.fillStyle = '#05010d';
+  ctx.fillRect(0, 0, 1024, 1024);
+
+  // Distant Stars
+  ctx.fillStyle = '#ffffff';
+  for (let i = 0; i < 250; i++) {
+    const sx = Math.random() * 1024;
+    const sy = Math.random() * 1024;
+    const sr = Math.random() * 1.5;
+    ctx.fillRect(sx, sy, sr, sr);
+  }
+
+  // Vibrant Purple / Cyan Nebula Cloud
+  const nebGrad = ctx.createRadialGradient(400, 400, 50, 400, 400, 450);
+  nebGrad.addColorStop(0, 'rgba(192, 132, 252, 0.55)');
+  nebGrad.addColorStop(0.5, 'rgba(56, 189, 248, 0.35)');
+  nebGrad.addColorStop(1, 'rgba(5, 1, 13, 0)');
+  ctx.fillStyle = nebGrad;
+  ctx.beginPath(); ctx.arc(400, 400, 450, 0, Math.PI * 2); ctx.fill();
+
+  // Ringed Planet Backdrop
+  ctx.fillStyle = '#1e1b4b';
+  ctx.beginPath(); ctx.arc(800, 300, 140, 0, Math.PI * 2); ctx.fill();
+  ctx.strokeStyle = 'rgba(192, 132, 252, 0.6)';
+  ctx.lineWidth = 14;
+  ctx.beginPath(); ctx.ellipse(800, 300, 260, 45, -0.4, 0, Math.PI * 2); ctx.stroke();
+
+  // Derelict Space Station Silhouette
+  ctx.fillStyle = '#090514';
+  ctx.fillRect(100, 600, 350, 120);
+  ctx.fillRect(200, 520, 150, 240);
+  ctx.fillRect(420, 640, 280, 40);
+
+  const texture = new THREE.CanvasTexture(canvas);
+  texture.wrapS = THREE.ClampToEdgeWrapping;
+  texture.wrapT = THREE.ClampToEdgeWrapping;
+  return texture;
+}
+
+/** Sky Realm Floating Ghibli Cloud Islands Backdrop Texture (1024x1024) */
+export function createSkyRealmBackdropTexture(): THREE.CanvasTexture {
+  const canvas = document.createElement('canvas');
+  canvas.width = 1024;
+  canvas.height = 1024;
+  const ctx = canvas.getContext('2d')!;
+
+  const skyGrad = ctx.createLinearGradient(0, 0, 0, 1024);
+  skyGrad.addColorStop(0, '#7dd3fc');
+  skyGrad.addColorStop(0.6, '#bae6fd');
+  skyGrad.addColorStop(1, '#fef08a');
+  ctx.fillStyle = skyGrad;
+  ctx.fillRect(0, 0, 1024, 1024);
+
+  // Soft Painterly Cloud Puffs
+  const cloudPuffs = [
+    { x: 250, y: 350, r: 140 }, { x: 380, y: 320, r: 110 }, { x: 160, y: 380, r: 100 },
+    { x: 750, y: 250, r: 160 }, { x: 880, y: 280, r: 120 }, { x: 640, y: 290, r: 110 },
+  ];
+  cloudPuffs.forEach(c => {
+    const cGrad = ctx.createRadialGradient(c.x, c.y - 20, 10, c.x, c.y, c.r);
+    cGrad.addColorStop(0, '#ffffff');
+    cGrad.addColorStop(0.7, '#f0f9ff');
+    cGrad.addColorStop(1, 'rgba(255, 255, 255, 0)');
+    ctx.fillStyle = cGrad;
+    ctx.beginPath(); ctx.arc(c.x, c.y, c.r, 0, Math.PI * 2); ctx.fill();
+  });
+
+  // Floating Sky Island Silhouettes (Grassy mounds)
+  const islands = [
+    { x: 180, y: 700, w: 280, h: 90 },
+    { x: 650, y: 620, w: 340, h: 110 },
+    { x: 420, y: 840, w: 320, h: 100 },
+  ];
+  islands.forEach(isl => {
+    ctx.fillStyle = '#4d7c0f'; // Earthy rock bottom
+    ctx.beginPath();
+    ctx.ellipse(isl.x, isl.y + isl.h * 0.5, isl.w * 0.5, isl.h * 0.6, 0, 0, Math.PI);
+    ctx.fill();
+
+    ctx.fillStyle = '#65a30d'; // Lush green grass top
+    ctx.beginPath();
+    ctx.ellipse(isl.x, isl.y, isl.w * 0.5, isl.h * 0.4, 0, Math.PI, Math.PI * 2);
+    ctx.fill();
+  });
+
+  const texture = new THREE.CanvasTexture(canvas);
+  texture.wrapS = THREE.ClampToEdgeWrapping;
+  texture.wrapT = THREE.ClampToEdgeWrapping;
+  return texture;
+}
+
+
 
 

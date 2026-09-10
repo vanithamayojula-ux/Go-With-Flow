@@ -152,6 +152,27 @@ export const WORLD_THEMES: WorldTheme[] = [
     particleDensity: 1.8,
     portalColor: 0x00e5ff,
   },
+  {
+    id: 'sky-realm',
+    name: 'Sky Realm',
+    skyColorTop: 0x8fd3ff,
+    skyColorBottom: 0xfff2cc,
+    fogColor: 0xcfe8ff,
+    fogDensity: 0.004,
+    ambientLightColor: 0xfff6e0,
+    ambientLightIntensity: 1.0,
+    directionalLightColor: 0xffe9a8,
+    directionalLightIntensity: 1.2,
+    groundColor: 0x8fbf6a,
+    trackColor: 0xd8c9a3,
+    laneLineColor: 0xffffff,
+    buildingColors: [0xffffff, 0xdff0ff, 0xc9e8ff],
+    accentGlowColor: 0xffe9a8,
+    particleType: 'fireflies',
+    particleColor: 0xffffff,
+    particleDensity: 0.6,
+    portalColor: 0x00f0ff,
+  },
 ];
 
 /** Returns the theme after `currentId` in the cycle, wrapping around. */

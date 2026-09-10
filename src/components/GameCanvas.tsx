@@ -447,11 +447,17 @@ export const GameCanvas: React.FC<GameCanvasProps> = ({
           boostGlitchTimer = 0.85;
           const bNameMap: Record<string, string> = {
             'neon-undercity': 'NEON UNDERCITY // SECTOR 01',
-            'quantum-desert': 'QUANTUM DESERT // SOLAR DUNES',
+            'dune-nomad': 'DUNE NOMAD // AMBER MESAS',
+            'aurora-frost': 'AURORA FROST // GLACIER TUNDRA',
+            'bioluminescent-jungle': 'BIOLUMINESCENT JUNGLE',
+            'ember-core': 'EMBER CORE // MAGMA OBSIDIAN',
+            'nebula-drift': 'NEBULA DRIFT // STELLAR VOID',
+            'sky-realm': 'SKY REALM // GHIBLI NATURE',
+            'quantum-desert': 'QUANTUM DESERT // AMBER MESAS',
             'cyber-forest': 'CYBER FOREST // BIOLUMINESCENT CANOPY',
-            'orbital-ring': 'ORBITAL RING // STRATOSPHERE',
+            'orbital-ring': 'ORBITAL RING // STELLAR VOID',
             'the-grid': 'THE GRID // VECTOR CYBERSPACE',
-            'volcanic-forge': 'VOLCANIC FORGE // MAGMA OBSIDIAN CORE',
+            'volcanic-forge': 'VOLCANIC FORGE // MAGMA OBSIDIAN',
             'crystal-glacier': 'CRYSTAL GLACIER // FROST REALM',
             'derelict-station': 'DERELICT STATION // HAZARD ZONE',
           };

@@ -1,6 +1,7 @@
 import * as THREE from 'three';
 import { getTerrainHeight } from './terrain';
-import { LaneIndex, ObstacleType, PowerUpType } from '../types';
+import { BiomeType, LaneIndex, ObstacleType, PowerUpType } from '../types';
+import { WORLD_THEMES } from './worldThemes';
 
 export const LANE_WIDTH = 4.2;
 
@@ -25,6 +26,7 @@ export interface ObstacleInstance {
   isBoostGate?: boolean;
   isPortal?: boolean;
   targetBiome?: BiomeType;
+  targetThemeId?: string;
   baseX?: number;
   nearMissAwarded?: boolean;
   cleared: boolean;
@@ -167,15 +169,7 @@ export class ObstacleManager {
   }
 
   lastPortalZ = 120;
-  portalBiomes: BiomeType[] = [
-    'volcanic-forge',
-    'crystal-glacier',
-    'quantum-desert',
-    'cyber-forest',
-    'orbital-ring',
-    'the-grid',
-    'neon-undercity',
-  ];
+  portalBiomes: BiomeType[] = WORLD_THEMES.map(t => t.id as BiomeType);
   portalIndex = 0;
 
   private spawnSection(z: number) {

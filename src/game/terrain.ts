@@ -1,7 +1,16 @@
 import * as THREE from 'three';
 import { TerrainShader } from '../graphics/shaders';
 import { BiomeType, FloatingIslandData } from '../types';
-import { createCyberBuildingTexture, createCyberBillboardTexture } from '../graphics/textures';
+import {
+  createCyberBuildingTexture,
+  createCyberBillboardTexture,
+  createDuneBackdropTexture,
+  createGlacierBackdropTexture,
+  createJungleBackdropTexture,
+  createEmberBackdropTexture,
+  createNebulaBackdropTexture,
+  createSkyRealmBackdropTexture,
+} from '../graphics/textures';
 
 export const CHUNK_SIZE = 80;
 export const CHUNK_SEGMENTS = 24;
@@ -16,37 +25,33 @@ export function getBiomeAt(z: number): BiomeType {
   if (activeBiomeOverride) {
     return activeBiomeOverride;
   }
-  const normalizedZ = Math.max(0, z);
-  const cycle = Math.floor(normalizedZ / 600) % 7;
-  switch (cycle) {
-    case 0: return 'neon-undercity';
-    case 1: return 'quantum-desert';
-    case 2: return 'cyber-forest';
-    case 3: return 'orbital-ring';
-    case 4: return 'the-grid';
-    case 5: return 'volcanic-forge';
-    case 6: return 'crystal-glacier';
-    default: return 'neon-undercity';
-  }
+  return 'neon-undercity';
 }
 
 export function getBiomeFriction(biome: BiomeType): number {
   switch (biome) {
     case 'neon-undercity':
       return 0.02; // Slick wet asphalt
+    case 'dune-nomad':
     case 'quantum-desert':
     case 'dunes':
       return 0.025; // Golden sand resistance
+    case 'bioluminescent-jungle':
     case 'cyber-forest':
     case 'forest':
-      return 0.02; // Bioluminescent moss plane
+      return 0.02; // Moss plane
+    case 'nebula-drift':
     case 'orbital-ring':
+      return 0.01; // Zero-g floaty
+    case 'sky-realm':
     case 'sky-islands':
-      return 0.01; // Frictionless zero-g magnetic guide
+      return 0.005; // Extremely floaty nature breeze
     case 'the-grid':
       return 0.015; // Smooth digital vector plane
+    case 'ember-core':
     case 'volcanic-forge':
       return 0.03; // Magma obsidian crust
+    case 'aurora-frost':
     case 'crystal-glacier':
       return 0.008; // Ultra-slick crystal ice
     case 'derelict-station':
@@ -106,16 +111,7 @@ export class TerrainManager {
   updraftsList: UpdraftGeyser[] = [];
   floatingIslandsList: { x: number; y: number; z: number; radius: number }[] = [];
 
-  // Procedural 4K Skyscraper Window & Holographic Billboard Textures & Materials
-  private buildingTex: THREE.CanvasTexture;
-  private buildingMat: THREE.MeshBasicMaterial;
-  private rooftopMat: THREE.MeshLambertMaterial;
-  private spireMat: THREE.MeshBasicMaterial;
-  private beaconMat: THREE.MeshBasicMaterial;
-  private neonCyanMat: THREE.MeshBasicMaterial;
-  private neonMagentaMat: THREE.MeshBasicMaterial;
-  private neonAmberMat: THREE.MeshBasicMaterial;
-
+  private themeBackdropMats: Record<string, THREE.MeshBasicMaterial> = {};
   private billboardMats: THREE.MeshBasicMaterial[] = [];
   private wireframeBoxGeom = new THREE.BoxGeometry(6, 6, 6);
   private wireframeOctaGeom = new THREE.OctahedronGeometry(5);
@@ -127,7 +123,7 @@ export class TerrainManager {
   constructor(scene: THREE.Scene) {
     this.scene = scene;
 
-    // 1. Procedural 4K Cyberpunk Skyscraper Window Grid Texture
+    // 1. Procedural 4K Cyberpunk Skyscraper Window Grid Texture & Theme Backdrops
     this.buildingTex = createCyberBuildingTexture();
     this.buildingMat = new THREE.MeshBasicMaterial({ map: this.buildingTex });
     this.rooftopMat = new THREE.MeshLambertMaterial({ color: 0x070b15 });
@@ -136,6 +132,29 @@ export class TerrainManager {
     this.neonCyanMat = new THREE.MeshBasicMaterial({ color: 0x00f0ff });
     this.neonMagentaMat = new THREE.MeshBasicMaterial({ color: 0xff007f });
     this.neonAmberMat = new THREE.MeshBasicMaterial({ color: 0xffaa00 });
+
+    const duneTex = createDuneBackdropTexture();
+    const glacierTex = createGlacierBackdropTexture();
+    const jungleTex = createJungleBackdropTexture();
+    const emberTex = createEmberBackdropTexture();
+    const nebulaTex = createNebulaBackdropTexture();
+    const skyRealmTex = createSkyRealmBackdropTexture();
+
+    this.themeBackdropMats = {
+      'neon-undercity': this.buildingMat,
+      'dune-nomad': new THREE.MeshBasicMaterial({ map: duneTex, side: THREE.DoubleSide }),
+      'aurora-frost': new THREE.MeshBasicMaterial({ map: glacierTex, side: THREE.DoubleSide }),
+      'bioluminescent-jungle': new THREE.MeshBasicMaterial({ map: jungleTex, side: THREE.DoubleSide }),
+      'ember-core': new THREE.MeshBasicMaterial({ map: emberTex, side: THREE.DoubleSide }),
+      'nebula-drift': new THREE.MeshBasicMaterial({ map: nebulaTex, side: THREE.DoubleSide }),
+      'sky-realm': new THREE.MeshBasicMaterial({ map: skyRealmTex, side: THREE.DoubleSide }),
+      'quantum-desert': new THREE.MeshBasicMaterial({ map: duneTex, side: THREE.DoubleSide }),
+      'cyber-forest': new THREE.MeshBasicMaterial({ map: jungleTex, side: THREE.DoubleSide }),
+      'orbital-ring': new THREE.MeshBasicMaterial({ map: nebulaTex, side: THREE.DoubleSide }),
+      'volcanic-forge': new THREE.MeshBasicMaterial({ map: emberTex, side: THREE.DoubleSide }),
+      'crystal-glacier': new THREE.MeshBasicMaterial({ map: glacierTex, side: THREE.DoubleSide }),
+      'sky-islands': new THREE.MeshBasicMaterial({ map: skyRealmTex, side: THREE.DoubleSide }),
+    };
 
     // 2. High-Tech Holographic Billboard Materials
     const bTex1 = createCyberBillboardTexture('NEON DRIFT', '高速レーサー // 2077', '#00f0ff', '#ff007f');
@@ -167,11 +186,10 @@ export class TerrainManager {
   }
 
   /**
-   * Helper: Builds a 3D architectural cyberpunk skyscraper complete with
-   * lit window matrices, rooftop mechanical penthouse, communications antenna,
-   * flashing red aircraft beacon, vertical neon conduits, and optional holographic billboard.
+   * Helper: Builds a flat double-sided picture panel (parallax card) mapped with
+   * theme-specific backdrop art facing perpendicular to the track.
    */
-  private createSkyscraper(
+  private createBackdropPanel(
     x: number,
     baseY: number,
     z: number,
@@ -179,58 +197,46 @@ export class TerrainManager {
     height: number,
     depth: number,
     side: 'left' | 'right',
+    themeId: string,
     billboardIdx?: number
   ): THREE.Group {
     const group = new THREE.Group();
+    const mat = this.themeBackdropMats[themeId] || this.buildingMat;
 
-    // 1. Skyscraper Main Tower Body with illuminated window grid
-    const towerGeom = new THREE.BoxGeometry(width, height, depth);
-    const towerMesh = new THREE.Mesh(towerGeom, this.buildingMat);
-    towerMesh.position.set(0, height / 2, 0);
-    group.add(towerMesh);
+    // Flat double-sided picture panel facing across highway
+    const panelGeom = new THREE.BoxGeometry(width, height, 0.4);
+    const panelMesh = new THREE.Mesh(panelGeom, mat);
+    panelMesh.position.set(0, height / 2, 0);
 
-    // 2. Rooftop Mechanical Penthouse / Stepped Crown
-    const crownGeom = new THREE.BoxGeometry(width * 0.65, 7, depth * 0.65);
-    const crownMesh = new THREE.Mesh(crownGeom, this.rooftopMat);
-    crownMesh.position.set(0, height + 3.5, 0);
-    group.add(crownMesh);
+    if (side === 'left') {
+      panelMesh.rotation.y = Math.PI / 2;
+    } else {
+      panelMesh.rotation.y = -Math.PI / 2;
+    }
+    group.add(panelMesh);
 
-    // 3. Communications Antenna / Spire
-    const spireGeom = new THREE.CylinderGeometry(0.15, 0.45, 16, 6);
-    const spireMesh = new THREE.Mesh(spireGeom, this.spireMat);
-    spireMesh.position.set(0, height + 7 + 8, 0);
-    group.add(spireMesh);
+    // Antenna & beacons for Cyberpunk / Space Station themes only
+    if (themeId === 'neon-undercity' || themeId === 'nebula-drift' || themeId === 'orbital-ring' || themeId === 'derelict-station') {
+      const spireGeom = new THREE.CylinderGeometry(0.15, 0.45, 16, 6);
+      const spireMesh = new THREE.Mesh(spireGeom, this.spireMat);
+      spireMesh.position.set(0, height + 8, 0);
+      group.add(spireMesh);
 
-    // 4. Rooftop Red Aircraft Warning Beacon
-    const beaconGeom = new THREE.SphereGeometry(0.7, 8, 8);
-    const beaconMesh = new THREE.Mesh(beaconGeom, this.beaconMat);
-    beaconMesh.position.set(0, height + 7 + 16, 0);
-    group.add(beaconMesh);
+      const beaconGeom = new THREE.SphereGeometry(0.7, 8, 8);
+      const beaconMesh = new THREE.Mesh(beaconGeom, this.beaconMat);
+      beaconMesh.position.set(0, height + 16, 0);
+      group.add(beaconMesh);
 
-    // 5. Vertical Neon Corner Conduit
-    const conduitGeom = new THREE.BoxGeometry(0.4, height, 0.4);
-    const conduitMat = side === 'left' ? this.neonCyanMat : this.neonMagentaMat;
-    const conduitMesh = new THREE.Mesh(conduitGeom, conduitMat);
-    const cornerX = side === 'left' ? width / 2 : -width / 2;
-    conduitMesh.position.set(cornerX, height / 2, depth / 2);
-    group.add(conduitMesh);
-
-    // 6. Holographic Billboard on inner facade facing the highway
-    if (billboardIdx !== undefined && billboardIdx >= 0) {
-      const bW = Math.min(width * 0.85, 14);
-      const bH = bW * 0.5;
-      const bGeom = new THREE.PlaneGeometry(bW, bH);
-      const bMat = this.billboardMats[billboardIdx % this.billboardMats.length];
-      const signMesh = new THREE.Mesh(bGeom, bMat);
-
-      if (side === 'left') {
-        signMesh.position.set(width / 2 + 0.15, height * 0.48, 0);
-        signMesh.rotation.y = Math.PI / 2;
-      } else {
-        signMesh.position.set(-width / 2 - 0.15, height * 0.48, 0);
-        signMesh.rotation.y = -Math.PI / 2;
+      if (billboardIdx !== undefined && billboardIdx >= 0) {
+        const bW = Math.min(width * 0.85, 14);
+        const bH = bW * 0.5;
+        const bGeom = new THREE.PlaneGeometry(bW, bH);
+        const bMat = this.billboardMats[billboardIdx % this.billboardMats.length];
+        const signMesh = new THREE.Mesh(bGeom, bMat);
+        signMesh.position.set(side === 'left' ? 0.3 : -0.3, height * 0.48, 0);
+        signMesh.rotation.y = side === 'left' ? Math.PI / 2 : -Math.PI / 2;
+        group.add(signMesh);
       }
-      group.add(signMesh);
     }
 
     group.position.set(x, baseY, z);
@@ -347,55 +353,77 @@ export class TerrainManager {
     this.scene.add(rightCurb);
     decorations.push(rightCurb);
 
-    // 3. Dense 4K Cyberpunk Skyscrapers on BOTH sides of the highway!
+    // 3. Flat Painted Parallax Backdrop Cards on BOTH sides of the highway!
     const baseRoadY = getTerrainHeight(0, zCenter);
 
-    // LEFT FLANK SKYSCRAPERS
-    // Skyscraper L1 (Front canyon tower with holographic billboard)
+    // LEFT FLANK BACKDROP PANELS
     const hL1 = 65 + Math.abs(cz * 17) % 35;
-    const bL1 = this.createSkyscraper(-20, baseRoadY, zCenter - 20, 16, hL1, 22, 'left', Math.abs(cz) % 4);
+    const bL1 = this.createBackdropPanel(-20, baseRoadY, zCenter - 20, 16, hL1, 22, 'left', biome, Math.abs(cz) % 4);
     this.scene.add(bL1);
     decorations.push(bL1);
 
-    // Skyscraper L2 (Mid-distance massive megatower)
     const hL2 = 95 + Math.abs(cz * 23) % 45;
-    const bL2 = this.createSkyscraper(-38, baseRoadY - 4, zCenter + 14, 22, hL2, 28, 'left');
+    const bL2 = this.createBackdropPanel(-38, baseRoadY - 4, zCenter + 14, 22, hL2, 28, 'left', biome);
     this.scene.add(bL2);
     decorations.push(bL2);
 
-    // Skyscraper L3 (Background titan skyscraper)
     const hL3 = 135 + Math.abs(cz * 31) % 55;
-    const bL3 = this.createSkyscraper(-62, baseRoadY - 8, zCenter - 5, 30, hL3, 34, 'left');
+    const bL3 = this.createBackdropPanel(-62, baseRoadY - 8, zCenter - 5, 30, hL3, 34, 'left', biome);
     this.scene.add(bL3);
     decorations.push(bL3);
 
-    // RIGHT FLANK SKYSCRAPERS
-    // Skyscraper R1 (Front canyon tower with holographic billboard)
+    // RIGHT FLANK BACKDROP PANELS
     const hR1 = 70 + Math.abs(cz * 19) % 35;
-    const bR1 = this.createSkyscraper(20, baseRoadY, zCenter + 18, 16, hR1, 22, 'right', (Math.abs(cz) + 2) % 4);
+    const bR1 = this.createBackdropPanel(20, baseRoadY, zCenter + 18, 16, hR1, 22, 'right', biome, (Math.abs(cz) + 2) % 4);
     this.scene.add(bR1);
     decorations.push(bR1);
 
-    // Skyscraper R2 (Mid-distance massive megatower)
     const hR2 = 90 + Math.abs(cz * 29) % 50;
-    const bR2 = this.createSkyscraper(38, baseRoadY - 4, zCenter - 16, 22, hR2, 28, 'right');
+    const bR2 = this.createBackdropPanel(38, baseRoadY - 4, zCenter - 16, 22, hR2, 28, 'right', biome);
     this.scene.add(bR2);
     decorations.push(bR2);
 
-    // Skyscraper R3 (Background titan skyscraper)
     const hR3 = 140 + Math.abs(cz * 37) % 55;
-    const bR3 = this.createSkyscraper(62, baseRoadY - 8, zCenter + 8, 30, hR3, 34, 'right');
+    const bR3 = this.createBackdropPanel(62, baseRoadY - 8, zCenter + 8, 30, hR3, 34, 'right', biome);
     this.scene.add(bR3);
     decorations.push(bR3);
 
-    // 4. Overhead Cyber Skybridge spanning the highway every 2 chunks
-    if (Math.abs(cz) % 2 === 0) {
+    // 4. Overhead Cyber Skybridge for Tech Worlds
+    if ((biome === 'neon-undercity' || biome === 'nebula-drift' || biome === 'the-grid') && Math.abs(cz) % 2 === 0) {
       const skybridge = this.createSkybridge(zCenter, baseRoadY);
       this.scene.add(skybridge);
       decorations.push(skybridge);
     }
 
-    // 5. Zone-Specific Props & Accents
+    // 5. Populate Foliage Instances for Nature Worlds
+    const grassList: { x: number; y: number; z: number; scale: number; rot: number }[] = [];
+    const treeList: { x: number; y: number; z: number; scale: number }[] = [];
+
+    if (
+      biome === 'bioluminescent-jungle' ||
+      biome === 'cyber-forest' ||
+      biome === 'sky-realm' ||
+      biome === 'sky-islands' ||
+      biome === 'forest' ||
+      biome === 'meadow'
+    ) {
+      for (let i = 0; i < 40; i++) {
+        const side = i % 2 === 0 ? 1 : -1;
+        const gx = side * (8.5 + Math.random() * 6);
+        const gz = zCenter - CHUNK_SIZE / 2 + Math.random() * CHUNK_SIZE;
+        const gy = getTerrainHeight(gx, gz);
+        grassList.push({ x: gx, y: gy, z: gz, scale: 0.8 + Math.random() * 0.6, rot: Math.random() * Math.PI * 2 });
+      }
+      for (let i = 0; i < 12; i++) {
+        const side = i % 2 === 0 ? 1 : -1;
+        const tx = side * (14.0 + Math.random() * 8);
+        const tz = zCenter - CHUNK_SIZE / 2 + Math.random() * CHUNK_SIZE;
+        const ty = getTerrainHeight(tx, tz);
+        treeList.push({ x: tx, y: ty, z: tz, scale: 0.9 + Math.random() * 0.7 });
+      }
+    }
+
+    // 6. Zone-Specific Props & Accents
     if (biome === 'the-grid') {
       [-13, 13].forEach(flankX => {
         const poly = new THREE.Mesh(Math.random() > 0.5 ? this.wireframeBoxGeom : this.wireframeOctaGeom, this.wireframeMat);
@@ -404,7 +432,7 @@ export class TerrainManager {
         this.scene.add(poly);
         decorations.push(poly);
       });
-    } else if (biome === 'orbital-ring') {
+    } else if (biome === 'orbital-ring' || biome === 'nebula-drift') {
       const ringArch = new THREE.Mesh(
         new THREE.TorusGeometry(12, 0.45, 8, 24, Math.PI),
         new THREE.MeshBasicMaterial({ color: 0x00f0ff })
@@ -440,8 +468,8 @@ export class TerrainManager {
         orbs: [],
         floatingIslands: [],
         updrafts: [],
-        grass: [],
-        trees: [],
+        grass: grassList,
+        trees: treeList,
       },
     });
   }
