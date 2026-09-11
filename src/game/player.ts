@@ -371,6 +371,10 @@ export class PlayerManager {
       (pc.capeMesh.material as THREE.MeshStandardMaterial).emissive.set(cColor);
     }
 
+    if (pc.applyGltfCosmetics) {
+      pc.applyGltfCosmetics(config);
+    }
+
     this.updateTrailColors();
   }
 

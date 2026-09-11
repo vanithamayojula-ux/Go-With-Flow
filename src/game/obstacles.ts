@@ -49,7 +49,7 @@ export interface LaneCoin {
   y: number;
   z: number;
   lane: LaneIndex;
-  mesh: THREE.Mesh;
+  mesh: THREE.Object3D;
   collected: boolean;
 }
 
@@ -73,9 +73,38 @@ export class ObstacleManager {
   private overheadArchBeamGeom = new THREE.BoxGeometry(4.2, 0.55, 0.55);
   private overheadBeamMat = new THREE.MeshBasicMaterial({ color: 0xff0033 }); // Hot neon red overhead laser conduit
 
-  // Data Shard Diamond Geometry
-  private dataShardGeom = new THREE.OctahedronGeometry(0.48);
-  private dataShardMat = new THREE.MeshBasicMaterial({ color: 0x00f0ff });
+  // Data Shard 3D Gem Geometries & Materials
+  private gemOuterGeom = new THREE.OctahedronGeometry(0.44);
+  private gemOuterMat = new THREE.MeshStandardMaterial({
+    color: 0x00f0ff,
+    emissive: 0x00aaff,
+    emissiveIntensity: 0.6,
+    roughness: 0.15,
+    metalness: 0.85,
+    transparent: true,
+    opacity: 0.88,
+    flatShading: true,
+  });
+  private gemInnerGeom = new THREE.IcosahedronGeometry(0.2, 0);
+  private gemInnerMat = new THREE.MeshBasicMaterial({ color: 0xffffff });
+  private gemRingGeom = new THREE.TorusGeometry(0.58, 0.035, 8, 24);
+  private gemRingMat = new THREE.MeshBasicMaterial({ color: 0x00ffff });
+
+  private createDataShardGem(): THREE.Group {
+    const gemGroup = new THREE.Group();
+
+    const outerMesh = new THREE.Mesh(this.gemOuterGeom, this.gemOuterMat);
+    gemGroup.add(outerMesh);
+
+    const innerMesh = new THREE.Mesh(this.gemInnerGeom, this.gemInnerMat);
+    gemGroup.add(innerMesh);
+
+    const ringMesh = new THREE.Mesh(this.gemRingGeom, this.gemRingMat);
+    ringMesh.rotation.x = Math.PI / 3;
+    gemGroup.add(ringMesh);
+
+    return gemGroup;
+  }
 
   // Boost Gate Hexagonal Arch
   private boostGateGeom = new THREE.TorusGeometry(2.4, 0.2, 6, 6);
@@ -154,11 +183,14 @@ export class ObstacleManager {
       }
     }
 
-    // 3. Rotate Data Shards & Power-up pickups
+    // 3. Rotate & Levitate 3D Gem Data Shards & Power-up pickups
     for (const shard of this.coins) {
       if (!shard.collected) {
-        shard.mesh.rotation.y = time * 4.0;
-        shard.mesh.rotation.z = Math.sin(time * 3.0) * 0.25;
+        shard.mesh.rotation.y = time * 3.5;
+        shard.mesh.position.y = shard.y + Math.sin(time * 4.0 + shard.z * 0.5) * 0.15;
+        if (shard.mesh.children[2]) {
+          shard.mesh.children[2].rotation.z = time * 4.0;
+        }
       }
     }
 
@@ -706,7 +738,7 @@ export class ObstacleManager {
       const z = startZ + i * 3.5;
       const y = customY !== undefined ? customY : getTerrainHeight(x, z) + 1.2;
 
-      const shard = new THREE.Mesh(this.dataShardGeom, this.dataShardMat);
+      const shard = this.createDataShardGem();
       shard.position.set(x, y, z);
       this.scene.add(shard);
 
@@ -730,7 +762,7 @@ export class ObstacleManager {
       const z = startZ + i * 3.2;
       const y = getTerrainHeight(x, z) + 1.2 + arcY;
 
-      const shard = new THREE.Mesh(this.dataShardGeom, this.dataShardMat);
+      const shard = this.createDataShardGem();
       shard.position.set(x, y, z);
       this.scene.add(shard);
 
@@ -861,7 +893,11 @@ export class ObstacleManager {
       if (distSq < 3.2 * 3.2) {
         shard.collected = true;
         this.scene.remove(shard.mesh);
-        shard.mesh.geometry.dispose();
+        shard.mesh.traverse(child => {
+          if (child instanceof THREE.Mesh) {
+            child.geometry?.dispose();
+          }
+        });
         collectedCoins++;
       }
     }
