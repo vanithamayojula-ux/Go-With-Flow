@@ -526,6 +526,11 @@ export class SkyManager {
     this.holoRingMesh.position.set(playerPos.x, playerPos.y + 220, playerPos.z - 380);
     this.holoRingMesh.rotation.z = time * 0.05;
 
+    // Direct shadow light follows player frustum
+    this.dirLight.position.set(playerPos.x + 30, playerPos.y + 70, playerPos.z - 30);
+    this.dirLight.target.position.copy(playerPos);
+    this.dirLight.target.updateMatrixWorld();
+
     this.skyMaterial.uniforms.uTime.value = time;
 
     // Update Aerial Cyber Traffic

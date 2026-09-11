@@ -187,9 +187,10 @@ export const GameCanvas: React.FC<GameCanvasProps> = ({
       uniforms: {
         tDiffuse: { value: rt.texture },
         uTime: { value: 0 },
-        uFilmGrain: { value: 0 },
+        uFilmGrain: { value: shaderParams.filmGrainIntensity ?? 0.0 },
         uBloom: { value: shaderParams.bloomIntensity ?? 0.35 },
         uColorLift: { value: shaderParams.colorLift ?? 0.2 },
+        uRainIntensity: { value: shaderParams.rainIntensity ?? (playerMgrRef.current?.stats.weather === 'light-rain' ? 0.8 : 0.0) },
         uHighSpeedBlur: { value: 0 },
         uSpeedLines: { value: 0 },
         uHeatShimmer: { value: 0 },
@@ -605,7 +606,14 @@ export const GameCanvas: React.FC<GameCanvasProps> = ({
       // Update Multiverse Visual Theme & Particles
       themeMgr.update(dt, skyMgr, terrainMgr, obstacleMgr, playerMgr.position, timeSeconds);
 
-      // Update Camera (Surfer Cam or Cinematic Fly Cam)
+      // Dynamic camera FOV widen at high speed/boost & screen shake impulse
+      let screenShakeX = 0;
+      let screenShakeY = 0;
+      if (stumbleGlitchTimer > 0) {
+        screenShakeX = (Math.random() - 0.5) * stumbleGlitchTimer * 0.35;
+        screenShakeY = (Math.random() - 0.5) * stumbleGlitchTimer * 0.35;
+      }
+
       if (isCinematicCam) {
         camera.up.set(0, 1, 0);
         const radius = 18;
@@ -614,7 +622,14 @@ export const GameCanvas: React.FC<GameCanvasProps> = ({
         camera.position.set(camX, playerMgr.position.y + 6, camZ);
         camera.lookAt(playerMgr.position.x, playerMgr.position.y + 1.5, playerMgr.position.z);
       } else {
+        const baseFov = 62;
+        const targetFov = baseFov + Math.min(12, (playerMgr.stats.speed / 150) * 10 + (playerMgr.stats.isBoosting ? 5 : 0));
+        camera.fov = THREE.MathUtils.lerp(camera.fov, targetFov, 5.0 * dt);
+        camera.updateProjectionMatrix();
+
         camera.position.copy(playerMgr.cameraPos);
+        camera.position.x += screenShakeX;
+        camera.position.y += screenShakeY;
         camera.up.set(0, 1, 0);
         camera.lookAt(playerMgr.cameraLookAt);
         // Dynamic camera roll tilt on carve without Euler wipeout or 180 deg reverse flip
@@ -664,6 +679,11 @@ export const GameCanvas: React.FC<GameCanvasProps> = ({
         }
 
         if (postMaterial.uniforms.uTime) postMaterial.uniforms.uTime.value = timeSeconds;
+        if (postMaterial.uniforms.uFilmGrain) postMaterial.uniforms.uFilmGrain.value = shaderParams.filmGrainIntensity ?? 0.0;
+        if (postMaterial.uniforms.uColorLift) postMaterial.uniforms.uColorLift.value = shaderParams.colorLift ?? 0.2;
+        if (postMaterial.uniforms.uRainIntensity) {
+          postMaterial.uniforms.uRainIntensity.value = shaderParams.rainIntensity ?? (playerMgr.stats.weather === 'light-rain' ? 0.8 : 0.0);
+        }
         if (postMaterial.uniforms.uHighSpeedBlur) postMaterial.uniforms.uHighSpeedBlur.value = 0.0;
         if (postMaterial.uniforms.uBloom) postMaterial.uniforms.uBloom.value = shaderParams.bloomIntensity ?? 0.55;
         if (postMaterial.uniforms.uChromaticAberration) postMaterial.uniforms.uChromaticAberration.value = chromaticAberration;

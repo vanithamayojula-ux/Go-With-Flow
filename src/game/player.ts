@@ -307,52 +307,68 @@ export class PlayerManager {
 
   applyCosmetics(config: CosmeticsConfig) {
     this.currentCosmetics = { ...config };
+    const pc = this.playerCharacter;
+    if (!pc) return;
 
-    // Update Visor & Underglow Neon Palette
-    if (this.visorMesh && this.underglowMesh && this.boardFoilMesh) {
-      const glowColor =
-        config.trailId === 'hot-magenta'
-          ? '#FF007F'
-          : config.trailId === 'acid-green'
-          ? '#00FF66'
-          : config.trailId === 'plasma-rainbow'
-          ? '#FF00AA'
-          : '#00F0FF';
-
-      (this.visorMesh.material as THREE.MeshBasicMaterial).color.set(config.visorColor || glowColor);
-      (this.underglowMesh.material as THREE.MeshBasicMaterial).color.set(config.underglowColor || glowColor);
-      (this.boardFoilMesh.material as THREE.MeshBasicMaterial).color.set(glowColor);
-      (this.capeMesh.material as THREE.MeshBasicMaterial).color.set(glowColor);
-
-      if (this.underglowLight) {
-        this.underglowLight.color.set(config.underglowColor || glowColor);
-      }
+    // 1. Board Model Selection
+    const bId = config.boardId || 'cyber-phantom';
+    if (pc.boards) {
+      Object.keys(pc.boards).forEach(key => {
+        if (pc.boards[key]) pc.boards[key].visible = (key === bId);
+      });
     }
 
-    // Board Deck Material - White Composite Default
-    if (this.boardDeckMesh && (this.boardDeckMesh.material as THREE.MeshBasicMaterial).color) {
-      (this.boardDeckMesh.material as THREE.MeshBasicMaterial).color.set('#ffffff');
+    // 2. Companion Model Selection & Toggle
+    const cId = config.companionStyle || 'recon-orb';
+    const cEnabled = config.companionEnabled !== false;
+    if (pc.companions) {
+      Object.keys(pc.companions).forEach(key => {
+        if (pc.companions[key]) pc.companions[key].visible = cEnabled && (key === cId);
+      });
     }
 
-    // Armor / Outfit Variant - White Fabric Default
-    if (this.torsoMesh && (this.torsoMesh.material as THREE.MeshBasicMaterial).color) {
-      (this.torsoMesh.material as THREE.MeshBasicMaterial).color.set('#ffffff');
+    // 3. Helmet / Style Selection
+    const hId = config.characterStyle || 'cyber-runner';
+    if (pc.helmets) {
+      Object.keys(pc.helmets).forEach(key => {
+        if (pc.helmets[key]) pc.helmets[key].visible = (key === hId);
+      });
     }
 
-    // Optional Companion Drone per Outfit (Fixes hardcoded-visible bug)
-    if (this.cyberDroneMesh) {
-      this.cyberDroneMesh.visible = config.companionEnabled !== false;
-      const glowColor =
-        config.visorColor ||
-        (config.trailId === 'hot-magenta'
-          ? '#FF007F'
-          : config.trailId === 'acid-green'
-          ? '#00FF66'
-          : config.trailId === 'plasma-rainbow'
-          ? '#FF00AA'
-          : '#00F0FF');
-      if (this.droneEyeMesh) (this.droneEyeMesh.material as THREE.MeshBasicMaterial).color.set(glowColor);
-      if (this.droneRingMesh) (this.droneRingMesh.material as THREE.MeshBasicMaterial).color.set(glowColor);
+    // 4. Armor Variant Selection
+    const aId = config.armorVariant || 'carbon-fiber';
+    if (pc.armors) {
+      Object.keys(pc.armors).forEach(key => {
+        if (pc.armors[key]) pc.armors[key].visible = (key === aId);
+      });
+    }
+
+    // 5. Visor, Underglow & Cape Colors
+    const glowColor =
+      config.visorColor ||
+      (config.trailId === 'hot-magenta'
+        ? '#FF007F'
+        : config.trailId === 'acid-green'
+        ? '#00FF66'
+        : config.trailId === 'plasma-rainbow'
+        ? '#FF00AA'
+        : '#00F0FF');
+
+    if (pc.visorMesh && pc.visorMesh.material) {
+      (pc.visorMesh.material as THREE.MeshPhysicalMaterial).color.set(glowColor);
+      (pc.visorMesh.material as THREE.MeshPhysicalMaterial).emissive.set(glowColor);
+    }
+
+    if (pc.underglowMesh && pc.underglowMesh.material) {
+      const uColor = config.underglowColor || glowColor;
+      (pc.underglowMesh.material as THREE.MeshBasicMaterial).color.set(uColor);
+      if (pc.underglowLight) pc.underglowLight.color.set(uColor);
+    }
+
+    if (pc.capeMesh && pc.capeMesh.material) {
+      const cColor = config.capeColor || glowColor;
+      (pc.capeMesh.material as THREE.MeshStandardMaterial).color.set(cColor);
+      (pc.capeMesh.material as THREE.MeshStandardMaterial).emissive.set(cColor);
     }
 
     this.updateTrailColors();

@@ -66,32 +66,47 @@ export const GameHUD: React.FC<GameHUDProps> = ({
   const getBiomeBadge = (biome: BiomeType) => {
     switch (biome) {
       case 'dune-nomad':
-      case 'quantum-desert':
       case 'dunes':
         return { name: 'DUNE NOMAD // AMBER MESAS', tag: 'WORLD 2', color: 'border-amber-400 text-amber-300' };
       case 'aurora-frost':
-      case 'crystal-glacier':
         return { name: 'AURORA FROST // GLACIER TUNDRA', tag: 'WORLD 3', color: 'border-cyan-300 text-cyan-200' };
       case 'bioluminescent-jungle':
-      case 'cyber-forest':
-      case 'forest':
         return { name: 'BIOLUMINESCENT JUNGLE', tag: 'WORLD 4', color: 'border-emerald-400 text-emerald-300' };
       case 'ember-core':
-      case 'volcanic-forge':
         return { name: 'EMBER CORE // MAGMA OBSIDIAN', tag: 'WORLD 5', color: 'border-red-500 text-red-400' };
       case 'nebula-drift':
-      case 'orbital-ring':
         return { name: 'NEBULA DRIFT // STELLAR VOID', tag: 'WORLD 6', color: 'border-purple-400 text-purple-300' };
       case 'sky-realm':
       case 'sky-islands':
         return { name: 'SKY REALM // GHIBLI NATURE', tag: 'WORLD 7', color: 'border-sky-300 text-sky-200' };
+      case 'quantum-desert':
+        return { name: 'QUANTUM DESERT // SOLAR DUNES', tag: 'WORLD 8', color: 'border-amber-500 text-amber-400' };
+      case 'cyber-forest':
+      case 'forest':
+        return { name: 'CYBER FOREST // BIOLUMINESCENT CANOPY', tag: 'WORLD 9', color: 'border-emerald-300 text-emerald-200' };
+      case 'orbital-ring':
+        return { name: 'ORBITAL RING // STRATOSPHERE', tag: 'WORLD 10', color: 'border-fuchsia-400 text-fuchsia-300' };
+      case 'the-grid':
+        return { name: 'THE GRID // VECTOR CYBERSPACE', tag: 'WORLD 11', color: 'border-green-400 text-green-300' };
+      case 'volcanic-forge':
+        return { name: 'VOLCANIC FORGE // MAGMA CORE', tag: 'WORLD 12', color: 'border-orange-500 text-orange-400' };
+      case 'crystal-glacier':
+        return { name: 'CRYSTAL GLACIER // FROST REALM', tag: 'WORLD 13', color: 'border-cyan-400 text-cyan-300' };
+      case 'derelict-station':
+        return { name: 'DERELICT STATION // HAZARD ZONE', tag: 'WORLD 14', color: 'border-yellow-500 text-yellow-400' };
+      case 'meadow':
+        return { name: 'NEON MEADOW // GREEN FIELDS', tag: 'WORLD 15', color: 'border-lime-400 text-lime-300' };
       default:
         return { name: 'NEON UNDERCITY // SECTOR-01', tag: 'WORLD 1', color: 'border-fuchsia-400 text-fuchsia-300' };
     }
   };
 
   const getNextThemeInfo = (current: BiomeType) => {
-    const list: BiomeType[] = ['neon-undercity', 'dune-nomad', 'aurora-frost', 'bioluminescent-jungle', 'ember-core', 'nebula-drift', 'sky-realm'];
+    const list: BiomeType[] = [
+      'neon-undercity', 'dune-nomad', 'aurora-frost', 'bioluminescent-jungle', 'ember-core',
+      'nebula-drift', 'sky-realm', 'quantum-desert', 'cyber-forest', 'orbital-ring',
+      'the-grid', 'volcanic-forge', 'crystal-glacier', 'derelict-station'
+    ];
     const idx = list.indexOf(current);
     const nextId = idx === -1 ? 'dune-nomad' : list[(idx + 1) % list.length];
     const swatchColors: Record<string, string> = {
@@ -102,6 +117,13 @@ export const GameHUD: React.FC<GameHUDProps> = ({
       'ember-core': 'bg-red-500',
       'nebula-drift': 'bg-purple-500',
       'sky-realm': 'bg-sky-400',
+      'quantum-desert': 'bg-amber-600',
+      'cyber-forest': 'bg-emerald-500',
+      'orbital-ring': 'bg-fuchsia-400',
+      'the-grid': 'bg-green-400',
+      'volcanic-forge': 'bg-orange-600',
+      'crystal-glacier': 'bg-cyan-300',
+      'derelict-station': 'bg-yellow-500',
     };
     const names: Record<string, string> = {
       'neon-undercity': 'Neon Undercity',
@@ -111,6 +133,10 @@ export const GameHUD: React.FC<GameHUDProps> = ({
       'ember-core': 'Ember Core',
       'nebula-drift': 'Nebula Drift',
       'sky-realm': 'Sky Realm',
+      'quantum-desert': 'Quantum Desert',
+      'cyber-forest': 'Cyber Forest',
+      'orbital-ring': 'Orbital Ring',
+      'the-grid': 'The Grid',
     };
     return { name: names[nextId] || 'Next World', swatch: swatchColors[nextId] || 'bg-cyan-400' };
   };

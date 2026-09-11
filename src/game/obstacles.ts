@@ -113,10 +113,15 @@ export class ObstacleManager {
   update(playerZ: number, time: number) {
     const dt = 0.016;
 
+    // Difficulty scaling: spawnInterval ramps from 28 down to 18 as playerZ increases
+    const diffFactor = Math.min(1.0, Math.max(0.0, playerZ / 1500));
+    this.spawnInterval = 28 - diffFactor * 10;
+    const droneAggression = 1.0 + diffFactor * 0.75;
+
     // 1. Procedurally spawn cyberpunk obstacle sections ahead
     while (this.lastSpawnZ < playerZ + 220) {
-      this.spawnSection(this.lastSpawnZ);
-      this.lastSpawnZ += this.spawnInterval + Math.random() * 10;
+      this.spawnSection(this.lastSpawnZ, diffFactor);
+      this.lastSpawnZ += this.spawnInterval + Math.random() * 8;
     }
 
     // 2. Animate dynamic hazards & obstacles
@@ -125,17 +130,17 @@ export class ObstacleManager {
 
       if (obs.type === 'moving-horizontal-barrier') {
         const base = obs.baseX ?? obs.x;
-        obs.x = base + Math.sin(time * 3.2 + obs.z * 0.1) * 2.2;
+        obs.x = base + Math.sin(time * 3.2 * droneAggression + obs.z * 0.1) * 2.2;
         obs.mesh.position.x = obs.x;
       } else if (obs.type === 'falling-security-block') {
         const distZ = obs.z - playerZ;
         if (distZ < 65 && distZ > -10) {
           const targetY = getTerrainHeight(obs.x, obs.z) + 1.2;
-          obs.y = THREE.MathUtils.lerp(obs.y, targetY, dt * 10.0);
+          obs.y = THREE.MathUtils.lerp(obs.y, targetY, dt * 10.0 * droneAggression);
           obs.mesh.position.y = obs.y;
         }
       } else if (obs.type === 'pulsing-laser-beam') {
-        const pulse = Math.sin(time * 8.0) * 0.35 + 0.65;
+        const pulse = Math.sin(time * 8.0 * droneAggression) * 0.35 + 0.65;
         obs.mesh.traverse(child => {
           if (child instanceof THREE.Mesh && child.material instanceof THREE.MeshBasicMaterial) {
             child.material.opacity = pulse;
@@ -143,7 +148,7 @@ export class ObstacleManager {
         });
       } else if (obs.type === 'drone-hazard') {
         const base = obs.baseX ?? obs.x;
-        obs.x = base + Math.sin(time * 2.8 + obs.z) * 1.8;
+        obs.x = base + Math.sin(time * 2.8 * droneAggression + obs.z) * 1.8;
         obs.mesh.position.x = obs.x;
         obs.mesh.position.y = obs.y + Math.sin(time * 4.0) * 0.25;
       }
@@ -172,7 +177,7 @@ export class ObstacleManager {
   portalBiomes: BiomeType[] = WORLD_THEMES.map(t => t.id as BiomeType);
   portalIndex = 0;
 
-  private spawnSection(z: number) {
+  private spawnSection(z: number, diffFactor = 0) {
     // Periodically spawn a World Portal Gateway every ~280-380 meters
     if (z - this.lastPortalZ > 300 + Math.random() * 80) {
       this.lastPortalZ = z;
@@ -180,6 +185,36 @@ export class ObstacleManager {
       const targetBiome = this.portalBiomes[this.portalIndex % this.portalBiomes.length];
       this.portalIndex++;
       this.spawnWorldPortal(lane, z, targetBiome);
+      return;
+    }
+
+    // Skill-based sequence patterns at higher difficulty
+    const useSequence = Math.random() < (0.2 + diffFactor * 0.5);
+    if (useSequence) {
+      const patternChoice = Math.floor(Math.random() * 4);
+      const mainLane: LaneIndex = (Math.floor(Math.random() * 3) - 1) as LaneIndex;
+      const altLane: LaneIndex = (mainLane === 0 ? 1 : 0) as LaneIndex;
+
+      if (patternChoice === 0) {
+        // Pattern A: Slide under conduit -> Jump over laser barrier -> Data Shards arc
+        this.spawnOverheadConduit(mainLane, z);
+        this.spawnLaserBarrier(mainLane, z + 18);
+        this.spawnDataShardArc(mainLane, z + 18, 5);
+      } else if (patternChoice === 1) {
+        // Pattern B: Maglev train ramp -> Roof data shards -> Rail grind transfer
+        this.spawnMaglevTrain(mainLane, z, true);
+        this.spawnGrindRail(altLane, z + 26);
+      } else if (patternChoice === 2) {
+        // Pattern C: Dual pulsing lasers -> Boost gate exit
+        this.spawnPulsingLaserBeam(-1, z);
+        this.spawnPulsingLaserBeam(1, z + 14);
+        this.spawnBoostGate(0, z + 28);
+      } else {
+        // Pattern D: Falling security block -> Drifting drone -> Power-up reward
+        this.spawnFallingSecurityBlock(mainLane, z);
+        this.spawnDroneHazard(altLane, z + 16);
+        this.spawnPowerUp(mainLane, z + 28);
+      }
       return;
     }
 
@@ -345,6 +380,13 @@ export class ObstacleManager {
     const bar = new THREE.Mesh(this.movingBarrierGeom, this.movingBarrierMat);
     group.add(bar);
 
+    // Ground Laser Hazard Sweep Warning Line
+    const sweepMat = new THREE.MeshBasicMaterial({ color: 0xff0033, transparent: true, opacity: 0.75, side: THREE.DoubleSide });
+    const sweepWarning = new THREE.Mesh(new THREE.PlaneGeometry(6.4, 0.4), sweepMat);
+    sweepWarning.rotation.x = Math.PI / 2;
+    sweepWarning.position.set(0, -0.55, 0);
+    group.add(sweepWarning);
+
     group.position.set(x, y, z);
     this.scene.add(group);
 
@@ -366,7 +408,8 @@ export class ObstacleManager {
 
   private spawnFallingSecurityBlock(lane: LaneIndex, z: number) {
     const x = getLaneX(lane);
-    const y = getTerrainHeight(x, z) + 12.0; // Starts up high, drops as player approaches
+    const groundY = getTerrainHeight(x, z);
+    const y = groundY + 12.0; // Starts up high, drops as player approaches
 
     const group = new THREE.Group();
     const block = new THREE.Mesh(this.fallingBlockGeom, this.fallingBlockMat);
@@ -374,6 +417,13 @@ export class ObstacleManager {
 
     const glowTrim = new THREE.Mesh(new THREE.BoxGeometry(2.5, 0.2, 2.5), this.fallingBlockGlowMat);
     group.add(glowTrim);
+
+    // Red Impact Zone Warning Decal Projection on Ground
+    const warnMat = new THREE.MeshBasicMaterial({ color: 0xff0033, wireframe: true, transparent: true, opacity: 0.85 });
+    const targetDecal = new THREE.Mesh(new THREE.PlaneGeometry(2.6, 2.6), warnMat);
+    targetDecal.rotation.x = Math.PI / 2;
+    targetDecal.position.set(0, groundY - y + 0.05, 0);
+    group.add(targetDecal);
 
     group.position.set(x, y, z);
     this.scene.add(group);

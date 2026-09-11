@@ -270,6 +270,9 @@ export const PostProcessShader = {
     uniform float uSpeedLines;
     uniform float uHighSpeedBlur;
     uniform float uWarpIntensity;
+    uniform float uFilmGrain;
+    uniform float uColorLift;
+    uniform float uRainIntensity;
     uniform vec2 uResolution;
     varying vec2 vUv;
 
@@ -320,7 +323,7 @@ export const PostProcessShader = {
         sceneCol += warpFlash * uWarpIntensity * 0.45;
       }
 
-      // 4. Genuine Neon Bloom Halo (Emissive materials genuinely bleed light into surrounding dark pixels)
+      // 4. Genuine Neon Bloom Halo
       if (uBloom > 0.02) {
         vec3 bloomAccum = vec3(0.0);
         vec2 texel = 1.0 / uResolution;
@@ -329,21 +332,18 @@ export const PostProcessShader = {
         float r2 = 6.0 * bMul;
         float r3 = 12.0 * bMul;
         float r4 = 20.0 * bMul;
-        float threshold = 0.48; // Emissive rails and signs halo richly into dark surroundings
+        float threshold = 0.48;
 
-        // Cross taps (tight core bloom)
         bloomAccum += max(texture2D(tDiffuse, uv + vec2(-r1, 0.0) * texel).rgb - threshold, vec3(0.0)) * 0.25;
         bloomAccum += max(texture2D(tDiffuse, uv + vec2(r1, 0.0) * texel).rgb - threshold, vec3(0.0)) * 0.25;
         bloomAccum += max(texture2D(tDiffuse, uv + vec2(0.0, -r1) * texel).rgb - threshold, vec3(0.0)) * 0.25;
         bloomAccum += max(texture2D(tDiffuse, uv + vec2(0.0, r1) * texel).rgb - threshold, vec3(0.0)) * 0.25;
 
-        // Diagonal taps (mid halo)
         bloomAccum += max(texture2D(tDiffuse, uv + vec2(-r2, -r2) * texel).rgb - threshold, vec3(0.0)) * 0.18;
         bloomAccum += max(texture2D(tDiffuse, uv + vec2(r2, r2) * texel).rgb - threshold, vec3(0.0)) * 0.18;
         bloomAccum += max(texture2D(tDiffuse, uv + vec2(-r2, r2) * texel).rgb - threshold, vec3(0.0)) * 0.18;
         bloomAccum += max(texture2D(tDiffuse, uv + vec2(r2, -r2) * texel).rgb - threshold, vec3(0.0)) * 0.18;
 
-        // Wide taps (outer neon aura)
         bloomAccum += max(texture2D(tDiffuse, uv + vec2(-r3, 0.0) * texel).rgb - threshold, vec3(0.0)) * 0.12;
         bloomAccum += max(texture2D(tDiffuse, uv + vec2(r3, 0.0) * texel).rgb - threshold, vec3(0.0)) * 0.12;
         bloomAccum += max(texture2D(tDiffuse, uv + vec2(0.0, -r4) * texel).rgb - threshold, vec3(0.0)) * 0.08;
@@ -352,7 +352,7 @@ export const PostProcessShader = {
         sceneCol += bloomAccum * (0.85 * uBloom);
       }
 
-      // 5. Digital High-Speed Peripheral Laser Rays (Sharp & high-contrast, not blurry)
+      // 5. Speed Lines
       float effSpeedLines = max(uSpeedLines, uWarpIntensity * 1.2);
       if (effSpeedLines > 0.05) {
         vec2 center = vec2(0.5, 0.45);
@@ -368,13 +368,29 @@ export const PostProcessShader = {
         }
       }
 
-      // 6. Optional Scanlines
+      // 6. Camera Lens Rain Streaks
+      if (uRainIntensity > 0.05) {
+        float streak = sin((uv.x + uv.y * 0.5 + uTime * 3.0) * 120.0);
+        streak = smoothstep(0.92, 0.98, streak) * uRainIntensity;
+        sceneCol += vec3(0.6, 0.85, 1.0) * streak * 0.25;
+      }
+
+      // 7. Film Grain Noise
+      if (uFilmGrain > 0.02) {
+        float grain = (hash(uv + fract(uTime)) - 0.5) * uFilmGrain * 0.18;
+        sceneCol += vec3(grain);
+      }
+
+      // 8. Color Lift & Scanlines
+      if (uColorLift > 0.01) {
+        sceneCol = mix(sceneCol, sceneCol + vec3(0.02, 0.04, 0.08), uColorLift * 0.5);
+      }
       if (uScanlines > 0.05) {
         float scanline = sin(uv.y * uResolution.y * 0.5) * 0.5 + 0.5;
         sceneCol *= mix(1.0, 0.92 + 0.08 * scanline, uScanlines);
       }
 
-      // 7. Cyberpunk Contrast & Color Curve
+      // 9. Cyberpunk Contrast & Color Curve
       sceneCol = pow(sceneCol, vec3(1.06));
       sceneCol = sceneCol * (1.05 * sceneCol + 0.02) / (sceneCol * 1.02 + 0.05);
 
