@@ -1190,6 +1190,52 @@ export function createSkyRealmBackdropTexture(): THREE.CanvasTexture {
   return texture;
 }
 
+export function createDustParticleTexture(): THREE.CanvasTexture {
+  const canvas = document.createElement('canvas');
+  canvas.width = 64;
+  canvas.height = 64;
+  const ctx = canvas.getContext('2d')!;
+
+  const grad = ctx.createRadialGradient(32, 32, 2, 32, 32, 30);
+  grad.addColorStop(0, 'rgba(255, 255, 255, 1.0)');
+  grad.addColorStop(0.3, 'rgba(0, 240, 255, 0.8)');
+  grad.addColorStop(0.7, 'rgba(0, 240, 255, 0.2)');
+  grad.addColorStop(1, 'rgba(0, 0, 0, 0)');
+
+  ctx.fillStyle = grad;
+  ctx.fillRect(0, 0, 64, 64);
+
+  const texture = new THREE.CanvasTexture(canvas);
+  return texture;
+}
+
+export function createPetalParticleTexture(): THREE.CanvasTexture {
+  const canvas = document.createElement('canvas');
+  canvas.width = 64;
+  canvas.height = 64;
+  const ctx = canvas.getContext('2d')!;
+
+  ctx.save();
+  ctx.translate(32, 32);
+  ctx.rotate(-Math.PI / 4);
+
+  const grad = ctx.createRadialGradient(0, 0, 2, 0, 0, 24);
+  grad.addColorStop(0, 'rgba(255, 255, 255, 1.0)');
+  grad.addColorStop(0.4, 'rgba(255, 0, 127, 0.9)');
+  grad.addColorStop(0.8, 'rgba(255, 0, 127, 0.3)');
+  grad.addColorStop(1, 'rgba(0, 0, 0, 0)');
+
+  ctx.fillStyle = grad;
+  ctx.beginPath();
+  ctx.ellipse(0, 0, 10, 22, 0, 0, Math.PI * 2);
+  ctx.fill();
+  ctx.restore();
+
+  const texture = new THREE.CanvasTexture(canvas);
+  return texture;
+}
+
+
 
 
 

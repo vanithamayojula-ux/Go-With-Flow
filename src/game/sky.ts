@@ -425,9 +425,13 @@ export class SkyManager {
     this.skyMesh = new THREE.Mesh(skyGeom, this.skyMaterial);
     this.scene.add(this.skyMesh);
 
-    // 2. Cyber Lights (Low ambient, high saturated colored directional key)
-    this.ambientLight = new THREE.AmbientLight(0x060c18, 0.6);
+    // 2. Cyber Lights (Bright ambient illumination + key lights)
+    this.ambientLight = new THREE.AmbientLight(0xffffff, 1.4);
     this.scene.add(this.ambientLight);
+
+    const backFillLight = new THREE.DirectionalLight(0xffffff, 1.5);
+    backFillLight.position.set(0, 40, -100);
+    this.scene.add(backFillLight);
 
     this.dirLight = new THREE.DirectionalLight(0x00f0ff, 1.4);
     this.dirLight.position.set(40, 80, -160);

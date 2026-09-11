@@ -65,13 +65,13 @@ export class ObstacleManager {
 
   // Shared Cyber Geometries & Materials
   private pylonGeom = new THREE.CylinderGeometry(0.2, 0.28, 1.4, 8);
-  private pylonMat = new THREE.MeshLambertMaterial({ color: 0x0a101d });
+  private pylonMat = new THREE.MeshBasicMaterial({ color: 0xff0033 });
   private laserBeamGeom = new THREE.BoxGeometry(3.8, 0.45, 0.45); // Thick glowing neon laser beam
-  private laserBeamMat = new THREE.MeshBasicMaterial({ color: 0xff0055 }); // Hot neon red/magenta laser
+  private laserBeamMat = new THREE.MeshBasicMaterial({ color: 0xff0033 }); // Hot neon red laser
 
   private overheadArchPillarGeom = new THREE.CylinderGeometry(0.2, 0.25, 3.4, 6);
   private overheadArchBeamGeom = new THREE.BoxGeometry(4.2, 0.55, 0.55);
-  private overheadBeamMat = new THREE.MeshBasicMaterial({ color: 0x00f0ff }); // Electric Cyan laser conduit
+  private overheadBeamMat = new THREE.MeshBasicMaterial({ color: 0xff0033 }); // Hot neon red overhead laser conduit
 
   // Data Shard Diamond Geometry
   private dataShardGeom = new THREE.OctahedronGeometry(0.48);
@@ -85,22 +85,22 @@ export class ObstacleManager {
   private grindRailGeom = new THREE.CylinderGeometry(0.16, 0.16, 22, 8);
   private grindRailMat = new THREE.MeshBasicMaterial({ color: 0xff007f });
 
-  // Drone Hazard & Energy Fence Materials
+  // Drone Hazard & Energy Fence Materials (High-Contrast Lethal Red)
   private droneBodyGeom = new THREE.OctahedronGeometry(0.6);
   private droneEyeGeom = new THREE.SphereGeometry(0.25, 8, 8);
   private droneHazardMat = new THREE.MeshBasicMaterial({ color: 0xff0033 });
-  private droneChassisMat = new THREE.MeshStandardMaterial({ color: 0x090e1a, metalness: 0.9, roughness: 0.2 });
+  private droneChassisMat = new THREE.MeshBasicMaterial({ color: 0xff0033 });
 
   private fenceBarGeom = new THREE.BoxGeometry(3.8, 0.5, 0.2);
-  private fenceMat = new THREE.MeshBasicMaterial({ color: 0xffaa00 });
+  private fenceMat = new THREE.MeshBasicMaterial({ color: 0xff0033 });
 
-  // Phase 4: New Obstacle Geometries & High-Contrast Neon Materials
+  // New Obstacle Geometries & High-Contrast Lethal Red Materials
   private movingBarrierGeom = new THREE.BoxGeometry(3.6, 0.7, 0.5);
-  private movingBarrierMat = new THREE.MeshBasicMaterial({ color: 0xffcc00 });
+  private movingBarrierMat = new THREE.MeshBasicMaterial({ color: 0xff0033 });
 
   private fallingBlockGeom = new THREE.BoxGeometry(2.4, 2.4, 2.4);
-  private fallingBlockMat = new THREE.MeshStandardMaterial({ color: 0x1f293d, metalness: 0.85, roughness: 0.2 });
-  private fallingBlockGlowMat = new THREE.MeshBasicMaterial({ color: 0xffaa00 });
+  private fallingBlockMat = new THREE.MeshBasicMaterial({ color: 0xff0033 });
+  private fallingBlockGlowMat = new THREE.MeshBasicMaterial({ color: 0xff0033 });
 
   private pulsingLaserGeom = new THREE.CylinderGeometry(0.08, 0.08, 4.4, 8);
   private pulsingLaserMat = new THREE.MeshBasicMaterial({ color: 0xff0033, transparent: true, opacity: 0.9, blending: THREE.AdditiveBlending });

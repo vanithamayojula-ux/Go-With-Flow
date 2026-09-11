@@ -2,7 +2,6 @@ import * as THREE from 'three';
 import { getBiomeAt, getBiomeFriction, getTerrainHeight, getTerrainNormal, TerrainManager } from './terrain';
 import { createPlayerCharacter, animatePlayerCharacter, PlayerCharacter } from './characterModel';
 import { BoardTrailShader } from '../graphics/shaders';
-import { createDustParticleTexture, createPetalParticleTexture } from '../graphics/textures';
 import { AudioManager } from './audio';
 import {
   ActivePowerUps,
@@ -102,7 +101,7 @@ export class PlayerManager {
 
   // Stats
   stats: PlayerStats = {
-    speed: 50,
+    speed: 22,
     maxSpeed: 150,
     distance: 0,
     score: 0,
@@ -140,7 +139,7 @@ export class PlayerManager {
 
   // Physics State
   position = new THREE.Vector3();
-  velocity = new THREE.Vector3(0, 0, 14);
+  velocity = new THREE.Vector3(0, 0, 6.0);
   warpTimer = 0;
   jumpVelocity = 0;
   hoverHeight = 0.55;
@@ -181,6 +180,14 @@ export class PlayerManager {
     this.boardMesh = this.playerCharacter.board;
 
     this.group.add(this.playerCharacter.group);
+
+    // Dedicated camera fill light pointing directly at player's back so white outfit & board pop brightly
+    const playerFillLight = new THREE.DirectionalLight(0xffffff, 2.5);
+    playerFillLight.position.set(0, 4.0, -6.0);
+    this.group.add(playerFillLight);
+
+    const playerAmbientLight = new THREE.AmbientLight(0xffffff, 1.2);
+    this.group.add(playerAmbientLight);
 
     // 3. Autonomous Cyber Drone Companion (Stable Hovering Recon Drone)
     this.cyberDroneMesh = new THREE.Group();
@@ -322,32 +329,14 @@ export class PlayerManager {
       }
     }
 
-    // Board Deck Material
-    if (this.boardDeckMesh) {
-      const deckColor =
-        config.boardId === 'laser-edge'
-          ? '#1a0b16'
-          : config.boardId === 'grid-runner'
-          ? '#081a10'
-          : config.boardId === 'tokyo-neon'
-          ? '#201104'
-          : config.boardId === 'void-stalker'
-          ? '#06060c'
-          : '#090e18';
-      (this.boardDeckMesh.material as THREE.MeshStandardMaterial).color.set(deckColor);
+    // Board Deck Material - White Composite Default
+    if (this.boardDeckMesh && (this.boardDeckMesh.material as THREE.MeshBasicMaterial).color) {
+      (this.boardDeckMesh.material as THREE.MeshBasicMaterial).color.set('#ffffff');
     }
 
-    // Armor / Outfit Variant
-    if (this.torsoMesh) {
-      const hoodieColor =
-        config.armorVariant === 'titanium-white'
-          ? '#d4d8e8'
-          : config.armorVariant === 'onyx-stealth'
-          ? '#141a24'
-          : config.armorVariant === 'crimson-cyborg'
-          ? '#3a1220'
-          : '#0d121c'; // Default Black Hoodie
-      (this.torsoMesh.material as THREE.MeshStandardMaterial).color.set(hoodieColor);
+    // Armor / Outfit Variant - White Fabric Default
+    if (this.torsoMesh && (this.torsoMesh.material as THREE.MeshBasicMaterial).color) {
+      (this.torsoMesh.material as THREE.MeshBasicMaterial).color.set('#ffffff');
     }
 
     // Optional Companion Drone per Outfit (Fixes hardcoded-visible bug)
@@ -460,7 +449,7 @@ export class PlayerManager {
     this.currentLane = 0;
     this.targetLaneX = 0;
     this.position.set(0, h + this.hoverHeight, 0);
-    this.velocity.set(0, 0, 14);
+    this.velocity.set(0, 0, 6.0);
     this.jumpVelocity = 0;
     this.isGrounded = true;
     this.isSliding = false;
@@ -661,10 +650,9 @@ export class PlayerManager {
       this.stats.warpTimer = this.warpTimer;
     }
 
-    // Dynamic distance-based speed scaling: starting at ~14.0, ramping up smoothly as distance increases (Subway Surfers style)
-    const distanceKm = this.stats.distance / 600;
-    const distanceSpeedBonus = Math.min(32.0, distanceKm * 8.0);
-    let targetSpeed = 14.0 + distanceSpeedBonus;
+    // Dynamic distance-based speed scaling: starting slow at ~6.0, ramping up smoothly as distance increases (Subway Surfers style)
+    const distanceSpeedBonus = Math.min(28.0, (this.stats.distance / 120.0) * 2.0);
+    let targetSpeed = 6.0 + distanceSpeedBonus;
 
     if (input.forward) targetSpeed += 12.0;
     if (this.stats.isBoosting) targetSpeed += 18.0;
@@ -772,7 +760,7 @@ export class PlayerManager {
 
     this.characterMesh.rotation.z = unifiedCarveTilt;
     this.characterMesh.rotation.x = slidePitch;
-    this.characterMesh.rotation.y = Math.PI / 2.2 + (this.isGrounded ? 0 : this.spinAngle);
+    this.characterMesh.rotation.y = (this.isGrounded ? 0 : this.spinAngle);
     this.characterMesh.position.y = slideCrouchY;
 
     // Cyber Recon Drone Companion stable hover/bob beside player shoulder (No yaw-spin-away bug)
@@ -931,4 +919,47 @@ export class PlayerManager {
 
 function sinPulse(x: number): number {
   return Math.sin(x) * 0.5 + 0.5;
+}
+
+function createDustParticleTexture(): THREE.CanvasTexture {
+  const canvas = document.createElement('canvas');
+  canvas.width = 64;
+  canvas.height = 64;
+  const ctx = canvas.getContext('2d')!;
+
+  const grad = ctx.createRadialGradient(32, 32, 2, 32, 32, 30);
+  grad.addColorStop(0, 'rgba(255, 255, 255, 1.0)');
+  grad.addColorStop(0.3, 'rgba(0, 240, 255, 0.8)');
+  grad.addColorStop(0.7, 'rgba(0, 240, 255, 0.2)');
+  grad.addColorStop(1, 'rgba(0, 0, 0, 0)');
+
+  ctx.fillStyle = grad;
+  ctx.fillRect(0, 0, 64, 64);
+
+  return new THREE.CanvasTexture(canvas);
+}
+
+function createPetalParticleTexture(): THREE.CanvasTexture {
+  const canvas = document.createElement('canvas');
+  canvas.width = 64;
+  canvas.height = 64;
+  const ctx = canvas.getContext('2d')!;
+
+  ctx.save();
+  ctx.translate(32, 32);
+  ctx.rotate(-Math.PI / 4);
+
+  const grad = ctx.createRadialGradient(0, 0, 2, 0, 0, 24);
+  grad.addColorStop(0, 'rgba(255, 255, 255, 1.0)');
+  grad.addColorStop(0.4, 'rgba(255, 0, 127, 0.9)');
+  grad.addColorStop(0.8, 'rgba(255, 0, 127, 0.3)');
+  grad.addColorStop(1, 'rgba(0, 0, 0, 0)');
+
+  ctx.fillStyle = grad;
+  ctx.beginPath();
+  ctx.ellipse(0, 0, 10, 22, 0, 0, Math.PI * 2);
+  ctx.fill();
+  ctx.restore();
+
+  return new THREE.CanvasTexture(canvas);
 }

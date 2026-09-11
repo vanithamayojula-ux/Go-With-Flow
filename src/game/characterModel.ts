@@ -18,27 +18,19 @@ import * as THREE from 'three';
  */
 
 const NEON_CYAN = 0x00e5ff;
-const DARK_FABRIC = 0x17171c;
-const DARK_FABRIC_2 = 0x1f1f26;
-const SKIN = 0xd9a066;
-const SOLE_GLOW = 0x00e5ff;
+const WHITE_FABRIC = 0xffffff;
+const WHITE_FABRIC_2 = 0xf1f5f9;
+const SKIN = 0xffe0bd;
+const SOLE_GLOW = 0xffffff;
+
+const darkMetal = new THREE.MeshBasicMaterial({ color: 0xe2e8f0 });
 
 function neonMaterial(color: number = NEON_CYAN, intensity = 2) {
-  return new THREE.MeshStandardMaterial({
-    color,
-    emissive: color,
-    emissiveIntensity: intensity,
-    roughness: 0.3,
-    metalness: 0.2,
-  });
+  return new THREE.MeshBasicMaterial({ color });
 }
 
-function fabricMaterial(color: number = DARK_FABRIC) {
-  return new THREE.MeshStandardMaterial({
-    color,
-    roughness: 0.85,
-    metalness: 0.05,
-  });
+function fabricMaterial(color: number = WHITE_FABRIC) {
+  return new THREE.MeshBasicMaterial({ color: 0xffffff });
 }
 
 export interface PlayerCharacter {
@@ -56,31 +48,27 @@ export function createPlayerCharacter(): PlayerCharacter {
   const group = new THREE.Group();
   group.name = 'PlayerCharacter';
 
-  const fabric = fabricMaterial(DARK_FABRIC);
-  const fabricAlt = fabricMaterial(DARK_FABRIC_2);
+  const fabric = fabricMaterial(WHITE_FABRIC);
+  const fabricAlt = new THREE.MeshBasicMaterial({ color: 0xf1f5f9 });
   const neon = neonMaterial(NEON_CYAN, 2);
-  const skin = new THREE.MeshStandardMaterial({ color: SKIN, roughness: 0.7 });
-  const darkMetal = new THREE.MeshStandardMaterial({
-    color: 0x0a0a0d,
-    roughness: 0.4,
-    metalness: 0.6,
-  });
+  const skin = new THREE.MeshBasicMaterial({ color: SKIN });
+  const whiteBoardMat = new THREE.MeshBasicMaterial({ color: 0xffffff });
 
   // ---------- HOVERBOARD (Subway Surfers Style High-Tech Skateboard) ----------
   const board = new THREE.Group();
   board.name = 'Board';
 
-  // Main Deck - Wide sleek composite deck with curved contours
+  // Main Deck - Sleek White Composite Deck
   const deckWidth = 0.65;
   const deckLength = 1.7;
   const deckGeo = new THREE.BoxGeometry(deckWidth, 0.07, deckLength);
-  const deck = new THREE.Mesh(deckGeo, darkMetal);
+  const deck = new THREE.Mesh(deckGeo, whiteBoardMat);
   deck.position.y = 0;
   board.add(deck);
 
   // Grip Tape Center Strip & Graphic Accent
   const gripGeo = new THREE.BoxGeometry(deckWidth * 0.85, 0.01, deckLength * 0.9);
-  const gripMat = new THREE.MeshStandardMaterial({ color: 0x111622, roughness: 0.95, metalness: 0.05 });
+  const gripMat = new THREE.MeshStandardMaterial({ color: 0xe2e8f0, roughness: 0.6, metalness: 0.05 });
   const grip = new THREE.Mesh(gripGeo, gripMat);
   grip.position.set(0, 0.036, 0);
   board.add(grip);
@@ -94,14 +82,14 @@ export function createPlayerCharacter(): PlayerCharacter {
 
   // Upturned Nose (Front Kicktail)
   const noseGeo = new THREE.BoxGeometry(deckWidth * 0.9, 0.06, 0.35);
-  const nose = new THREE.Mesh(noseGeo, darkMetal);
+  const nose = new THREE.Mesh(noseGeo, whiteBoardMat);
   nose.position.set(0, 0.04, deckLength / 2 + 0.12);
   nose.rotation.x = -Math.PI / 14;
   board.add(nose);
 
   // Upturned Kicktail (Rear)
   const tailGeo = new THREE.BoxGeometry(deckWidth * 0.9, 0.06, 0.35);
-  const tail = new THREE.Mesh(tailGeo, darkMetal);
+  const tail = new THREE.Mesh(tailGeo, whiteBoardMat);
   tail.position.set(0, 0.04, -deckLength / 2 - 0.12);
   tail.rotation.x = Math.PI / 14;
   board.add(tail);
@@ -213,7 +201,7 @@ export function createPlayerCharacter(): PlayerCharacter {
   head.add(hair);
 
   const maskGeo = new THREE.SphereGeometry(0.1, 10, 10, 0, Math.PI * 2, Math.PI * 0.45, Math.PI * 0.4);
-  const mask = new THREE.Mesh(maskGeo, new THREE.MeshStandardMaterial({ color: 0x0a0a0d, roughness: 0.5 }));
+  const mask = new THREE.Mesh(maskGeo, new THREE.MeshBasicMaterial({ color: 0xffffff }));
   mask.position.set(0, -0.03, 0.05);
   head.add(mask);
 
@@ -242,7 +230,7 @@ export function createPlayerCharacter(): PlayerCharacter {
     arm.add(lower);
 
     const gloveGeo = new THREE.SphereGeometry(0.06, 8, 8);
-    const glove = new THREE.Mesh(gloveGeo, new THREE.MeshStandardMaterial({ color: 0x0a0a0d, roughness: 0.6 }));
+    const glove = new THREE.Mesh(gloveGeo, new THREE.MeshBasicMaterial({ color: 0xffffff }));
     glove.position.y = -0.54;
     arm.add(glove);
 
