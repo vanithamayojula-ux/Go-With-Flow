@@ -35,6 +35,7 @@ function fabricMaterial(color: number = WHITE_FABRIC) {
 
 export interface PlayerCharacter {
   group: THREE.Group;
+  rider: THREE.Group;
   torso: THREE.Group;
   head: THREE.Group;
   leftArm: THREE.Group;
@@ -126,6 +127,10 @@ export function createPlayerCharacter(): PlayerCharacter {
   board.position.y = 0.15;
   group.add(board);
 
+  // ---------- RIDER (Character Body - Rotated Facing Left) ----------
+  const rider = new THREE.Group();
+  rider.name = 'Rider';
+
   // ---------- LEGS ----------
   function buildLeg(side: 1 | -1): THREE.Group {
     const leg = new THREE.Group();
@@ -151,13 +156,13 @@ export function createPlayerCharacter(): PlayerCharacter {
     sole.position.set(0, -0.62, 0.04);
     leg.add(sole);
 
-    // Position feet securely on top of the deck surface (y = 0.185)
+    // Position feet securely on top of the deck surface
     leg.position.set(side * 0.16, 0.80, side === 1 ? 0.18 : -0.18);
     return leg;
   }
   const rightLeg = buildLeg(1);
   const leftLeg = buildLeg(-1);
-  group.add(rightLeg, leftLeg);
+  rider.add(rightLeg, leftLeg);
 
   // ---------- TORSO ----------
   const torso = new THREE.Group();
@@ -185,7 +190,7 @@ export function createPlayerCharacter(): PlayerCharacter {
   torso.add(collar);
 
   torso.position.y = 1.05;
-  group.add(torso);
+  rider.add(torso);
 
   // ---------- HEAD ----------
   const head = new THREE.Group();
@@ -212,7 +217,7 @@ export function createPlayerCharacter(): PlayerCharacter {
   head.add(maskGlow);
 
   head.position.y = 1.42;
-  group.add(head);
+  rider.add(head);
 
   // ---------- ARMS ----------
   function buildArm(side: 1 | -1): THREE.Group {
@@ -245,10 +250,15 @@ export function createPlayerCharacter(): PlayerCharacter {
   }
   const rightArm = buildArm(1);
   const leftArm = buildArm(-1);
-  group.add(rightArm, leftArm);
+  rider.add(rightArm, leftArm);
+
+  // Turn rider 90 degrees left relative to the board
+  rider.rotation.y = -Math.PI / 2;
+  group.add(rider);
 
   return {
     group,
+    rider,
     torso,
     head,
     leftArm,
