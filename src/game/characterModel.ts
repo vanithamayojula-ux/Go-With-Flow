@@ -675,21 +675,22 @@ export function animatePlayerCharacter(
   b.rightArm.rotation.set(0, 0, 0);
   b.rightForearm.rotation.set(0, 0, 0);
 
-  // 1. BASE STANCE / IDLE BREATHING BOB
+  // 1. BASE STANCE / IDLE BREATHING BOB (Dynamic Forward-Leaning Anime Surfer Pose)
   const bob = Math.sin(time * 6 * speedFactor) * 0.02 * speedFactor;
-  b.hips.position.y = 0.85 + bob;
+  b.hips.position.y = 0.72 + bob;
+  b.spine.rotation.x = 0.32; // Aggressive forward aerodynamic surfing lean
   player.board.position.y = 0.15 + Math.sin(time * 4) * 0.015;
 
-  // Stance Knee Flexion
-  b.leftThigh.rotation.x = -0.15;
-  b.leftShin.rotation.x = 0.25;
-  b.rightThigh.rotation.x = -0.15;
-  b.rightShin.rotation.x = 0.25;
+  // Surfer Knee Flexion & Low Center of Gravity
+  b.leftThigh.rotation.x = -0.45;
+  b.leftShin.rotation.x = 0.55;
+  b.rightThigh.rotation.x = -0.3;
+  b.rightShin.rotation.x = 0.4;
 
-  // Arm Swing Balance
-  const armSwing = Math.sin(time * 7 * speedFactor) * 0.14 * speedFactor;
-  b.leftArm.rotation.x = armSwing;
-  b.rightArm.rotation.x = -armSwing;
+  // Dynamic Surfer Arm Balance (Left Arm trailing back, Right Arm forward counter-weight)
+  const armSwing = Math.sin(time * 7 * speedFactor) * 0.1 * speedFactor;
+  b.leftArm.rotation.set(-0.35 + armSwing, 0.3, 0.6);
+  b.rightArm.rotation.set(0.3 - armSwing, -0.2, -0.7);
 
   // 2. MOVEMENT STATES
   if (state.isSliding) {

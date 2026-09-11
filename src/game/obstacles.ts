@@ -66,6 +66,9 @@ export class ObstacleManager {
   // Shared Cyber Geometries & Materials
   private pylonGeom = new THREE.CylinderGeometry(0.2, 0.28, 1.4, 8);
   private pylonMat = new THREE.MeshBasicMaterial({ color: 0xff0033 });
+  private heavyPylonGeom = new THREE.CylinderGeometry(0.35, 0.45, 1.6, 6);
+  private heavyPylonMat = new THREE.MeshStandardMaterial({ color: 0x161b22, metalness: 0.9, roughness: 0.25 });
+  private redWarningGlowMat = new THREE.MeshBasicMaterial({ color: 0xff0033 });
   private laserBeamGeom = new THREE.BoxGeometry(3.8, 0.45, 0.45); // Thick glowing neon laser beam
   private laserBeamMat = new THREE.MeshBasicMaterial({ color: 0xff0033 }); // Hot neon red laser
 
@@ -74,32 +77,27 @@ export class ObstacleManager {
   private overheadBeamMat = new THREE.MeshBasicMaterial({ color: 0xff0033 }); // Hot neon red overhead laser conduit
 
   // Data Shard 3D Gem Geometries & Materials
-  private gemOuterGeom = new THREE.OctahedronGeometry(0.44);
-  private gemOuterMat = new THREE.MeshStandardMaterial({
-    color: 0x00f0ff,
-    emissive: 0x00aaff,
-    emissiveIntensity: 0.6,
-    roughness: 0.15,
-    metalness: 0.85,
-    transparent: true,
-    opacity: 0.88,
-    flatShading: true,
-  });
-  private gemInnerGeom = new THREE.IcosahedronGeometry(0.2, 0);
-  private gemInnerMat = new THREE.MeshBasicMaterial({ color: 0xffffff });
-  private gemRingGeom = new THREE.TorusGeometry(0.58, 0.035, 8, 24);
-  private gemRingMat = new THREE.MeshBasicMaterial({ color: 0x00ffff });
+  // Plasma Energy Orb Geometries & Materials (Reference Image 5)
+  private orbAuraGeom = new THREE.SphereGeometry(0.5, 16, 16);
+  private orbAuraMat = new THREE.MeshBasicMaterial({ color: 0x00f0ff, transparent: true, opacity: 0.45, blending: THREE.AdditiveBlending });
+  private orbInnerGeom = new THREE.IcosahedronGeometry(0.28, 1);
+  private orbInnerMat = new THREE.MeshBasicMaterial({ color: 0xffffff });
+  private orbRuneRingGeom = new THREE.TorusGeometry(0.52, 0.04, 12, 32);
+  private orbRuneRingMat = new THREE.MeshStandardMaterial({ color: 0x9d00ff, emissive: 0x7700ff, emissiveIntensity: 1.2, metalness: 0.95, roughness: 0.1 });
 
   private createDataShardGem(): THREE.Group {
     const gemGroup = new THREE.Group();
 
-    const outerMesh = new THREE.Mesh(this.gemOuterGeom, this.gemOuterMat);
-    gemGroup.add(outerMesh);
+    // 1. Translucent outer energy aura (Reference Image 5)
+    const auraMesh = new THREE.Mesh(this.orbAuraGeom, this.orbAuraMat);
+    gemGroup.add(auraMesh);
 
-    const innerMesh = new THREE.Mesh(this.gemInnerGeom, this.gemInnerMat);
+    // 2. Swirling inner glowing plasma core
+    const innerMesh = new THREE.Mesh(this.orbInnerGeom, this.orbInnerMat);
     gemGroup.add(innerMesh);
 
-    const ringMesh = new THREE.Mesh(this.gemRingGeom, this.gemRingMat);
+    // 3. Orbiting rune energy ring
+    const ringMesh = new THREE.Mesh(this.orbRuneRingGeom, this.orbRuneRingMat);
     ringMesh.rotation.x = Math.PI / 3;
     gemGroup.add(ringMesh);
 
@@ -372,18 +370,32 @@ export class ObstacleManager {
 
     const group = new THREE.Group();
 
-    // Left and right dark titanium pylons
-    const pylonLeft = new THREE.Mesh(this.pylonGeom, this.pylonMat);
-    pylonLeft.position.set(-1.8, 0.6, 0);
+    // Heavy dark titanium stanchion pylons (Reference Image 4)
+    const pylonLeft = new THREE.Mesh(this.heavyPylonGeom, this.heavyPylonMat);
+    pylonLeft.position.set(-1.85, 0.7, 0);
     group.add(pylonLeft);
 
-    const pylonRight = new THREE.Mesh(this.pylonGeom, this.pylonMat);
-    pylonRight.position.set(1.8, 0.6, 0);
+    const pylonRight = new THREE.Mesh(this.heavyPylonGeom, this.heavyPylonMat);
+    pylonRight.position.set(1.85, 0.7, 0);
     group.add(pylonRight);
 
-    // Glowing Neon Laser Beam
+    // Red warning light caps on top of pylons
+    const redCapLeft = new THREE.Mesh(new THREE.BoxGeometry(0.5, 0.15, 0.5), this.redWarningGlowMat);
+    redCapLeft.position.set(-1.85, 1.5, 0);
+    group.add(redCapLeft);
+
+    const redCapRight = new THREE.Mesh(new THREE.BoxGeometry(0.5, 0.15, 0.5), this.redWarningGlowMat);
+    redCapRight.position.set(1.85, 1.5, 0);
+    group.add(redCapRight);
+
+    // Heavy crossbeam with glowing red warning strip
+    const crossbeam = new THREE.Mesh(new THREE.BoxGeometry(3.7, 0.25, 0.3), this.heavyPylonMat);
+    crossbeam.position.set(0, 0.65, 0);
+    group.add(crossbeam);
+
+    // Glowing Neon Lethal Red Laser Beam
     const laser = new THREE.Mesh(this.laserBeamGeom, this.laserBeamMat);
-    laser.position.set(0, 0.6, 0);
+    laser.position.set(0, 0.65, 0);
     group.add(laser);
 
     group.position.set(x, y, z);
@@ -396,7 +408,7 @@ export class ObstacleManager {
       x,
       y,
       z,
-      width: 3.6,
+      width: 3.7,
       height: 1.1,
       depth: 0.8,
       mesh: group,

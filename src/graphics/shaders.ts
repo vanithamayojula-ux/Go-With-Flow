@@ -124,55 +124,54 @@ export const TerrainShader = {
       vec3 N = normalize(vNormal);
       vec3 V = normalize(uCameraPos - vWorldPosition);
 
-      // Deep dark asphalt base (~90% black)
-      vec3 tarmacBase = vec3(0.015, 0.02, 0.03);
+      // --- NEON ENERGY WAVE LIQUID SURFACE (Reference Image 2) ---
+      // Flowing liquid currents with swirling blue (#00F0FF) & purple (#9D00FF) energy waves
+      vec2 waveUv = vec2(vWorldPosition.x * 0.18, (vWorldPosition.z - uTime * 14.0) * 0.08);
+      float swirl1 = sin(waveUv.x * 3.0 + sin(waveUv.y * 2.5 + uTime * 1.5)) * 0.5 + 0.5;
+      float swirl2 = cos(waveUv.y * 4.0 + cos(waveUv.x * 2.0 - uTime * 2.0)) * 0.5 + 0.5;
+      float wavePattern = smoothstep(0.15, 0.85, (swirl1 + swirl2) * 0.5);
 
-      // Procedural asphalt micro-roughness & wet sheen
-      float noiseVal = hash21(floor(vWorldPosition.xz * 18.0));
-      tarmacBase += vec3(noiseVal * 0.015);
+      vec3 liquidCyan = vec3(0.0, 0.94, 1.0);
+      vec3 liquidPurple = vec3(0.62, 0.0, 1.0);
+      vec3 liquidCore = mix(liquidCyan, liquidPurple, sin(vWorldPosition.z * 0.05 + swirl1 * 3.14) * 0.5 + 0.5);
+
+      // Caustic energy highlights
+      float caustic = pow(sin(waveUv.x * 12.0 + swirl2 * 6.28) * sin(waveUv.y * 12.0 + swirl1 * 6.28) * 0.5 + 0.5, 3.0);
+      vec3 liquidHighway = liquidCore * (0.35 + wavePattern * 0.65) + vec3(1.0) * caustic * 0.3;
+
+      // Dark obsidian channel beneath energy wave
+      vec3 baseSurface = mix(vec3(0.01, 0.015, 0.03), liquidHighway, 0.85);
 
       // --- 3-Lane Neon Highway Markings ---
       float roadX = vWorldPosition.x;
       float roadZ = vWorldPosition.z;
 
-      // Outer highway boundary neon curb lines (-6.5 and +6.5)
+      // Outer highway boundary neon curb lines (-6.4 and +6.4)
       float curbLeft = smoothstep(0.25, 0.05, abs(roadX - (-6.4)));
       float curbRight = smoothstep(0.25, 0.05, abs(roadX - 6.4));
       float curbLines = curbLeft + curbRight;
 
-      // Inner lane divider dash lines (lanes are centered at -4.2, 0, 4.2 -> dividers at -2.1 and +2.1)
+      // Inner lane divider dash lines
       float divLeft = smoothstep(0.12, 0.03, abs(roadX - (-2.1)));
       float divRight = smoothstep(0.12, 0.03, abs(roadX - 2.1));
       float laneDashes = step(0.45, fract((roadZ - uTime * 32.0) * 0.12));
       float dividerLines = (divLeft + divRight) * laneDashes;
 
-      // Road edge glow (Cyan & Hot Magenta)
+      // Road edge glow (Cyan & Electric Magenta/Purple)
       vec3 curbColor = vec3(0.0, 0.95, 1.0); // Electric Cyan
-      vec3 dividerColor = vec3(1.0, 0.0, 0.55); // Hot Magenta
+      vec3 dividerColor = vec3(0.7, 0.0, 1.0); // Electric Purple
 
-      vec3 emissiveLines = curbColor * curbLines * 2.5 + dividerColor * dividerLines * 2.0;
+      vec3 emissiveLines = curbColor * curbLines * 2.8 + dividerColor * dividerLines * 2.2;
 
-      // --- Blade Runner Wet-Street Reflection Trick ---
-      float reflectionStreak = sin(roadX * 3.5 + uTime * 2.0) * cos(roadX * 1.8);
-      reflectionStreak = pow(max(0.0, reflectionStreak), 4.0);
-      vec3 neonReflection = mix(vec3(0.0, 0.8, 1.0), vec3(1.0, 0.1, 0.6), sin(roadZ * 0.05) * 0.5 + 0.5);
+      // Wet reflections
       float fresnel = pow(1.0 - max(dot(V, N), 0.0), 3.0);
-      vec3 wetStreaks = neonReflection * reflectionStreak * (fresnel * 0.85 + 0.25);
+      vec3 wetStreaks = liquidCore * caustic * (fresnel * 0.85 + 0.25);
 
-      // --- Tron Grid Zone Override ---
-      if (uGridMode > 0.05) {
-        float gridX = abs(fract(roadX * 0.5) - 0.5);
-        float gridZ = abs(fract(roadZ * 0.5 - uTime * 0.5) - 0.5);
-        float tronGrid = smoothstep(0.42, 0.48, max(1.0 - gridX * 2.0, 1.0 - gridZ * 2.0));
-        vec3 tronColor = mix(vec3(0.0, 1.0, 0.8), vec3(1.0, 0.0, 0.8), sin(roadZ * 0.02) * 0.5 + 0.5);
-        tarmacBase = mix(vec3(0.005, 0.008, 0.015), tronColor * 2.0, tronGrid * uGridMode);
-      }
-
-      vec3 finalCol = tarmacBase + emissiveLines + wetStreaks;
+      vec3 finalCol = baseSurface + emissiveLines + wetStreaks;
 
       // High-contrast rim light from ambient neon environment
       float rim = pow(1.0 - max(dot(V, N), 0.0), 4.0);
-      finalCol += vec3(0.0, 0.6, 1.0) * rim * 0.35;
+      finalCol += liquidCyan * rim * 0.35;
 
       // Distance Atmospheric Fade into Dark Fog
       float dist = length(uCameraPos - vWorldPosition);
@@ -363,8 +362,8 @@ export const PostProcessShader = {
           float linePattern = sin(angle * 96.0 + uTime * 32.0);
           linePattern = smoothstep(0.78, 0.99, linePattern);
           float mask = smoothstep(0.32, 0.92, dist) * effSpeedLines;
-          vec3 speedLineColor = mix(vec3(0.0, 0.95, 1.0), vec3(1.0, 1.0, 1.0), 0.7);
-          sceneCol += speedLineColor * linePattern * mask * 0.65;
+          vec3 speedLineColor = mix(vec3(0.0, 0.95, 1.0), vec3(0.7, 0.0, 1.0), sin(angle * 12.0 + uTime * 10.0) * 0.5 + 0.5);
+          sceneCol += speedLineColor * linePattern * mask * 0.85;
         }
       }
 
