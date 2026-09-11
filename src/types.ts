@@ -29,6 +29,7 @@ export type BiomeType =
   | 'volcanic-forge'
   | 'crystal-glacier'
   | 'derelict-station'
+  | 'bleach-bypass-steel'
   | 'meadow'
   | 'dunes'
   | 'sky-islands'
