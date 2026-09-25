@@ -427,6 +427,9 @@ export const GameCanvas: React.FC<GameCanvasProps> = ({
       if (fpsAccum >= 0.5) {
         currentFps = Math.round(frameCount / fpsAccum);
         frameCount = 0;
+        fpsAccum = 0;
+      }
+
       // Only update simulation and physics if not paused
       if (!isPausedRef.current) {
         // Update Player with terrainManager, audioManager, and obstacleManager
