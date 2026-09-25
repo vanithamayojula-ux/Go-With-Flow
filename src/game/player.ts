@@ -423,6 +423,7 @@ export class PlayerManager {
     this.overdriveMeter = Math.min(100, this.overdriveMeter + 35.0);
     if (audioManager) audioManager.playBoostGate();
     this.emitJumpDust(this.position, 10);
+    this.emitSparks(this.position, 12, 0x00ffaa);
   }
 
   setGrinding(grinding: boolean, audioManager?: AudioManager | null) {
@@ -524,6 +525,7 @@ export class PlayerManager {
     this.stats.score += amount * 120 * this.scoreMultiplier;
     this.overdriveMeter = Math.min(100, this.overdriveMeter + amount * 3.5);
     this.stats.highScore = Math.max(this.stats.highScore, this.stats.score);
+    this.emitSparks(this.position, 4, 0x00f0ff);
   }
 
   triggerTrick(trick: TrickType, audioManager?: AudioManager | null): boolean {
@@ -555,6 +557,7 @@ export class PlayerManager {
     }
 
     this.emitJumpDust(this.position, 6);
+    this.emitSparks(this.position, 8, trick === 'flip' ? 0xff007f : trick === 'spin' ? 0x00f0ff : 0x00ffaa);
     return true;
   }
 
@@ -604,9 +607,10 @@ export class PlayerManager {
     if (this.isGrinding) {
       this.overdriveMeter = Math.min(100, this.overdriveMeter + 28 * effectiveDt);
       this.grindSparkTimer += effectiveDt;
-      if (this.grindSparkTimer > 0.08) {
+      if (this.grindSparkTimer > 0.06) {
         this.grindSparkTimer = 0;
-        this.emitJumpDust(this.position, 3);
+        this.emitJumpDust(this.position, 2);
+        this.emitSparks(this.position, 3, Math.random() > 0.5 ? 0xff007f : 0x00f0ff);
       }
     }
 
@@ -754,7 +758,28 @@ export class PlayerManager {
 
     // Drive Procedural 3D Skater & Board Animations
     const speedFactor = Math.min(1.8, Math.max(0.5, this.velocity.z / 25));
-    animatePlayerCharacter(this.playerCharacter, time, speedFactor);
+
+    let nearestObsDist = 999;
+    if (obstacleManager && Array.isArray(obstacleManager.obstacles)) {
+      for (const obs of obstacleManager.obstacles) {
+        if (!obs.cleared && obs.z > this.position.z) {
+          const d = obs.z - this.position.z;
+          if (d < nearestObsDist) nearestObsDist = d;
+        }
+      }
+    }
+
+    animatePlayerCharacter(this.playerCharacter, time, speedFactor, {
+      isGrounded: this.isGrounded,
+      isSliding: this.isSliding,
+      isGrinding: this.isGrinding,
+      isBoosting: this.stats.isBoosting,
+      stumbleTimer: this.stumbleTimer,
+      activeTrickName: this.stats.activeTrickName,
+      activeTrick: this.activeTrick,
+      turnVelocity: this.carveAngle * 10,
+      nearestObstacleDist: nearestObsDist,
+    });
 
     // Unified lean angle so character feet and board lean together without clipping
     const unifiedCarveTilt = -this.carveAngle * 1.1;
@@ -795,9 +820,16 @@ export class PlayerManager {
 
     // Overdrive & Combo Tiers calculation
     let odTier: OverdriveTier = 'Dormant';
-    if (this.overdriveMeter >= 99.0) odTier = 'Max-Velocity';
-    else if (this.overdriveMeter >= 70.0) odTier = 'Overdrive';
-    else if (this.overdriveMeter >= 25.0) odTier = 'Charged';
+    if (this.overdriveMeter >= 99.0) {
+      odTier = 'Max-Velocity';
+      if (Math.random() < 0.3) {
+        this.emitSparks(this.position, 1, 0x00f0ff);
+      }
+    } else if (this.overdriveMeter >= 70.0) {
+      odTier = 'Overdrive';
+    } else if (this.overdriveMeter >= 25.0) {
+      odTier = 'Charged';
+    }
 
     let cTier: ComboTier = 'blue';
     if (this.stats.combo >= 5) cTier = 'white-hot';
@@ -820,6 +852,7 @@ export class PlayerManager {
     this.stats.gameState = this.gameState;
 
     this.updateTrailRibbon(effectiveDt);
+    this.updateParticles(effectiveDt);
 
     // Camera follow
     const camOffset = this.isUpright ? new THREE.Vector3(0, 3.2, -6.0) : new THREE.Vector3(0, 3.8, -7.5);
@@ -901,6 +934,68 @@ export class PlayerManager {
         p.mesh.visible = true;
         p.vel.set((Math.random() - 0.5) * 3, Math.random() * 2, -Math.random() * 3);
         spawned++;
+      }
+    }
+  }
+
+  public emitSparks(pos: THREE.Vector3, count = 4, hexColor = 0x00f0ff) {
+    let spawned = 0;
+    for (const p of this.petalParticles) {
+      if (spawned >= count) break;
+      if (p.life <= 0) {
+        p.life = 0.35 + Math.random() * 0.2;
+        p.maxLife = p.life;
+        p.mesh.position.set(
+          pos.x + (Math.random() - 0.5) * 0.6,
+          pos.y + (Math.random() - 0.5) * 0.3,
+          pos.z + (Math.random() - 0.5) * 0.6
+        );
+        (p.mesh.material as THREE.SpriteMaterial).color.setHex(hexColor);
+        p.mesh.visible = true;
+        p.vel.set(
+          (Math.random() - 0.5) * 6.0,
+          Math.random() * 4.0 + 1.0,
+          -this.velocity.z * 0.4 - Math.random() * 4.0
+        );
+        p.rotSpeed = (Math.random() - 0.5) * 16.0;
+        spawned++;
+      }
+    }
+  }
+
+  private updateParticles(effectiveDt: number) {
+    // 1. Dust / Jump Impact Particles
+    for (const p of this.dustParticles) {
+      if (p.life > 0) {
+        p.life -= effectiveDt;
+        if (p.life <= 0) {
+          p.mesh.visible = false;
+        } else {
+          p.vel.y -= 9.8 * effectiveDt; // Gravity on dust
+          p.mesh.position.addScaledVector(p.vel, effectiveDt);
+          const lifeFrac = Math.max(0, p.life / p.maxLife);
+          (p.mesh.material as THREE.SpriteMaterial).opacity = lifeFrac * 0.8;
+          const scale = (1.0 - lifeFrac * 0.3) * 0.8;
+          p.mesh.scale.set(scale, scale, 1);
+        }
+      }
+    }
+
+    // 2. Neon Sparks / Rail Grind / Boost Flare Particles
+    for (const p of this.petalParticles) {
+      if (p.life > 0) {
+        p.life -= effectiveDt;
+        if (p.life <= 0) {
+          p.mesh.visible = false;
+        } else {
+          p.vel.y -= 4.0 * effectiveDt; // Gentle gravity on sparks
+          p.mesh.position.addScaledVector(p.vel, effectiveDt);
+          p.mesh.material.rotation += (p.rotSpeed || 5) * effectiveDt;
+          const lifeFrac = Math.max(0, p.life / p.maxLife);
+          (p.mesh.material as THREE.SpriteMaterial).opacity = lifeFrac * 0.95;
+          const scale = lifeFrac * 0.65;
+          p.mesh.scale.set(scale, scale, 1);
+        }
       }
     }
   }
