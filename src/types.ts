@@ -130,7 +130,7 @@ export type PowerUpType =
   | 'hoverboard-shield'
   | 'multiplier2x';
 
-export type GameState = 'playing' | 'crashed' | 'game-over';
+export type GameState = 'playing' | 'paused' | 'crashed' | 'game-over';
 
 export interface ActivePowerUps {
   magnetTimer: number;       // Remaining duration in seconds

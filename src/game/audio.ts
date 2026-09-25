@@ -28,43 +28,47 @@ export class AudioManager {
     // AudioContext lazily starts on first user interaction
   }
 
-  private init() {
-    if (this.ctx) return;
-    try {
-      const AudioCtx =
-        window.AudioContext ||
-        (window as unknown as { webkitAudioContext: typeof AudioContext }).webkitAudioContext;
-      this.ctx = new AudioCtx();
+  public init() {
+    if (!this.ctx) {
+      try {
+        const AudioCtx =
+          window.AudioContext ||
+          (window as unknown as { webkitAudioContext: typeof AudioContext }).webkitAudioContext;
+        this.ctx = new AudioCtx();
 
-      // Master output
-      this.masterGain = this.ctx.createGain();
-      this.masterGain.gain.value = 0.85;
-      this.masterGain.connect(this.ctx.destination);
+        // Master output
+        this.masterGain = this.ctx.createGain();
+        this.masterGain.gain.value = 0.85;
+        this.masterGain.connect(this.ctx.destination);
 
-      // Bass Sub-bus with modulated resonant filter
-      this.bassFilter = this.ctx.createBiquadFilter();
-      this.bassFilter.type = 'lowpass';
-      this.bassFilter.frequency.value = 450;
-      this.bassFilter.Q.value = 4.5; // Juicy resonance!
+        // Bass Sub-bus with modulated resonant filter
+        this.bassFilter = this.ctx.createBiquadFilter();
+        this.bassFilter.type = 'lowpass';
+        this.bassFilter.frequency.value = 450;
+        this.bassFilter.Q.value = 4.5; // Juicy resonance!
 
-      this.bassGain = this.ctx.createGain();
-      this.bassGain.gain.value = 0.22;
-      this.bassFilter.connect(this.bassGain);
-      this.bassGain.connect(this.masterGain);
+        this.bassGain = this.ctx.createGain();
+        this.bassGain.gain.value = 0.22;
+        this.bassFilter.connect(this.bassGain);
+        this.bassGain.connect(this.masterGain);
 
-      // Drum Bus
-      this.drumGain = this.ctx.createGain();
-      this.drumGain.gain.value = 0.28;
-      this.drumGain.connect(this.masterGain);
+        // Drum Bus
+        this.drumGain = this.ctx.createGain();
+        this.drumGain.gain.value = 0.28;
+        this.drumGain.connect(this.masterGain);
 
-      // Synth & Leads Bus
-      this.synthGain = this.ctx.createGain();
-      this.synthGain.gain.value = 0.18;
-      this.synthGain.connect(this.masterGain);
+        // Synth & Leads Bus
+        this.synthGain = this.ctx.createGain();
+        this.synthGain.gain.value = 0.18;
+        this.synthGain.connect(this.masterGain);
 
-      this.startSynthwaveLoop();
-    } catch {
-      // Audio context restricted or blocked
+        this.startSynthwaveLoop();
+      } catch {
+        // Audio context restricted or blocked
+      }
+    }
+    if (this.ctx && this.ctx.state === 'suspended') {
+      this.ctx.resume().catch(() => {});
     }
   }
 

@@ -15,17 +15,43 @@ import {
 export const CHUNK_SIZE = 80;
 export const CHUNK_SEGMENTS = 24;
 
+const BIOME_ROTATION: BiomeType[] = [
+  'neon-undercity',
+  'dune-nomad',
+  'aurora-frost',
+  'bioluminescent-jungle',
+  'ember-core',
+  'nebula-drift',
+  'sky-realm',
+  'quantum-desert',
+  'cyber-forest',
+  'orbital-ring',
+  'the-grid',
+  'volcanic-forge',
+  'crystal-glacier',
+  'derelict-station',
+];
+
 let activeBiomeOverride: BiomeType | null = null;
+let biomeOffsetIndex = 0;
 
 export function setActiveBiome(biome: BiomeType | null) {
   activeBiomeOverride = biome;
+  if (biome) {
+    const idx = BIOME_ROTATION.indexOf(biome);
+    if (idx !== -1) {
+      biomeOffsetIndex = idx;
+    }
+  }
 }
 
 export function getBiomeAt(z: number): BiomeType {
   if (activeBiomeOverride) {
     return activeBiomeOverride;
   }
-  return 'neon-undercity';
+  const distancePerBiome = 450;
+  const cycleIndex = Math.floor(Math.max(0, z) / distancePerBiome) + biomeOffsetIndex;
+  return BIOME_ROTATION[cycleIndex % BIOME_ROTATION.length];
 }
 
 export function getBiomeFriction(biome: BiomeType): number {

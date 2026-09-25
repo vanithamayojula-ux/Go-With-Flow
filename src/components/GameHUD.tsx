@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { Volume2, VolumeX, Sliders, Eye, Palette, Smartphone, Monitor, Shield, Trophy, Zap, Radio, Terminal } from 'lucide-react';
+import { Volume2, VolumeX, Sliders, Eye, Palette, Smartphone, Monitor, Shield, Trophy, Zap, Radio, Terminal, Pause } from 'lucide-react';
 import { BiomeType, LightingMode, PlayerStats } from '../types';
 
 interface GameHUDProps {
@@ -19,6 +19,7 @@ interface GameHUDProps {
   onOpenGraphicsDrawer: () => void;
   onOpenDeliverables: () => void;
   onOpenCosmetics: () => void;
+  onPause?: () => void;
   notification: string | null;
 }
 
@@ -39,6 +40,7 @@ export const GameHUD: React.FC<GameHUDProps> = ({
   onOpenGraphicsDrawer,
   onOpenDeliverables,
   onOpenCosmetics,
+  onPause,
   notification,
 }) => {
   const [showDevInspector, setShowDevInspector] = useState(false);
@@ -304,6 +306,17 @@ export const GameHUD: React.FC<GameHUDProps> = ({
 
         {/* Right: Quick Cyber Controls Toolbar */}
         <div className="flex items-center space-x-1.5 pointer-events-auto">
+          {/* Pause / Standby Button */}
+          {onPause && (
+            <button
+              onClick={onPause}
+              className="p-2 rounded-lg bg-black/60 border border-slate-700 hover:border-cyan-400 text-slate-300 hover:text-cyan-300 backdrop-blur-md active:scale-95 shadow-md"
+              title="Pause Game (ESC / P)"
+            >
+              <Pause className="w-4 h-4 text-cyan-400" />
+            </button>
+          )}
+
           {/* Holo-Shield Deploy Button */}
           <button
             onClick={onActivateShield}

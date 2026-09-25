@@ -1,4 +1,4 @@
-import React, { useState, useRef, useCallback } from 'react';
+import React, { useState, useRef, useCallback, useEffect } from 'react';
 import { GameCanvas } from './components/GameCanvas';
 import { GameHUD } from './components/GameHUD';
 import { ControlsOverlay } from './components/ControlsOverlay';
@@ -6,6 +6,7 @@ import { GraphicsDrawer } from './components/GraphicsDrawer';
 import { AssetDeliverablesModal } from './components/AssetDeliverablesModal';
 import { CosmeticsModal } from './components/CosmeticsModal';
 import { GameOverModal } from './components/GameOverModal';
+import { PauseModal } from './components/PauseModal';
 import { AudioManager } from './game/audio';
 import {
   CosmeticsConfig,
@@ -59,9 +60,17 @@ export default function App() {
   const [graphicsConfig, setGraphicsConfig] = useState<GraphicsConfig>(DEFAULT_GRAPHICS_CONFIG);
   const [lightingMode, setLightingMode] = useState<LightingMode>('midnight-cyan');
   const [shaderParams, setShaderParams] = useState<ShaderParams>(DEFAULT_SHADER_PARAMS);
-  const [cosmeticsConfig, setCosmeticsConfig] = useState<CosmeticsConfig>(DEFAULT_COSMETICS_CONFIG);
+  const [cosmeticsConfig, setCosmeticsConfig] = useState<CosmeticsConfig>(() => {
+    try {
+      const saved = localStorage.getItem('skyflow_cosmetics');
+      return saved ? { ...DEFAULT_COSMETICS_CONFIG, ...JSON.parse(saved) } : DEFAULT_COSMETICS_CONFIG;
+    } catch {
+      return DEFAULT_COSMETICS_CONFIG;
+    }
+  });
   const [isCinematicCam, setIsCinematicCam] = useState(false);
   const [isMuted, setIsMuted] = useState(false);
+  const [isPaused, setIsPaused] = useState(false);
   const [isGraphicsDrawerOpen, setIsGraphicsDrawerOpen] = useState(false);
   const [isDeliverablesOpen, setIsDeliverablesOpen] = useState(false);
   const [isCosmeticsOpen, setIsCosmeticsOpen] = useState(false);
@@ -189,6 +198,26 @@ export default function App() {
     triggerNotification('Settings reset to defaults');
   }, [triggerNotification]);
 
+  const handleUpdateCosmetics = useCallback((newCosmetics: CosmeticsConfig) => {
+    setCosmeticsConfig(newCosmetics);
+    try {
+      localStorage.setItem('skyflow_cosmetics', JSON.stringify(newCosmetics));
+    } catch {}
+  }, []);
+
+  // Keyboard shortcut listener for Escape and P to pause/resume
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.code === 'Escape' || e.code === 'KeyP') {
+        if (!isGameOver) {
+          setIsPaused(prev => !prev);
+        }
+      }
+    };
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, [isGameOver]);
+
   // Bridge touch overlay buttons to synthetic keyboard events
   const handleControlAction = useCallback((action: 'left' | 'right' | 'jump' | 'forward' | 'drift' | 'slide' | 'shield', pressed: boolean) => {
     if (action === 'shield') {
@@ -226,6 +255,7 @@ export default function App() {
           audioManagerRef={audioManagerRef}
           isCinematicCam={isCinematicCam}
           isUpright={isUprightMode}
+          isPaused={isPaused}
           onNotification={triggerNotification}
           onGameOver={() => setIsGameOver(true)}
           restartTrigger={restartCount}
@@ -257,6 +287,7 @@ export default function App() {
           onOpenGraphicsDrawer={() => setIsGraphicsDrawerOpen(true)}
           onOpenDeliverables={() => setIsDeliverablesOpen(true)}
           onOpenCosmetics={() => setIsCosmeticsOpen(true)}
+          onPause={() => setIsPaused(prev => !prev)}
           notification={notification}
         />
 
@@ -295,8 +326,31 @@ export default function App() {
         isOpen={isCosmeticsOpen}
         onClose={() => setIsCosmeticsOpen(false)}
         cosmetics={cosmeticsConfig}
-        onUpdateCosmetics={setCosmeticsConfig}
+        onUpdateCosmetics={handleUpdateCosmetics}
       />
+
+      {/* Game Paused Modal */}
+      {isPaused && !isGameOver && (
+        <PauseModal
+          isOpen={isPaused}
+          onResume={() => setIsPaused(false)}
+          onRestart={() => {
+            setIsPaused(false);
+            setRestartCount(c => c + 1);
+          }}
+          onOpenCosmetics={() => {
+            setIsPaused(false);
+            setIsCosmeticsOpen(true);
+          }}
+          onOpenGraphics={() => {
+            setIsPaused(false);
+            setIsGraphicsDrawerOpen(true);
+          }}
+          isMuted={isMuted}
+          onToggleMute={handleToggleMute}
+          stats={stats}
+        />
+      )}
 
       {/* Game Over / Journey's Respite Modal */}
       {isGameOver && (

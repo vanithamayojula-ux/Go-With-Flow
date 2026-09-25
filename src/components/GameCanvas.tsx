@@ -21,6 +21,7 @@ interface GameCanvasProps {
   audioManagerRef: React.MutableRefObject<AudioManager | null>;
   isCinematicCam: boolean;
   isUpright?: boolean;
+  isPaused?: boolean;
   onNotification: (msg: string) => void;
   onGameOver?: () => void;
   restartTrigger?: number;
@@ -39,6 +40,7 @@ export const GameCanvas: React.FC<GameCanvasProps> = ({
   audioManagerRef,
   isCinematicCam,
   isUpright = true,
+  isPaused = false,
   onNotification,
   onGameOver,
   restartTrigger,
@@ -46,6 +48,8 @@ export const GameCanvas: React.FC<GameCanvasProps> = ({
   shieldTrigger,
 }) => {
   const containerRef = useRef<HTMLDivElement>(null);
+  const isPausedRef = useRef(false);
+  isPausedRef.current = isPaused;
   const rendererRef = useRef<THREE.WebGLRenderer | null>(null);
   const sceneRef = useRef<THREE.Scene | null>(null);
   const cameraRef = useRef<THREE.PerspectiveCamera | null>(null);
@@ -423,14 +427,13 @@ export const GameCanvas: React.FC<GameCanvasProps> = ({
       if (fpsAccum >= 0.5) {
         currentFps = Math.round(frameCount / fpsAccum);
         frameCount = 0;
-        fpsAccum = 0;
-      }
+      // Only update simulation and physics if not paused
+      if (!isPausedRef.current) {
+        // Update Player with terrainManager, audioManager, and obstacleManager
+        playerMgr.update(dt, keysRef.current, timeSeconds, terrainMgr, audio, obstacleMgr);
 
-      // Update Player with terrainManager, audioManager, and obstacleManager
-      playerMgr.update(dt, keysRef.current, timeSeconds, terrainMgr, audio, obstacleMgr);
-
-      // Obstacles, Pickups & Collision Loop
-      if (playerMgr.gameState === 'playing') {
+        // Obstacles, Pickups & Collision Loop
+        if (playerMgr.gameState === 'playing') {
         obstacleMgr.update(playerMgr.position.z, timeSeconds);
 
         if (playerMgr.activePowerUps.magnetTimer > 0) {
@@ -506,31 +509,30 @@ export const GameCanvas: React.FC<GameCanvasProps> = ({
           onNotification(pNames[collision.collectedPowerUp] || 'Power-Up Collected!');
         }
 
-        // Obstacle Impact & Stumble Reaction (Preserves endless-flow feeling)
-        if (collision.hasStumbled) {
+        // Obstacle Impact & Collision Reaction
+        if (collision.hasCrashed || collision.hasStumbled) {
           if (playerMgr.activePowerUps.hoverboardShield) {
             playerMgr.absorbShieldHit();
             audio.playCarveWhoosh();
-            onNotification('🛡️ SHIELD DEFLECTED IMPACT!');
+            stumbleGlitchTimer = 0.45;
+            onNotification('🛡️ HOLO-SHIELD DEFLECTED IMPACT!');
             if (collision.crashedObstacle) {
               obstacleMgr.removeObstacle(collision.crashedObstacle);
             }
-          } else {
+          } else if (collision.hasCrashed) {
+            playerMgr.crash();
+            audio.playCrashSound();
+            onNotification('💥 SYSTEM CRASH! NEURAL DESYNC DETECTED');
+            if (onGameOver) {
+              onGameOver();
+            }
+          } else if (collision.hasStumbled) {
             playerMgr.stumble(audio);
             stumbleGlitchTimer = 0.6;
             onNotification('⚠️ OBSTACLE IMPACT! STUMBLED (-20 OVERDRIVE)');
             if (collision.crashedObstacle) {
               obstacleMgr.removeObstacle(collision.crashedObstacle);
             }
-          }
-        }
-
-        if (collision.hasCrashed) {
-          playerMgr.crash();
-          audio.playCrashSound();
-          onNotification('💥 SYSTEM CRASH! NEURAL DESYNC DETECTED');
-          if (onGameOver) {
-            onGameOver();
           }
         }
       }
@@ -607,6 +609,7 @@ export const GameCanvas: React.FC<GameCanvasProps> = ({
 
       // Update Multiverse Visual Theme & Particles
       themeMgr.update(dt, skyMgr, terrainMgr, obstacleMgr, playerMgr.position, timeSeconds);
+    }
 
       // Dynamic camera FOV widen at high speed/boost & screen shake impulse
       let screenShakeX = 0;
