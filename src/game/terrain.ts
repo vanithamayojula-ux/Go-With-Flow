@@ -111,14 +111,24 @@ export class TerrainManager {
   updraftsList: UpdraftGeyser[] = [];
   floatingIslandsList: { x: number; y: number; z: number; radius: number }[] = [];
 
+  public readonly buildingTex: THREE.CanvasTexture;
+  public readonly buildingMat: THREE.MeshBasicMaterial;
+  public readonly rooftopMat: THREE.MeshLambertMaterial;
+  public readonly spireMat: THREE.MeshBasicMaterial;
+  public readonly beaconMat: THREE.MeshBasicMaterial;
+  public readonly neonCyanMat: THREE.MeshBasicMaterial;
+  public readonly neonMagentaMat: THREE.MeshBasicMaterial;
+  public readonly neonAmberMat: THREE.MeshBasicMaterial;
+
+  public readonly wireframeMat = new THREE.MeshBasicMaterial({ color: 0x00f0ff, wireframe: true });
+  public readonly curbRailMat = new THREE.MeshBasicMaterial({ color: 0x00f0ff });
+
   private themeBackdropMats: Record<string, THREE.MeshBasicMaterial> = {};
   private billboardMats: THREE.MeshBasicMaterial[] = [];
   private wireframeBoxGeom = new THREE.BoxGeometry(6, 6, 6);
   private wireframeOctaGeom = new THREE.OctahedronGeometry(5);
-  private wireframeMat = new THREE.MeshBasicMaterial({ color: 0x00f0ff, wireframe: true });
 
   private curbRailGeom = new THREE.BoxGeometry(0.5, 0.8, CHUNK_SIZE);
-  private curbRailMat = new THREE.MeshBasicMaterial({ color: 0x00f0ff });
 
   constructor(scene: THREE.Scene) {
     this.scene = scene;

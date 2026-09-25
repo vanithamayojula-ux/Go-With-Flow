@@ -877,6 +877,8 @@ export class ObstacleManager {
     isSliding: boolean
   ): {
     hasCrashed: boolean;
+    hasStumbled: boolean;
+    nearMiss: boolean;
     crashedObstacle?: ObstacleInstance;
     isGrinding: boolean;
     hitBoostGate: boolean;
@@ -1116,5 +1118,87 @@ export class ObstacleManager {
     this.powerUps = [];
     this.lastSpawnZ = 30;
     this.nextObstacleId = 0;
+  }
+
+  dispose() {
+    for (const obs of this.obstacles) {
+      this.scene.remove(obs.mesh);
+      obs.mesh.traverse(child => {
+        if (child instanceof THREE.Mesh) {
+          child.geometry?.dispose();
+          if (Array.isArray(child.material)) {
+            child.material.forEach(m => m.dispose());
+          } else {
+            child.material?.dispose();
+          }
+        }
+      });
+    }
+    this.obstacles = [];
+
+    for (const c of this.coins) {
+      this.scene.remove(c.mesh);
+      c.mesh.traverse(child => {
+        if (child instanceof THREE.Mesh) {
+          child.geometry?.dispose();
+          if (Array.isArray(child.material)) {
+            child.material.forEach(m => m.dispose());
+          } else {
+            child.material?.dispose();
+          }
+        }
+      });
+    }
+    this.coins = [];
+
+    for (const p of this.powerUps) {
+      this.scene.remove(p.mesh);
+      p.mesh.traverse(child => {
+        if (child instanceof THREE.Mesh) {
+          child.geometry?.dispose();
+          if (Array.isArray(child.material)) {
+            child.material.forEach(m => m.dispose());
+          } else {
+            child.material?.dispose();
+          }
+        }
+      });
+    }
+    this.powerUps = [];
+
+    this.pylonGeom.dispose();
+    this.heavyPylonGeom.dispose();
+    this.laserBeamGeom.dispose();
+    this.overheadArchPillarGeom.dispose();
+    this.overheadArchBeamGeom.dispose();
+    this.orbAuraGeom.dispose();
+    this.orbInnerGeom.dispose();
+    this.orbRuneRingGeom.dispose();
+    this.boostGateGeom.dispose();
+    this.grindRailGeom.dispose();
+    this.droneBodyGeom.dispose();
+    this.droneEyeGeom.dispose();
+    this.fenceBarGeom.dispose();
+    this.movingBarrierGeom.dispose();
+    this.fallingBlockGeom.dispose();
+    this.pulsingLaserGeom.dispose();
+
+    this.pylonMat.dispose();
+    this.heavyPylonMat.dispose();
+    this.redWarningGlowMat.dispose();
+    this.laserBeamMat.dispose();
+    this.overheadBeamMat.dispose();
+    this.orbAuraMat.dispose();
+    this.orbInnerMat.dispose();
+    this.orbRuneRingMat.dispose();
+    this.boostGateMat.dispose();
+    this.grindRailMat.dispose();
+    this.droneHazardMat.dispose();
+    this.droneChassisMat.dispose();
+    this.fenceMat.dispose();
+    this.movingBarrierMat.dispose();
+    this.fallingBlockMat.dispose();
+    this.fallingBlockGlowMat.dispose();
+    this.pulsingLaserMat.dispose();
   }
 }

@@ -500,8 +500,8 @@ export class PlayerManager {
   }
 
   crash() {
-    this.gameState = 'gameover';
-    this.stats.gameState = 'gameover';
+    this.gameState = 'game-over';
+    this.stats.gameState = 'game-over';
     this.velocity.set(0, 0, 0);
     this.jumpVelocity = 0;
     this.setGrinding(false);

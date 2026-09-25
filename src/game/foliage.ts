@@ -1,7 +1,7 @@
 import * as THREE from 'three';
 import { FoliageShader } from '../graphics/shaders';
 import { createFoliageTexture, createTreeFoliageTexture } from '../graphics/textures';
-import { Chunk } from './terrain';
+import { CyberChunk } from './terrain';
 
 export class FoliageManager {
   scene: THREE.Scene;
@@ -137,7 +137,7 @@ export class FoliageManager {
     this.scene.add(this.trunkMesh);
   }
 
-  updateFoliage(chunks: Map<string, Chunk>, playerZ: number, playerX: number, densityMultiplier = 1.0) {
+  updateFoliage(chunks: Map<string, CyberChunk>, playerZ: number, playerX: number, densityMultiplier = 1.0) {
     let grassIdx = 0;
     let treeIdx = 0;
 

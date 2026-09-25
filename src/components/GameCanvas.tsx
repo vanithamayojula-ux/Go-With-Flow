@@ -673,7 +673,7 @@ export const GameCanvas: React.FC<GameCanvasProps> = ({
         if (playerMgr.stats.combo >= 3) {
           chromaticAberration = Math.max(chromaticAberration, 0.002);
         }
-        if (playerMgr.gameState === 'gameover') {
+        if (playerMgr.gameState === 'game-over') {
           glitchIntensity = 0.85;
           chromaticAberration = 0.008;
         }
