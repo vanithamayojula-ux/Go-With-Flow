@@ -550,80 +550,84 @@ export function createPlayerCharacter(): PlayerCharacter {
     isGltfLoaded: false,
   };
 
-  // Attempt async loading of custom GLB model (/assets/character/rider.glb)
-  const gltfLoader = new GLTFLoader();
-  gltfLoader.load(
-    '/assets/character/rider.glb',
-    (gltf) => {
-      console.log('[GLTFLoader] Loaded rider.glb successfully:', gltf);
-      console.log('[GLTFLoader] Model Nodes & Scene Hierarchy:', gltf.scene);
-      console.log(
-        '[GLTFLoader] Animation Clips found:',
-        gltf.animations ? gltf.animations.map((a) => a.name) : []
-      );
+  // Attempt async loading of custom GLB model (/assets/character/rider.glb) if available
+  if (typeof fetch !== 'undefined') {
+    fetch('/assets/character/rider.glb', { method: 'HEAD' })
+      .then((res) => {
+        const contentType = res.headers.get('content-type') || '';
+        if (res.ok && !contentType.includes('text/html')) {
+          const gltfLoader = new GLTFLoader();
+          gltfLoader.load(
+            '/assets/character/rider.glb',
+            (gltf) => {
+              const gltfModel = gltf.scene;
+              gltfModel.name = 'GLTF_RiderModel';
 
-      const gltfModel = gltf.scene;
-      gltfModel.name = 'GLTF_RiderModel';
+              // Ensure shadow casting and receiving on GLTF meshes
+              gltfModel.traverse((child) => {
+                if (child instanceof THREE.Mesh) {
+                  child.castShadow = true;
+                  child.receiveShadow = true;
+                }
+              });
 
-      // Ensure shadow casting and receiving on GLTF meshes
-      gltfModel.traverse((child) => {
-        if (child instanceof THREE.Mesh) {
-          child.castShadow = true;
-          child.receiveShadow = true;
-        }
-      });
+              // Hook up AnimationMixer if clips exist
+              let gltfMixer: THREE.AnimationMixer | undefined;
+              const gltfActions: Record<string, THREE.AnimationAction> = {};
+              if (gltf.animations && gltf.animations.length > 0) {
+                gltfMixer = new THREE.AnimationMixer(gltfModel);
+                gltf.animations.forEach((clip) => {
+                  const action = gltfMixer!.clipAction(clip);
+                  gltfActions[clip.name.toLowerCase()] = action;
+                  gltfActions[clip.name] = action;
+                });
+                const firstClip = gltf.animations[0];
+                if (firstClip) {
+                  gltfActions[firstClip.name]?.play();
+                }
+              }
 
-      // Hook up AnimationMixer if clips exist
-      let gltfMixer: THREE.AnimationMixer | undefined;
-      const gltfActions: Record<string, THREE.AnimationAction> = {};
-      if (gltf.animations && gltf.animations.length > 0) {
-        gltfMixer = new THREE.AnimationMixer(gltfModel);
-        gltf.animations.forEach((clip) => {
-          const action = gltfMixer!.clipAction(clip);
-          gltfActions[clip.name.toLowerCase()] = action;
-          gltfActions[clip.name] = action;
-        });
-        const firstClip = gltf.animations[0];
-        if (firstClip) {
-          gltfActions[firstClip.name]?.play();
-        }
-      }
+              // Hide procedural rider and replace with GLB model
+              rider.visible = false;
+              gltfModel.position.set(0, 0.15, 0);
+              group.add(gltfModel);
 
-      // Hide procedural rider and replace with GLB model
-      rider.visible = false;
-      gltfModel.position.set(0, 0.15, 0);
-      group.add(gltfModel);
+              playerChar.gltfModel = gltfModel;
+              playerChar.gltfMixer = gltfMixer;
+              playerChar.gltfAnimations = gltf.animations;
+              playerChar.gltfActions = gltfActions;
+              playerChar.isGltfLoaded = true;
 
-      playerChar.gltfModel = gltfModel;
-      playerChar.gltfMixer = gltfMixer;
-      playerChar.gltfAnimations = gltf.animations;
-      playerChar.gltfActions = gltfActions;
-      playerChar.isGltfLoaded = true;
-
-      // Define cosmetics tinting for GLTF materials
-      playerChar.applyGltfCosmetics = (config: CosmeticsConfig) => {
-        if (!playerChar.gltfModel) return;
-        const glowColor = config.visorColor || '#00F0FF';
-        playerChar.gltfModel.traverse((child) => {
-          if (child instanceof THREE.Mesh && child.material) {
-            const mat = child.material;
-            const matName = (mat.name || child.name).toLowerCase();
-            if (matName.includes('visor') || matName.includes('glow') || matName.includes('cyan')) {
-              if ('color' in mat) (mat as THREE.MeshStandardMaterial).color.set(glowColor);
-              if ('emissive' in mat) (mat as THREE.MeshStandardMaterial).emissive.set(glowColor);
+              // Define cosmetics tinting for GLTF materials
+              playerChar.applyGltfCosmetics = (config: CosmeticsConfig) => {
+                if (!playerChar.gltfModel) return;
+                const glowColor = config.visorColor || '#00F0FF';
+                playerChar.gltfModel.traverse((child) => {
+                  if (child instanceof THREE.Mesh && child.material) {
+                    const mat = child.material;
+                    const matName = (mat.name || child.name).toLowerCase();
+                    if (matName.includes('visor') || matName.includes('glow') || matName.includes('cyan')) {
+                      if ('color' in mat) (mat as THREE.MeshStandardMaterial).color.set(glowColor);
+                      if ('emissive' in mat) (mat as THREE.MeshStandardMaterial).emissive.set(glowColor);
+                    }
+                  }
+                });
+              };
+            },
+            undefined,
+            (error) => {
+              console.log(
+                '[GLTFLoader] /assets/character/rider.glb failed to parse. Falling back seamlessly to procedural PBR character.',
+                error
+              );
             }
-          }
-        });
-      };
-    },
-    undefined,
-    (error) => {
-      console.log(
-        '[GLTFLoader] /assets/character/rider.glb absent or failed to load. Falling back seamlessly to procedural PBR character.',
-        error
-      );
-    }
-  );
+          );
+        }
+      })
+      .catch(() => {
+        // Fallback gracefully to procedural character
+      });
+  }
 
   return playerChar;
 }

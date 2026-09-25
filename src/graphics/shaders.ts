@@ -43,44 +43,44 @@ export const SkyboxShader = {
 
     void main() {
       vec3 dir = normalize(vWorldPosition);
-      float elevation = dir.y;
+      float elevation = clamp(dir.y, 0.0, 1.0);
 
-      // Crystal-clear deep space dark void gradient
-      vec3 baseVoid = mix(vec3(0.008, 0.012, 0.024), vec3(0.002, 0.003, 0.008), clamp(elevation * 2.2, 0.0, 1.0));
+      // Atmospheric Sky Gradient from Horizon to Zenith
+      vec3 baseVoid = mix(uSkyHorizon, uSkyMid, smoothstep(0.0, 0.45, elevation));
+      baseVoid = mix(baseVoid, uSkyTop, smoothstep(0.35, 1.0, elevation));
 
       // 1. Crisp Pinpoint Starfield (anti-aliased stars)
-      vec2 starCoord = dir.xz / (abs(elevation) + 0.12) * 140.0;
+      vec2 starCoord = dir.xz / (abs(dir.y) + 0.12) * 120.0;
       vec2 starGrid = fract(starCoord) - 0.5;
       float starId = hash(floor(starCoord));
       if (starId > 0.965) {
         float starDist = length(starGrid);
-        float starSize = hash(floor(starCoord) + 17.0) * 0.12 + 0.06;
+        float starSize = hash(floor(starCoord) + 17.0) * 0.14 + 0.06;
         float starIntensity = smoothstep(starSize, 0.0, starDist);
         float twinkle = sin(uTime * 3.0 + starId * 50.0) * 0.35 + 0.65;
         vec3 starCol = mix(vec3(0.6, 0.85, 1.0), vec3(1.0, 0.5, 0.9), hash(floor(starCoord) + 42.0));
-        baseVoid += starCol * starIntensity * twinkle * smoothstep(0.04, 0.35, abs(elevation));
+        baseVoid += starCol * starIntensity * twinkle * smoothstep(0.04, 0.35, abs(dir.y));
       }
 
       // 2. Distant Subtle Cyber Nebula Sheen
       float nebula = sin(dir.x * 3.0 + dir.y * 2.0 + uTime * 0.05) * cos(dir.z * 3.0);
       vec3 nebulaCol = mix(vec3(0.0, 0.4, 0.8), vec3(0.6, 0.0, 0.5), dir.y * 0.5 + 0.5);
-      baseVoid += nebulaCol * clamp(nebula * 0.04, 0.0, 0.08);
+      baseVoid += nebulaCol * clamp(nebula * 0.15, 0.0, 0.2);
 
       // 3. Tron Wireframe Grid Mode (for "The Grid" zone)
       if (uGridMode > 0.1) {
         float angle = atan(dir.x, dir.z);
-        float gridElevation = abs(elevation);
+        float gridElevation = abs(dir.y);
         float gridLineX = abs(fract(angle * 16.0) - 0.5);
         float gridLineY = abs(fract(gridElevation * 20.0) - 0.5);
         float grid = smoothstep(0.47, 0.49, max(1.0 - gridLineX * 2.0, 1.0 - gridLineY * 2.0));
         vec3 gridColor = mix(vec3(0.0, 0.95, 1.0), vec3(1.0, 0.0, 0.6), sin(angle * 4.0 + uTime) * 0.5 + 0.5);
-        baseVoid += gridColor * grid * 0.5 * uGridMode;
+        baseVoid += gridColor * grid * 0.6 * uGridMode;
       }
 
       // 4. Distant Horizon Neon Haze
-      float horizonHaze = exp(-abs(elevation) * 12.0);
-      vec3 hazeColor = mix(vec3(0.0, 0.75, 1.0), vec3(0.85, 0.0, 0.65), sin(uTime * 0.15) * 0.5 + 0.5);
-      baseVoid += hazeColor * horizonHaze * 0.32;
+      float horizonHaze = exp(-abs(dir.y) * 10.0);
+      baseVoid += uSkyHorizon * horizonHaze * 0.5;
 
       gl_FragColor = vec4(baseVoid, 1.0);
     }
@@ -175,9 +175,9 @@ export const TerrainShader = {
 
       // Distance Atmospheric Fade into Dark Fog
       float dist = length(uCameraPos - vWorldPosition);
-      float fogFactor = 1.0 - exp(-dist * 0.0032);
-      vec3 fogCol = vec3(0.01, 0.025, 0.05);
-      finalCol = mix(finalCol, fogCol, clamp(fogFactor, 0.0, 0.95));
+      float fogFactor = smoothstep(140.0, 420.0, dist);
+      vec3 fogCol = mix(vec3(0.02, 0.05, 0.1), vec3(0.1, 0.02, 0.08), sin(vWorldPosition.z * 0.005) * 0.5 + 0.5);
+      finalCol = mix(finalCol, fogCol, clamp(fogFactor, 0.0, 0.85));
 
       gl_FragColor = vec4(finalCol, 1.0);
     }
@@ -325,7 +325,7 @@ export const PostProcessShader = {
       // 4. Genuine Neon Bloom Halo
       if (uBloom > 0.02) {
         vec3 bloomAccum = vec3(0.0);
-        vec2 texel = 1.0 / uResolution;
+        vec2 texel = 1.0 / max(uResolution, vec2(1.0, 1.0));
         float bMul = uBloom * 2.6;
         float r1 = 2.5 * bMul;
         float r2 = 6.0 * bMul;
@@ -389,10 +389,7 @@ export const PostProcessShader = {
         sceneCol *= mix(1.0, 0.92 + 0.08 * scanline, uScanlines);
       }
 
-      // 9. Cyberpunk Contrast & Color Curve
-      sceneCol = pow(sceneCol, vec3(1.06));
-      sceneCol = sceneCol * (1.05 * sceneCol + 0.02) / (sceneCol * 1.02 + 0.05);
-
+      // 9. Cyberpunk Contrast & Output
       gl_FragColor = vec4(clamp(sceneCol, 0.0, 1.0), 1.0);
     }
   `

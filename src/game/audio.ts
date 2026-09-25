@@ -25,7 +25,19 @@ export class AudioManager {
   private grindGain: GainNode | null = null;
 
   constructor() {
-    // AudioContext lazily starts on first user interaction
+    // AudioContext lazily starts or resumes on first user interaction
+    if (typeof window !== 'undefined') {
+      const unlock = () => {
+        if (!this.ctx) {
+          this.init();
+        } else if (this.ctx.state === 'suspended') {
+          this.ctx.resume().catch(() => {});
+        }
+      };
+      window.addEventListener('pointerdown', unlock, { once: true });
+      window.addEventListener('keydown', unlock, { once: true });
+      window.addEventListener('touchstart', unlock, { once: true });
+    }
   }
 
   public init() {

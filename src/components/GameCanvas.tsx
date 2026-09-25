@@ -68,7 +68,7 @@ export const GameCanvas: React.FC<GameCanvasProps> = ({
   const postMaterialRef = useRef<THREE.ShaderMaterial | null>(null);
 
   // Biome & tier tracking for audio & announcements
-  const lastBiomeRef = useRef<BiomeType>('meadow');
+  const lastBiomeRef = useRef<BiomeType>('neon-undercity');
   const lastTierRef = useRef<string>('Chill');
 
   // Input states
@@ -150,8 +150,8 @@ export const GameCanvas: React.FC<GameCanvasProps> = ({
     const audio = audioManagerRef.current;
 
     // 2. Three.js Scene, Camera, Renderer
-    const width = container.clientWidth;
-    const height = container.clientHeight;
+    const width = Math.max(container.clientWidth || window.innerWidth || 800, 100);
+    const height = Math.max(container.clientHeight || window.innerHeight || 600, 100);
 
     const scene = new THREE.Scene();
     sceneRef.current = scene;
@@ -182,7 +182,7 @@ export const GameCanvas: React.FC<GameCanvasProps> = ({
 
     const postScene = new THREE.Scene();
     postSceneRef.current = postScene;
-    const postCamera = new THREE.OrthographicCamera(-1, 1, 1, -1, 0, 1);
+    const postCamera = new THREE.OrthographicCamera(-1, 1, 1, -1, -1, 1);
     postCameraRef.current = postCamera;
 
     const postMaterial = new THREE.ShaderMaterial({
@@ -211,6 +211,7 @@ export const GameCanvas: React.FC<GameCanvasProps> = ({
 
     const quadGeom = new THREE.PlaneGeometry(2, 2);
     const quadMesh = new THREE.Mesh(quadGeom, postMaterial);
+    quadMesh.frustumCulled = false;
     postScene.add(quadMesh);
 
     // 4. Managers
@@ -384,8 +385,9 @@ export const GameCanvas: React.FC<GameCanvasProps> = ({
     // 6. Resize Observer
     const resizeObserver = new ResizeObserver(() => {
       if (!container || !renderer || !camera || !rt) return;
-      const w = container.clientWidth;
-      const h = container.clientHeight;
+      const w = container.clientWidth || window.innerWidth || 800;
+      const h = container.clientHeight || window.innerHeight || 600;
+      if (w <= 0 || h <= 0) return;
       const aspect = w / h;
       camera.aspect = aspect;
       if (aspect < 1.0) {
@@ -420,6 +422,7 @@ export const GameCanvas: React.FC<GameCanvasProps> = ({
       const dt = Math.min((now - lastTime) / 1000, 0.05);
       lastTime = now;
       const timeSeconds = now * 0.001;
+      const currentBiome = playerMgr.stats.currentBiome;
 
       // FPS tracking
       frameCount++;
@@ -541,7 +544,6 @@ export const GameCanvas: React.FC<GameCanvasProps> = ({
       }
 
       // Biome transition detection & audio
-      const currentBiome = playerMgr.stats.currentBiome;
       if (currentBiome !== lastBiomeRef.current) {
         lastBiomeRef.current = currentBiome;
         playerMgr.triggerBiomePullBack(); // Cinematic wide establishing shot pull-back!
