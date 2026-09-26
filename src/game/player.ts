@@ -12,6 +12,7 @@ import {
   LaneIndex,
   OverdriveTier,
   PlayerStats,
+  PlayerUpgrades,
   PowerUpType,
   TrickType,
 } from '../types';
@@ -73,9 +74,13 @@ export class PlayerManager {
     underglowColor: '#00f0ff',
   };
 
-  // 3-Lane Navigation & Slide
+  // 3-Lane Navigation: -2 (Left), 0 (Center), +2 (Right)
   currentLane: LaneIndex = 0;
   targetLaneX = 0;
+  laneStartX = 0;
+  laneTimer = 0.2;
+  laneDuration = 0.18; // 180ms smooth responsive lane change
+  lastLaneSwitchTime = 0;
   isSliding = false;
   slideTimer = 0;
 
@@ -86,15 +91,32 @@ export class PlayerManager {
   grindSparkTimer = 0;
 
   // Power-Ups & Multipliers
+  upgrades: PlayerUpgrades = {
+    magnetLevel: 1,
+    jetpackLevel: 1,
+    overdriveLevel: 1,
+    shieldCapacitorLevel: 0,
+  };
+
   activePowerUps: ActivePowerUps = {
     magnetTimer: 0,
+    magnetMaxDuration: 10,
     jetpackTimer: 0,
+    jetpackMaxDuration: 7,
     hoverboardShield: false,
     multiplierTimer: 0,
+    multiplierMaxDuration: 12,
   };
   scoreMultiplier = 1;
   highScore = 0;
   gameState: GameState = 'playing';
+
+  applyUpgrades(upgrades: PlayerUpgrades) {
+    this.upgrades = { ...upgrades };
+    if (this.upgrades.shieldCapacitorLevel > 0 && !this.activePowerUps.hoverboardShield) {
+      this.activateHoverboardShield();
+    }
+  }
 
   // Shield Visual Bubble
   shieldMesh!: THREE.Mesh;
@@ -181,13 +203,15 @@ export class PlayerManager {
 
     this.group.add(this.playerCharacter.group);
 
-    // Dedicated camera fill light pointing directly at player's back so white outfit & board pop brightly
-    const playerFillLight = new THREE.DirectionalLight(0xffffff, 2.5);
-    playerFillLight.position.set(0, 4.0, -6.0);
-    this.group.add(playerFillLight);
+    // Dedicated top-back key light illuminating the player character's silhouette cleanly
+    const playerKeyLight = new THREE.DirectionalLight(0xffffff, 2.2);
+    playerKeyLight.position.set(0, 3.5, -4.5);
+    this.group.add(playerKeyLight);
 
-    const playerAmbientLight = new THREE.AmbientLight(0xffffff, 1.2);
-    this.group.add(playerAmbientLight);
+    // Soft cyan halo glow around player to ensure complete foreground pop and visibility
+    const playerGlowLight = new THREE.PointLight(0x00d2e0, 2.0, 5.0);
+    playerGlowLight.position.set(0, 0.8, 0);
+    this.group.add(playerGlowLight);
 
     // 3. Autonomous Cyber Drone Companion (Stable Hovering Recon Drone)
     this.cyberDroneMesh = new THREE.Group();
@@ -253,9 +277,9 @@ export class PlayerManager {
       vertexShader: BoardTrailShader.vertexShader,
       fragmentShader: BoardTrailShader.fragmentShader,
       uniforms: {
-        uColorA: { value: new THREE.Color('#00F0FF') }, // Electric Cyan
-        uColorB: { value: new THREE.Color('#FF007F') }, // Hot Magenta
-        uOpacity: { value: 0.9 },
+        uColorA: { value: new THREE.Color('#00D2E0') }, // Primary Balanced Cyan
+        uColorB: { value: new THREE.Color('#E00070') }, // Secondary Magenta
+        uOpacity: { value: 0.85 },
         uTime: { value: 0 },
       },
       transparent: true,
@@ -312,34 +336,38 @@ export class PlayerManager {
 
     // 1. Board Model Selection
     const bId = config.boardId || 'cyber-phantom';
-    if (pc.boards) {
-      Object.keys(pc.boards).forEach(key => {
-        if (pc.boards[key]) pc.boards[key].visible = (key === bId);
+    const boards = pc.boards;
+    if (boards) {
+      Object.keys(boards).forEach(key => {
+        if (boards[key]) boards[key].visible = (key === bId);
       });
     }
 
     // 2. Companion Model Selection & Toggle
     const cId = config.companionStyle || 'recon-orb';
     const cEnabled = config.companionEnabled !== false;
-    if (pc.companions) {
-      Object.keys(pc.companions).forEach(key => {
-        if (pc.companions[key]) pc.companions[key].visible = cEnabled && (key === cId);
+    const companions = pc.companions;
+    if (companions) {
+      Object.keys(companions).forEach(key => {
+        if (companions[key]) companions[key].visible = cEnabled && (key === cId);
       });
     }
 
     // 3. Helmet / Style Selection
     const hId = config.characterStyle || 'cyber-runner';
-    if (pc.helmets) {
-      Object.keys(pc.helmets).forEach(key => {
-        if (pc.helmets[key]) pc.helmets[key].visible = (key === hId);
+    const helmets = pc.helmets;
+    if (helmets) {
+      Object.keys(helmets).forEach(key => {
+        if (helmets[key]) helmets[key].visible = (key === hId);
       });
     }
 
     // 4. Armor Variant Selection
     const aId = config.armorVariant || 'carbon-fiber';
-    if (pc.armors) {
-      Object.keys(pc.armors).forEach(key => {
-        if (pc.armors[key]) pc.armors[key].visible = (key === aId);
+    const armors = pc.armors;
+    if (armors) {
+      Object.keys(armors).forEach(key => {
+        if (armors[key]) armors[key].visible = (key === aId);
       });
     }
 
@@ -385,12 +413,37 @@ export class PlayerManager {
   // --- Cyber Controls & Subway Surfers Actions ---
 
   switchLane(direction: -1 | 1, audioManager?: AudioManager | null) {
-    const nextLane = (this.currentLane + direction) as LaneIndex;
-    if (nextLane >= -1 && nextLane <= 1) {
-      this.currentLane = nextLane;
-      this.targetLaneX = getLaneX(this.currentLane);
-      if (audioManager) audioManager.playCarveWhoosh();
+    const now = typeof performance !== 'undefined' ? performance.now() : Date.now();
+    if (now - this.lastLaneSwitchTime < 80) {
+      return; // Prevent accidental double-trigger in a single frame/cooldown
     }
+    const nextLane = Math.max(-1, Math.min(1, this.currentLane + direction)) as LaneIndex;
+    if (nextLane !== this.currentLane) {
+      this.lastLaneSwitchTime = now;
+      this.currentLane = nextLane;
+      this.laneStartX = this.position.x;
+      this.targetLaneX = getLaneX(this.currentLane);
+      this.laneTimer = 0;
+      this.laneDuration = 0.18; // 180ms smooth responsive lane change (0.15-0.25s)
+      this.cameraTilt = -direction * 0.085; // Snappy dynamic camera roll tilt
+      this.emitLaneShiftParticles(direction);
+      if (audioManager) audioManager.playCarveWhoosh();
+      if (typeof navigator !== 'undefined' && navigator.vibrate) {
+        try { navigator.vibrate(12); } catch {}
+      }
+    }
+  }
+
+  emitLaneShiftParticles(direction: -1 | 1) {
+    const sidePos = this.position.clone();
+    sidePos.x += direction * 0.35;
+    sidePos.y += 0.2;
+    this.emitSparks(sidePos, 5, 0x00d2e0);
+  }
+
+  emitNearMissSparks(pos: THREE.Vector3) {
+    this.emitSparks(pos, 8, 0xffd700);
+    this.emitSparks(pos, 4, 0x00d2e0);
   }
 
   triggerSlide(audioManager?: AudioManager | null) {
@@ -400,6 +453,9 @@ export class PlayerManager {
     this.isSliding = true;
     this.slideTimer = 0.65;
     this.emitJumpDust(this.position, 6);
+    if (typeof navigator !== 'undefined' && navigator.vibrate) {
+      try { navigator.vibrate(15); } catch {}
+    }
   }
 
   activateHoverboardShield(audioManager?: AudioManager | null) {
@@ -439,13 +495,19 @@ export class PlayerManager {
 
   applyPowerUp(type: PowerUpType, audioManager?: AudioManager | null) {
     if (type === 'quantum-magnet' || type === 'magnet') {
-      this.activePowerUps.magnetTimer = 12.0;
+      const duration = 10.0 + (this.upgrades.magnetLevel - 1) * 2.5;
+      this.activePowerUps.magnetTimer = duration;
+      this.activePowerUps.magnetMaxDuration = duration;
     } else if (type === 'sonic-jetpack' || type === 'jetpack') {
-      this.activePowerUps.jetpackTimer = 8.5;
+      const duration = 7.0 + (this.upgrades.jetpackLevel - 1) * 1.5;
+      this.activePowerUps.jetpackTimer = duration;
+      this.activePowerUps.jetpackMaxDuration = duration;
       this.jumpVelocity = 15.0;
       this.isGrounded = false;
     } else if (type === 'overdrive-2x' || type === 'multiplier2x') {
-      this.activePowerUps.multiplierTimer = 15.0;
+      const duration = 12.0 + (this.upgrades.overdriveLevel - 1) * 3.0;
+      this.activePowerUps.multiplierTimer = duration;
+      this.activePowerUps.multiplierMaxDuration = duration;
     } else if (type === 'holo-shield' || type === 'hoverboard-shield') {
       this.activateHoverboardShield(audioManager);
     }
@@ -479,8 +541,20 @@ export class PlayerManager {
     this.warpTimer = 0;
     this.isGrinding = false;
     this.overdriveMeter = 25.0;
-    this.activePowerUps = { magnetTimer: 0, jetpackTimer: 0, hoverboardShield: false, multiplierTimer: 0 };
+    this.activePowerUps = {
+      magnetTimer: 0,
+      magnetMaxDuration: 10 + (this.upgrades.magnetLevel - 1) * 2.5,
+      jetpackTimer: 0,
+      jetpackMaxDuration: 7 + (this.upgrades.jetpackLevel - 1) * 1.5,
+      hoverboardShield: false,
+      multiplierTimer: 0,
+      multiplierMaxDuration: 12 + (this.upgrades.overdriveLevel - 1) * 3.0,
+    };
     if (this.shieldMesh) this.shieldMesh.visible = false;
+    // Auto-deploy pre-charged shield if capacitor upgraded
+    if (this.upgrades.shieldCapacitorLevel > 0) {
+      this.activateHoverboardShield();
+    }
     this.stats.score = 0;
     this.stats.distance = 0;
     this.stats.windOrbsCollected = 0;
@@ -523,7 +597,8 @@ export class PlayerManager {
     this.stats.dataShardsCollected += amount;
     this.stats.windOrbsCollected += amount;
     this.stats.score += amount * 120 * this.scoreMultiplier;
-    this.overdriveMeter = Math.min(100, this.overdriveMeter + amount * 3.5);
+    const odMultiplier = 1.0 + (this.upgrades.overdriveLevel - 1) * 0.2;
+    this.overdriveMeter = Math.min(100, this.overdriveMeter + amount * 3.5 * odMultiplier);
     this.stats.highScore = Math.max(this.stats.highScore, this.stats.score);
     this.emitSparks(this.position, 4, 0x00f0ff);
   }
@@ -660,13 +735,19 @@ export class PlayerManager {
       this.stats.activeTrickName = null;
     }
 
-    // Snap X position strictly to target lane values with zero drift
+    // Responsive Smoothstep Lane Interpolation (0.18s crisp duration with smooth easing)
     this.targetLaneX = getLaneX(this.currentLane);
-    this.position.x = THREE.MathUtils.lerp(this.position.x, this.targetLaneX, 24.0 * effectiveDt);
-    if (Math.abs(this.position.x - this.targetLaneX) < 0.02) {
+    this.laneTimer += effectiveDt;
+    const laneProgress = Math.min(1.0, this.laneTimer / this.laneDuration);
+    const smoothT = laneProgress * laneProgress * (3.0 - 2.0 * laneProgress); // Smoothstep cubic easing
+    this.position.x = this.laneStartX + (this.targetLaneX - this.laneStartX) * smoothT;
+    if (laneProgress >= 1.0) {
       this.position.x = this.targetLaneX;
     }
-    this.carveAngle = THREE.MathUtils.lerp(this.carveAngle, (this.targetLaneX - this.position.x) * 0.16, 20.0 * effectiveDt);
+
+    // Dynamic Board Carve & Camera Tilt response
+    this.carveAngle = THREE.MathUtils.lerp(this.carveAngle, (this.targetLaneX - this.position.x) * 0.22, 22.0 * effectiveDt);
+    this.cameraTilt = THREE.MathUtils.lerp(this.cameraTilt, (this.targetLaneX - this.position.x) * 0.045, 14.0 * effectiveDt);
 
     // Warp timer countdown
     if (this.warpTimer > 0) {
@@ -787,10 +868,22 @@ export class PlayerManager {
     this.boardMesh.rotation.x = this.pitchAngle + (this.activeTrick === 'flip' ? this.flipAngle : 0);
     this.boardMesh.rotation.y = this.spinAngle;
 
-    // Underglow real-time breathing light
+    // Underglow & Energy Stream Real-Time Breathing & Speed-Pulse Effect (Step 5)
+    const speedRatio = Math.min(1.0, Math.max(0.0, this.stats.speed / 60));
+    const pulseFreq = 4.0 + speedRatio * 16.0;
+    const pulseMag = 0.2 + speedRatio * 0.4;
+    const dynamicPulse = Math.sin(time * pulseFreq) * pulseMag + (1.0 - pulseMag * 0.5);
+
     if (this.underglowMesh) {
-      const underglowPulse = sinPulse(time * 6.0) * 0.15 + 0.85;
-      (this.underglowMesh.material as THREE.MeshBasicMaterial).opacity = underglowPulse;
+      (this.underglowMesh.material as THREE.MeshBasicMaterial).opacity = 0.55 * dynamicPulse;
+    }
+    if (this.playerCharacter.forwardSpotLight) {
+      this.playerCharacter.forwardSpotLight.intensity = 2.4 + speedRatio * 2.2 + Math.sin(time * pulseFreq) * 0.5;
+    }
+    if (this.playerCharacter.energyStreamMesh) {
+      const streamScale = 0.8 + speedRatio * 1.5;
+      this.playerCharacter.energyStreamMesh.scale.set(1.0 + speedRatio * 0.4, streamScale, 1.0 + speedRatio * 0.4);
+      (this.playerCharacter.energyStreamMesh.material as THREE.MeshBasicMaterial).opacity = 0.5 + speedRatio * 0.45;
     }
 
     // Cyber Crouch / Duck under barriers pose & stumble recoil
@@ -854,10 +947,12 @@ export class PlayerManager {
     this.updateTrailRibbon(effectiveDt);
     this.updateParticles(effectiveDt);
 
-    // Camera follow
-    const camOffset = this.isUpright ? new THREE.Vector3(0, 3.2, -6.0) : new THREE.Vector3(0, 3.8, -7.5);
+    // Camera follow (Immersive low-angle chase perspective matching reference images)
+    // Low eye-level vantage shows wet mirror reflections stretching out in the foreground
+    // and soaring skyscraper heights reaching up into the night sky
+    const camOffset = this.isUpright ? new THREE.Vector3(0, 2.35, -4.8) : new THREE.Vector3(0, 2.7, -5.6);
     this.cameraPos.copy(this.position).add(camOffset);
-    this.cameraLookAt.copy(this.position).add(new THREE.Vector3(0, 1.4, 8.0));
+    this.cameraLookAt.copy(this.position).add(new THREE.Vector3(0, 2.1, 14.0));
   }
 
   private updateTrailRibbon(effectiveDt: number) {
@@ -905,17 +1000,14 @@ export class PlayerManager {
     const custom = this.currentCosmetics.trailId;
 
     if (custom === 'hot-magenta') {
-      this.trailMaterial.uniforms.uColorA.value.set('#FF007F');
-      this.trailMaterial.uniforms.uColorB.value.set('#7928CA');
+      this.trailMaterial.uniforms.uColorA.value.set('#00D2E0');
+      this.trailMaterial.uniforms.uColorB.value.set('#E00070');
     } else if (custom === 'acid-green') {
-      this.trailMaterial.uniforms.uColorA.value.set('#00FF66');
-      this.trailMaterial.uniforms.uColorB.value.set('#00F0FF');
-    } else if (custom === 'plasma-rainbow') {
-      this.trailMaterial.uniforms.uColorA.value.set('#FF00AA');
-      this.trailMaterial.uniforms.uColorB.value.set('#00FFFF');
+      this.trailMaterial.uniforms.uColorA.value.set('#00E5FF');
+      this.trailMaterial.uniforms.uColorB.value.set('#00B0FF');
     } else {
-      this.trailMaterial.uniforms.uColorA.value.set('#00F0FF'); // Electric Cyan
-      this.trailMaterial.uniforms.uColorB.value.set('#FF007F');
+      this.trailMaterial.uniforms.uColorA.value.set('#00D2E0'); // Primary Balanced Cyan for Player
+      this.trailMaterial.uniforms.uColorB.value.set('#007A99');
     }
   }
 

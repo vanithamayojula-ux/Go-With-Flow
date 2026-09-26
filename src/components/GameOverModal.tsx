@@ -1,21 +1,26 @@
 import React from 'react';
-import { RotateCcw, Zap, Trophy, Cpu, ShieldAlert, Radio } from 'lucide-react';
+import { RotateCcw, Zap, Trophy, Cpu, ShieldAlert, Radio, ShoppingBag, Coins } from 'lucide-react';
 import { PlayerStats } from '../types';
 
 interface GameOverModalProps {
   stats: PlayerStats;
+  bankedShards?: number;
   onRestart: () => void;
   onRevive: () => void;
+  onOpenShop?: () => void;
 }
 
 export const GameOverModal: React.FC<GameOverModalProps> = ({
   stats,
+  bankedShards = 0,
   onRestart,
   onRevive,
+  onOpenShop,
 }) => {
   const isNewHighScore = stats.score >= stats.highScore && stats.score > 0;
-  const shards = stats.dataShardsCollected || stats.windOrbsCollected || 0;
-  const canRevive = shards >= 15;
+  const runShards = stats.dataShardsCollected || stats.windOrbsCollected || 0;
+  const totalAvailableShards = Math.max(bankedShards, runShards);
+  const canRevive = totalAvailableShards >= 15;
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/85 backdrop-blur-xl animate-fade-in font-mono">
@@ -38,7 +43,7 @@ export const GameOverModal: React.FC<GameOverModalProps> = ({
         </p>
 
         {/* Score Showcase Terminal Card */}
-        <div className="bg-slate-950/90 border border-cyan-500/30 rounded-xl p-4 sm:p-5 mb-5 shadow-inner">
+        <div className="bg-slate-950/90 border border-cyan-500/30 rounded-xl p-4 sm:p-5 mb-4 shadow-inner">
           <div className="text-[10px] uppercase tracking-widest text-cyan-400 font-bold mb-1">
             SYNC DATA HARVESTED
           </div>
@@ -56,15 +61,15 @@ export const GameOverModal: React.FC<GameOverModalProps> = ({
         </div>
 
         {/* Detailed Run Stats Grid */}
-        <div className="grid grid-cols-2 gap-3 mb-6">
-          {/* Data Shards Harvested */}
+        <div className="grid grid-cols-2 gap-2.5 mb-3">
+          {/* Data Shards Harvested this run */}
           <div className="flex flex-col items-center justify-center p-3 rounded-xl bg-slate-950/80 border border-cyan-500/30">
             <div className="flex items-center space-x-1.5 text-cyan-400 mb-1">
               <Cpu className="w-3.5 h-3.5" />
-              <span className="text-[10px] font-bold uppercase tracking-wider">DATA SHARDS</span>
+              <span className="text-[10px] font-bold uppercase tracking-wider">RUN SHARDS</span>
             </div>
             <span className="text-xl font-black text-cyan-200">
-              +{shards}
+              +{runShards}
             </span>
           </div>
 
@@ -80,9 +85,20 @@ export const GameOverModal: React.FC<GameOverModalProps> = ({
           </div>
         </div>
 
+        {/* Banked Shards Wallet Status Banner */}
+        <div className="flex items-center justify-between px-3.5 py-2 rounded-xl bg-cyan-950/40 border border-cyan-400/40 text-cyan-300 text-xs font-bold mb-5">
+          <div className="flex items-center space-x-2">
+            <Coins className="w-4 h-4 text-cyan-300" />
+            <span className="text-[11px] uppercase tracking-wider">TOTAL BANK WALLET:</span>
+          </div>
+          <span className="text-sm font-black text-white font-mono">
+            {bankedShards.toLocaleString()} SHARDS
+          </span>
+        </div>
+
         {/* Action Buttons */}
         <div className="flex flex-col space-y-2.5">
-          {/* Emergency Reboot (Subway Surfers second wind!) */}
+          {/* Emergency Reboot */}
           {canRevive && (
             <button
               onClick={onRevive}
@@ -101,6 +117,17 @@ export const GameOverModal: React.FC<GameOverModalProps> = ({
             <RotateCcw className="w-4 h-4" />
             <span>REBOOT NEURAL LINK (RELAUNCH)</span>
           </button>
+
+          {/* Open Cyber Shop & Upgrades */}
+          {onOpenShop && (
+            <button
+              onClick={onOpenShop}
+              className="w-full py-2.5 px-4 rounded-xl bg-slate-900/90 border border-cyan-500/40 text-cyan-300 hover:text-white hover:bg-cyan-950/50 font-bold text-xs uppercase tracking-wider transition-all flex items-center justify-center space-x-2"
+            >
+              <ShoppingBag className="w-4 h-4 text-cyan-400" />
+              <span>UPGRADES & LOADOUT BAY</span>
+            </button>
+          )}
         </div>
       </div>
     </div>

@@ -6,7 +6,3 @@ coverage/
 *.log
 .env*
 !.env.example
-serve.js
-deploy.bat
-*.bat
-

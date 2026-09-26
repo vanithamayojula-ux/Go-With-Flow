@@ -8,13 +8,14 @@ import { ObstacleManager } from '../game/obstacles';
 import { AudioManager } from '../game/audio';
 import { ThemeManager } from '../game/themeManager';
 import { PostProcessShader } from '../graphics/shaders';
-import { BiomeType, CosmeticsConfig, GraphicsConfig, LightingMode, PlayerStats, ShaderParams, TrickType } from '../types';
+import { BiomeType, CosmeticsConfig, GraphicsConfig, LightingMode, PlayerStats, PlayerUpgrades, ShaderParams, TrickType } from '../types';
 
 interface GameCanvasProps {
   graphicsConfig: GraphicsConfig;
   lightingMode: LightingMode;
   shaderParams: ShaderParams;
   cosmeticsConfig: CosmeticsConfig;
+  upgrades?: PlayerUpgrades;
   activeMobileTrick: TrickType | null;
   onClearMobileTrick: () => void;
   onStatsUpdate: (stats: PlayerStats, fps: number, drawCalls: number, instanceCount: number) => void;
@@ -34,6 +35,7 @@ export const GameCanvas: React.FC<GameCanvasProps> = ({
   lightingMode,
   shaderParams,
   cosmeticsConfig,
+  upgrades,
   activeMobileTrick,
   onClearMobileTrick,
   onStatsUpdate,
@@ -97,6 +99,13 @@ export const GameCanvas: React.FC<GameCanvasProps> = ({
       playerMgrRef.current.applyCosmetics(cosmeticsConfig);
     }
   }, [cosmeticsConfig]);
+
+  // Apply player cyber upgrades dynamically
+  useEffect(() => {
+    if (playerMgrRef.current && upgrades) {
+      playerMgrRef.current.applyUpgrades(upgrades);
+    }
+  }, [upgrades]);
 
   // Sync upright mode to player camera
   useEffect(() => {
@@ -227,6 +236,7 @@ export const GameCanvas: React.FC<GameCanvasProps> = ({
 
     const playerMgr = new PlayerManager(scene);
     playerMgr.setUpright(isUpright);
+    if (upgrades) playerMgr.applyUpgrades(upgrades);
     playerMgrRef.current = playerMgr;
 
     const obstacleMgr = new ObstacleManager(scene);
@@ -415,18 +425,28 @@ export const GameCanvas: React.FC<GameCanvasProps> = ({
     let foliageTimer = 0;
     let boostGlitchTimer = 0;
     let stumbleGlitchTimer = 0;
+    let screenShakeTimer = 0;
+    let screenShakeIntensity = 0;
+    let nearMissSlowMoTimer = 0;
 
     const animate = (now: number) => {
       animationFrameId = requestAnimationFrame(animate);
 
-      const dt = Math.min((now - lastTime) / 1000, 0.05);
+      const rawDt = Math.min((now - lastTime) / 1000, 0.05);
       lastTime = now;
       const timeSeconds = now * 0.001;
       const currentBiome = playerMgr.stats.currentBiome;
 
+      // Matrix-style Slow-Motion Dilation on Near Miss (0.42x time speed for 200ms)
+      const timeScale = nearMissSlowMoTimer > 0 ? 0.42 : 1.0;
+      const dt = rawDt * timeScale;
+      if (nearMissSlowMoTimer > 0) {
+        nearMissSlowMoTimer -= rawDt;
+      }
+
       // FPS tracking
       frameCount++;
-      fpsAccum += dt;
+      fpsAccum += rawDt;
       if (fpsAccum >= 0.5) {
         currentFps = Math.round(frameCount / fpsAccum);
         frameCount = 0;
@@ -440,10 +460,11 @@ export const GameCanvas: React.FC<GameCanvasProps> = ({
 
         // Obstacles, Pickups & Collision Loop
         if (playerMgr.gameState === 'playing') {
-        obstacleMgr.update(playerMgr.position.z, timeSeconds);
+        obstacleMgr.update(playerMgr.position.z, timeSeconds, playerMgr.stats.speed);
 
         if (playerMgr.activePowerUps.magnetTimer > 0) {
-          obstacleMgr.attractCoinsToPlayer(playerMgr.position, 28.0, dt);
+          const magnetRadius = 26.0 + (playerMgr.upgrades?.magnetLevel ?? 1) * 4.0;
+          obstacleMgr.attractCoinsToPlayer(playerMgr.position, magnetRadius, dt);
         }
 
         const collision = obstacleMgr.checkCollisions(playerMgr.position, playerMgr.isSliding);
@@ -480,19 +501,31 @@ export const GameCanvas: React.FC<GameCanvasProps> = ({
         if (collision.hitBoostGate) {
           playerMgr.applyBoostGateHit(audio);
           boostGlitchTimer = 0.55;
+          screenShakeTimer = 0.22;
+          screenShakeIntensity = 0.35;
           onNotification('⚡ BOOST ARCH CHARGED! SONIC ACCELERATION! ⚡');
+          if (typeof navigator !== 'undefined' && navigator.vibrate) {
+            try { navigator.vibrate([15, 20, 25]); } catch {}
+          }
         }
 
-        // Near-Miss Style Bonus
+        // Near-Miss Style Bonus & Slow-Mo Polish (Step 3 & 7)
         if (collision.nearMiss) {
           playerMgr.addCoins(3);
           playerMgr.overdriveMeter = Math.min(100, playerMgr.overdriveMeter + 10);
+          nearMissSlowMoTimer = 0.22; // Satisfying micro-slowmo brush with death
+          screenShakeTimer = 0.16;
+          screenShakeIntensity = 0.22;
+          playerMgr.emitNearMissSparks(collision.nearMissPos || playerMgr.position);
           audio.playTrickSound('Near Miss', 2);
           onNotification('⚡ NEAR MISS! +300 Style Bonus');
+          if (typeof navigator !== 'undefined' && navigator.vibrate) {
+            try { navigator.vibrate(18); } catch {}
+          }
         }
 
         // Rail Grinding
-        playerMgr.setGrinding(collision.isGrinding, audio);
+        playerMgr.setGrinding(!!collision.isGrinding, audio);
 
         if (collision.collectedCoins > 0) {
           playerMgr.addCoins(collision.collectedCoins);
@@ -513,6 +546,9 @@ export const GameCanvas: React.FC<GameCanvasProps> = ({
             'multiplier2x': '⚡ 2X OVERDRIVE MULTIPLIER (15s)',
           };
           onNotification(pNames[collision.collectedPowerUp] || 'Power-Up Collected!');
+          if (typeof navigator !== 'undefined' && navigator.vibrate) {
+            try { navigator.vibrate([20, 30, 40]); } catch {}
+          }
         }
 
         // Obstacle Impact & Collision Reaction
@@ -521,21 +557,36 @@ export const GameCanvas: React.FC<GameCanvasProps> = ({
             playerMgr.absorbShieldHit();
             audio.playCarveWhoosh();
             stumbleGlitchTimer = 0.45;
+            screenShakeTimer = 0.35;
+            screenShakeIntensity = 0.55;
             onNotification('🛡️ HOLO-SHIELD DEFLECTED IMPACT!');
+            if (typeof navigator !== 'undefined' && navigator.vibrate) {
+              try { navigator.vibrate([30, 30, 45]); } catch {}
+            }
             if (collision.crashedObstacle) {
               obstacleMgr.removeObstacle(collision.crashedObstacle);
             }
           } else if (collision.hasCrashed) {
             playerMgr.crash();
             audio.playCrashSound();
+            screenShakeTimer = 0.75;
+            screenShakeIntensity = 1.05;
             onNotification('💥 SYSTEM CRASH! NEURAL DESYNC DETECTED');
+            if (typeof navigator !== 'undefined' && navigator.vibrate) {
+              try { navigator.vibrate([60, 40, 100]); } catch {}
+            }
             if (onGameOver) {
               onGameOver();
             }
           } else if (collision.hasStumbled) {
             playerMgr.stumble(audio);
             stumbleGlitchTimer = 0.6;
+            screenShakeTimer = 0.45;
+            screenShakeIntensity = 0.65;
             onNotification('⚠️ OBSTACLE IMPACT! STUMBLED (-20 OVERDRIVE)');
+            if (typeof navigator !== 'undefined' && navigator.vibrate) {
+              try { navigator.vibrate([35, 25, 45]); } catch {}
+            }
             if (collision.crashedObstacle) {
               obstacleMgr.removeObstacle(collision.crashedObstacle);
             }
@@ -590,8 +641,8 @@ export const GameCanvas: React.FC<GameCanvasProps> = ({
       // Update Audio Dynamics
       audio.updateSpeed(playerMgr.stats.speed, playerMgr.stats.maxSpeed, playerMgr.stats.isBoosting);
 
-      // Stream Terrain & Foliage
-      terrainMgr.update(playerMgr.position.z, playerMgr.position.x, 3, timeSeconds);
+      // Stream Terrain & Foliage (Passing live player speed for animated motion blur and building pulses)
+      terrainMgr.update(playerMgr.position.z, playerMgr.position.x, 3, timeSeconds, playerMgr.stats.speed);
 
       foliageTimer += dt;
       if (foliageTimer > 0.3) {
@@ -606,8 +657,8 @@ export const GameCanvas: React.FC<GameCanvasProps> = ({
         foliageMgr.grassMaterial.uniforms.uPlayerPos.value.copy(playerMgr.position);
       }
 
-      // Update Sky & Parallax Clouds
-      skyMgr.update(playerMgr.position, playerMgr.velocity.z, timeSeconds);
+      // Update Sky & Deep Galaxy Parallax
+      skyMgr.update(playerMgr.position, playerMgr.velocity.z, timeSeconds, playerMgr.stats.speed);
       if (skyMgr.skyMaterial && skyMgr.skyMaterial.uniforms.uGridMode) {
         skyMgr.skyMaterial.uniforms.uGridMode.value = currentBiome === 'the-grid' ? 1.0 : 0.0;
       }
@@ -616,10 +667,15 @@ export const GameCanvas: React.FC<GameCanvasProps> = ({
       themeMgr.update(dt, skyMgr, terrainMgr, obstacleMgr, playerMgr.position, timeSeconds);
     }
 
-      // Dynamic camera FOV widen at high speed/boost & screen shake impulse
+      // Dynamic camera FOV widen at high speed/boost & screen shake impulse (Trauma decay)
       let screenShakeX = 0;
       let screenShakeY = 0;
-      if (stumbleGlitchTimer > 0) {
+      if (screenShakeTimer > 0) {
+        screenShakeTimer -= rawDt;
+        const shakeMag = screenShakeIntensity * Math.min(1.0, screenShakeTimer / 0.5);
+        screenShakeX = (Math.random() - 0.5) * shakeMag * 0.7;
+        screenShakeY = (Math.random() - 0.5) * shakeMag * 0.7;
+      } else if (stumbleGlitchTimer > 0) {
         screenShakeX = (Math.random() - 0.5) * stumbleGlitchTimer * 0.35;
         screenShakeY = (Math.random() - 0.5) * stumbleGlitchTimer * 0.35;
       }
@@ -658,9 +714,20 @@ export const GameCanvas: React.FC<GameCanvasProps> = ({
 
       // Render Scene
       if (graphicsConfig.enablePostProcess && rt && postScene && postCamera && postMaterial) {
-        // Step 0 fix: strictly clamp both blurFactor and speedLinesFactor to [0, 1]
-        const blurFactor = Math.min(1.0, Math.max(0.0, (playerMgr.stats.speed - 26) / 50));
-        const speedLinesFactor = Math.min(1.0, Math.max(0.0, (playerMgr.stats.speed - 28) / 45));
+        // Dynamic speed line modulation based on player speed stats (Step 3: Forward speed streaks):
+        // As speed exceeds 25, smoothly increase forward streaks from 0.1 to 0.95
+        const currentSpeed = playerMgr.stats.speed;
+        let dynamicSpeedLines = 0.0;
+        if (currentSpeed > 24) {
+          const speedFactor = Math.min(1.0, (currentSpeed - 24) / 45.0);
+          dynamicSpeedLines = 0.15 + speedFactor * 0.75;
+        }
+        if (playerMgr.stats.isBoosting) {
+          dynamicSpeedLines = Math.max(dynamicSpeedLines, 0.95);
+        }
+        const effectiveSpeedLines = shaderParams.speedLineIntensity !== undefined && shaderParams.speedLineIntensity > 0
+          ? Math.max(shaderParams.speedLineIntensity, dynamicSpeedLines)
+          : dynamicSpeedLines;
         const heatShimmerFactor = currentBiome === 'orbital-ring' ? 1.0 : 0.0;
 
         // Glitch and chromatic aberration pulse during boost, combos, or stumble
@@ -703,7 +770,7 @@ export const GameCanvas: React.FC<GameCanvasProps> = ({
           postMaterial.uniforms.uWarpIntensity.value = playerMgr.warpTimer > 0 ? playerMgr.warpTimer * 0.75 : 0.0;
         }
         if (postMaterial.uniforms.uSpeedLines) {
-          postMaterial.uniforms.uSpeedLines.value = playerMgr.stats.isBoosting ? 1.0 : speedLinesFactor;
+          postMaterial.uniforms.uSpeedLines.value = effectiveSpeedLines;
         }
         if (postMaterial.uniforms.uHeatShimmer) postMaterial.uniforms.uHeatShimmer.value = heatShimmerFactor;
 
@@ -794,6 +861,7 @@ export const GameCanvas: React.FC<GameCanvasProps> = ({
       if (pUniforms.uColorLift) pUniforms.uColorLift.value = shaderParams.colorLift;
       if (pUniforms.uChromaticAberration) pUniforms.uChromaticAberration.value = shaderParams.chromaticAberration ?? 0.005;
       if (pUniforms.uScanlines) pUniforms.uScanlines.value = shaderParams.scanlineIntensity ?? 0.5;
+      if (pUniforms.uSpeedLines && shaderParams.speedLineIntensity !== undefined) pUniforms.uSpeedLines.value = shaderParams.speedLineIntensity;
     }
   }, [shaderParams]);
 

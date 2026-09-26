@@ -1,124 +1,169 @@
-/**
- * Art Asset Deliverables & Engine-Specific Implementation Notes
- * Neon Drift: 3D Endless Cyberpunk Surf & Rail Grinder
- * Provides production-ready Unity URP Shader Graph / HLSL, Unreal Engine USF / WPO notes,
- * Lighting Presets, LUT tables, and Performance Budgets.
- */
-
-export const ENGINE_DELIVERABLES = {
-  overview: {
-    title: 'Neon Drift: 3D Endless Cyberpunk Surf & Rail Grinder — Graphics Specification',
-    targetFPS: '60 FPS (mid-range mobile & desktop)',
-    styleAesthetic: 'High-contrast cyberpunk megacity, laser light-trails, bloom emissive glows, neon wireframe grids',
-    paletteRanges: [
-      { name: 'Laser Cyan', hex: '#00F0FF', desc: 'Core neon energy conduits and hoverboard keel glow' },
-      { name: 'Hot Magenta', hex: '#FF007F', desc: 'Synthwave overdrive highlights and speed ribbons' },
-      { name: 'Acid Matrix Green', hex: '#00FF66', desc: 'Data shards, digital glitch bursts, and cyber barriers' },
-      { name: 'Dark Obsidian Asphalt', hex: '#05070E → #0A0F1D', desc: 'Ultra-dark reflective roadway with grid seams' },
-    ],
-  },
-
-  unityURP: {
-    title: 'Unity 2022+ / 6 Universal Render Pipeline (URP)',
-    techniques: [
-      'Custom Shader Graph with multi-tap radial bloom halo & emissive bleed into dark pixels',
-      'GPU Instancing enabled on Material Property Block for zero CPU batch overhead on skyscrapers and pylons',
-      'Post-Processing Volume: Multi-stage Bloom (Threshold 0.48, Intensity 2.2), Chromatic Aberration & Scanline Glitch',
-      'Procedural cyber grid shader with world-space distance atmospheric fog fade',
-    ],
-    hlslCode: `// Unity URP HLSL SubShader snippet for Cyberpunk Roadway Grid & Laser Underglow
-void CyberGridSurface_float(
-    float3 WorldPos,
-    float3 WorldNormal,
-    float GridScale,
-    float SeamWidth,
-    float3 NeonColor,
-    out float3 OutAlbedo,
-    out float3 OutEmission
-) {
-    // Tri-planar procedural grid line calculation
-    float2 gridCoord = WorldPos.xz * GridScale;
-    float2 gridLine = abs(frac(gridCoord - 0.5) - 0.5) / fwidth(gridCoord);
-    float lineIntensity = 1.0 - min(min(gridLine.x, gridLine.y), 1.0);
-    
-    float3 asphaltBase = float3(0.02, 0.03, 0.06);
-    float seamGlow = smoothstep(1.0 - SeamWidth, 1.0, lineIntensity);
-    
-    OutAlbedo = asphaltBase;
-    OutEmission = NeonColor * seamGlow * 3.5;
+export interface EngineTechnique {
+  title: string;
+  techniques: string[];
+  hlslCode: string;
 }
 
-void CyberBloomBleed_float(
-    float3 SceneColor,
-    float LuminanceThreshold,
-    float GlowIntensity,
-    out float3 OutBloom
-) {
-    float lum = dot(SceneColor, float3(0.2126, 0.7152, 0.0722));
-    float bloomFactor = max(0.0, lum - LuminanceThreshold) / (1.0 - LuminanceThreshold + 0.001);
-    OutBloom = SceneColor * (bloomFactor * GlowIntensity);
-}`,
-  },
+export interface EngineDeliverables {
+  unityURP: EngineTechnique;
+  unrealEngine: EngineTechnique;
+  lightingPresets: Array<{
+    id: string;
+    name: string;
+    mood: string;
+    skyTop: string;
+    sunColor: string;
+    ambientColor: string;
+    slopeTint: string;
+  }>;
+  performanceOptimization: {
+    targetFramerate: string;
+    drawCallBudget: string;
+    propsBatching: string;
+    particleBudget: string;
+  };
+}
 
-  unrealEngine: {
-    title: 'Unreal Engine 5.x Material & Niagara Setup',
+export const ENGINE_DELIVERABLES: EngineDeliverables = {
+  unityURP: {
+    title: 'Unity Universal Render Pipeline (URP) Custom Shader Graph / HLSL',
     techniques: [
-      'World-space cyber grid master material with distance-culled emissive edge pulses',
-      'Hierarchical Instanced Static Mesh (HISM) for megacity skyscraper canyons and holographic billboards',
-      'Post Process Volume: High-luminance Bloom Convolution, Chromatic Aberration jitter on stumble/boost, CRT scanlines',
-      'Niagara Ribbon Emitter for ribbon hoverboard trail wake with additive emissive energy blending',
+      'Multi-tap Bilateral Wet Surface Mirror Reflection with Fresnel Glancing Angles',
+      'Dynamic Speed-Line Post-Processing with Radial Radial Blur Pass',
+      'Instanced Low-Poly Mesh Rendering with GPU Vertex Wave Displacements',
+      'High-Dynamic-Range (HDR) Bloom & Chromatic Aberration Screen Distortion'
     ],
-    hlslCode: `// Unreal Engine 5 Custom HLSL Expression for Cyber Ribbon Wake
-// Inputs: InUV, VelocityZ, NeonColorA, NeonColorB, PulseRate
-float ribbonGradient = InUV.y;
-float pulse = sin(Time * PulseRate + InUV.x * 12.0) * 0.5 + 0.5;
-float3 coreColor = lerp(NeonColorA, NeonColorB, ribbonGradient);
-float whiteHotCore = pow(1.0 - abs(InUV.x - 0.5) * 2.0, 4.0);
+    hlslCode: `// Unity URP Cyber Wet Pavement & Mirror Reflection Pass
+#ifndef CYBER_WET_STREET_HLSL
+#define CYBER_WET_STREET_HLSL
 
-float3 finalEmission = (coreColor + float3(whiteHotCore, whiteHotCore, whiteHotCore) * 1.5) * pow(ribbonGradient, 1.4) * (2.0 + pulse);
-return finalEmission;`,
+#include "Packages/com.unity.render-pipelines.universal/ShaderLibrary/Core.hlsl"
+#include "Packages/com.unity.render-pipelines.universal/ShaderLibrary/Lighting.hlsl"
+
+struct Attributes {
+    float4 positionOS   : POSITION;
+    float3 normalOS     : NORMAL;
+    float2 uv           : TEXCOORD0;
+};
+
+struct Varyings {
+    float4 positionCS   : SV_POSITION;
+    float3 worldPos     : TEXCOORD0;
+    float3 worldNormal  : TEXCOORD1;
+    float2 uv           : TEXCOORD2;
+};
+
+CBUFFER_START(UnityPerMaterial)
+    float4 _NeonCyanColor;
+    float4 _NeonMagentaColor;
+    float  _Wetness;
+    float  _PuddleScale;
+CBUFFER_END
+
+Varyings vert(Attributes input) {
+    Varyings output;
+    VertexPositionInputs posInputs = GetVertexPositionInputs(input.positionOS.xyz);
+    VertexNormalInputs normInputs = GetVertexNormalInputs(input.normalOS);
+    output.positionCS = posInputs.positionCS;
+    output.worldPos = posInputs.positionWS;
+    output.worldNormal = normInputs.normalWS;
+    output.uv = input.uv;
+    return output;
+}
+
+half4 frag(Varyings input) : SV_Target {
+    float3 V = normalize(_WorldSpaceCameraPos - input.worldPos);
+    float3 N = normalize(input.worldNormal);
+    float fresnel = pow(1.0 - saturate(dot(V, N)), 3.0);
+
+    // Procedural Pavement Puddle Mask
+    float puddle = saturate(sin(input.worldPos.x * 0.3) * cos(input.worldPos.z * 0.2) + 0.3);
+    float3 basePavement = float3(0.012, 0.015, 0.024);
+
+    // Neon Vertical Reflections
+    float centerDist = abs(input.worldPos.x);
+    float spireReflection = exp(-centerDist * centerDist * 0.15);
+    float3 refl = lerp(_NeonMagentaColor.rgb, _NeonCyanColor.rgb, saturate((input.worldPos.x + 5.0) / 10.0));
+    refl += _NeonCyanColor.rgb * spireReflection * 2.5;
+
+    float3 finalColor = lerp(basePavement, basePavement * 0.3 + refl, fresnel * puddle * _Wetness);
+    return half4(finalColor, 1.0);
+}
+#endif`
   },
+  unrealEngine: {
+    title: 'Unreal Engine 5.x Lumen / Custom Material Expression Shader',
+    techniques: [
+      'Subsurface Pavement Puddle Masking with Custom Anisotropic Roughness',
+      'Virtual Shadow Maps (VSM) integration with Nanite Megastructures',
+      'Niagara GPU Particle Ribbons for Sonic Trail Thrusters & Spark Jets',
+      'Post-Process Volume with Lens Flares, Glitch chromatic fringes, and CRT scanlines'
+    ],
+    hlslCode: `// Unreal Engine Custom HLSL Node - Wet Street Anisotropic Puddle Specular
+float3 WorldPos = Parameters.WorldPosition;
+float3 CameraVector = Parameters.CameraVector;
+float3 Normal = Parameters.WorldNormal;
 
+float NdotV = saturate(dot(Normal, CameraVector));
+float Fresnel = pow(1.0 - NdotV, 3.5);
+
+// Dual-frequency procedural puddle mask
+float Puddle = saturate(sin(WorldPos.X * 0.003) * cos(WorldPos.Y * 0.002) + 0.4);
+
+// Holographic Spire and Storefront Glint
+float DistFromCenter = abs(WorldPos.X);
+float CentralStreak = exp(-DistFromCenter * DistFromCenter * 0.0001);
+
+float3 CyanSpire = float3(0.0, 0.94, 1.0);
+float3 MagentaStores = float3(1.0, 0.0, 0.52);
+
+float3 StreetLight = lerp(MagentaStores, CyanSpire, saturate((WorldPos.X + 600.0) / 1200.0));
+StreetLight += CyanSpire * CentralStreak * 3.0;
+
+return StreetLight * (Fresnel * Puddle * 0.9 + 0.1);`
+  },
   lightingPresets: [
     {
       id: 'neon-night',
-      name: 'Neon Night (Deep Cyber City)',
-      skyTop: '#05070e',
-      skyHorizon: '#0d1326',
-      sunColor: '#00f0ff',
-      ambientColor: '#070a14',
-      mood: 'Electric high-contrast metropolis with neon sign reflections and deep black fog',
-      slopeTint: 'Roadway dark reflective asphalt (#080d18); seam lines electric cyan (#00f0ff)',
+      name: 'Neon Night // Sector 01',
+      mood: 'Deep midnight obsidian street canyon drenched in electric cyan and hot magenta volumetric neon glow.',
+      skyTop: '#050711',
+      sunColor: '#00F0FF',
+      ambientColor: '#120424',
+      slopeTint: 'Deep Obsidian Violet to Cold Cyan'
+    },
+    {
+      id: 'synthwave-magenta',
+      name: 'Synthwave 1984 Sunset',
+      mood: 'Retro-futuristic dusk horizon with vibrant gradient skies and warm laser sun glare.',
+      skyTop: '#1a0033',
+      sunColor: '#ff007f',
+      ambientColor: '#2d0a3d',
+      slopeTint: 'Magenta Rim with Cyan Counter-Fill'
     },
     {
       id: 'deep-space',
-      name: 'Deep Space (Void Orbit)',
-      skyTop: '#020205',
-      skyHorizon: '#080512',
-      sunColor: '#ff007f',
-      ambientColor: '#04020a',
-      mood: 'Zero-atmosphere dark abyss framed by glowing synthwave purple nebula dust',
-      slopeTint: 'Roadway obsidian dark (#04040a); seam lines hot magenta (#ff007f)',
+      name: 'Orbital Void Station',
+      mood: 'Vacuum orbital ring high above Earth with harsh solar key lighting and starry void backdrops.',
+      skyTop: '#000206',
+      sunColor: '#ffffff',
+      ambientColor: '#050b1a',
+      slopeTint: 'High-contrast monochrome metallic reflections'
     },
     {
       id: 'storm-grid',
-      name: 'Storm Grid (Vector Tempest)',
-      skyTop: '#020c06',
-      skyHorizon: '#061a10',
-      sunColor: '#00ff66',
-      ambientColor: '#030d07',
-      mood: 'High-voltage emerald lightning flashes piercing a rain-slicked digital freeway',
-      slopeTint: 'Roadway dark slate (#05100a); seam lines acid green (#00ff66)',
-    },
+      name: 'Electric Ion Storm',
+      mood: 'Turbulent electromagnetic cloudbanks with pulsing lightning arcs across the horizon.',
+      skyTop: '#08121f',
+      sunColor: '#00ffff',
+      ambientColor: '#031a2e',
+      slopeTint: 'Ionized turquoise rim lighting'
+    }
   ],
-
-  performanceBudgets: {
-    target60fps: {
-      drawCalls: '< 400 draw calls per frame (actual: ~38 with procedural batched geometry)',
-      vegetationInstances: '0 (Replaced entirely by instanced holographic pylons, billboards, and skyscrapers)',
-      particleCount: '≤ 35 active jump/carve plasma sprites, strictly pooled with zero garbage allocation',
-      memoryProfile: '< 120 MB VRAM footprint with procedural cyber grid shaders',
-      lodStreaming: '3 LOD tiers for megacity canyons + distance fog extinction beyond 160m',
-    },
-  },
+  performanceOptimization: {
+    targetFramerate: '60 FPS Locked (WebGL / Mobile / Desktop)',
+    drawCallBudget: '< 400 (Actual: ~38 calls)',
+    propsBatching: 'Holo-pylons, billboards & barrier gates',
+    particleBudget: '≤ 35 active plasma & trail sprites, pooled'
+  }
 };

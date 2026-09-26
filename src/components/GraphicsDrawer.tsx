@@ -273,6 +273,23 @@ export const GraphicsDrawer: React.FC<GraphicsDrawerProps> = ({
                 className="w-full accent-purple-400 cursor-pointer"
               />
             </div>
+
+            {/* Dynamic High-Velocity Speed Lines */}
+            <div className="space-y-1.5">
+              <div className="flex justify-between text-xs">
+                <span className="text-white/70">High-Velocity Speed Lines (Auto &gt; 40 km/h)</span>
+                <span className="font-mono text-cyan-300">{(shaderParams.speedLineIntensity ?? 0).toFixed(2)} / 0.80</span>
+              </div>
+              <input
+                type="range"
+                min="0.0"
+                max="0.8"
+                step="0.05"
+                value={shaderParams.speedLineIntensity ?? 0.0}
+                onChange={e => onUpdateShaderParams({ speedLineIntensity: parseFloat(e.target.value) })}
+                className="w-full accent-cyan-400 cursor-pointer"
+              />
+            </div>
           </div>
         </div>
 

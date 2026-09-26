@@ -132,11 +132,21 @@ export type PowerUpType =
 
 export type GameState = 'playing' | 'paused' | 'crashed' | 'game-over';
 
+export interface PlayerUpgrades {
+  magnetLevel: number;      // Lv 1 to 5 (increases duration and pull radius)
+  jetpackLevel: number;     // Lv 1 to 5 (increases flight duration)
+  overdriveLevel: number;   // Lv 1 to 5 (increases overdrive charge rate & 2x duration)
+  shieldCapacitorLevel: number; // Lv 0 to 3 (Lv >= 1 starts run with pre-charged shield)
+}
+
 export interface ActivePowerUps {
   magnetTimer: number;       // Remaining duration in seconds
+  magnetMaxDuration?: number;
   jetpackTimer: number;
+  jetpackMaxDuration?: number;
   hoverboardShield: boolean; // Active until hit
   multiplierTimer: number;
+  multiplierMaxDuration?: number;
 }
 
 export type OverdriveTier = 'Dormant' | 'Charged' | 'Overdrive' | 'Max-Velocity';
@@ -179,6 +189,7 @@ export interface PlayerStats {
   gameState: GameState;
   stumbleTimer?: number;
   nearMissCount?: number;
+  bankedShards?: number;
 }
 
 export interface FloatingIslandData {

@@ -463,13 +463,13 @@ export function createCyberBuildingTexture(): THREE.CanvasTexture {
   canvas.height = 1024;
   const ctx = canvas.getContext('2d')!;
 
-  // Deep obsidian/navy reflective architectural facade
-  ctx.fillStyle = '#060913';
+  // Deep obsidian architectural facade (Dark Blue / Black baseline for depth)
+  ctx.fillStyle = '#040711';
   ctx.fillRect(0, 0, 512, 1024);
 
   // Vertical structural mullions
-  ctx.strokeStyle = '#0f172a';
-  ctx.lineWidth = 3;
+  ctx.strokeStyle = '#090e1c';
+  ctx.lineWidth = 4;
   const cols = 16;
   const colWidth = 512 / cols;
   for (let c = 0; c <= cols; c++) {
@@ -480,10 +480,10 @@ export function createCyberBuildingTexture(): THREE.CanvasTexture {
   }
 
   // Horizontal floor slab dividers
-  const rows = 48;
+  const rows = 40;
   const rowHeight = 1024 / rows;
-  ctx.strokeStyle = '#0a101d';
-  ctx.lineWidth = 4;
+  ctx.strokeStyle = '#080d18';
+  ctx.lineWidth = 5;
   for (let r = 0; r <= rows; r++) {
     ctx.beginPath();
     ctx.moveTo(0, r * rowHeight);
@@ -491,40 +491,40 @@ export function createCyberBuildingTexture(): THREE.CanvasTexture {
     ctx.stroke();
   }
 
-  // Windows grid
-  const neonPalettes = [
-    '#00f0ff', // Electric Cyan
-    '#00f0ff',
-    '#ffaa00', // Amber
-    '#ff007f', // Hot Pink
-    '#e0f7ff', // Crisp Cold White
-    '#38bdf8', // Sky Cyan
-    '#818cf8', // Indigo
-  ];
+  // Strict Consistent Palette:
+  // Primary: Balanced Cyan (#00d2e0)
+  // Secondary: Magenta / Pink (#e00070)
+  // Accent: Warm Amber (#e09000)
+  // Rest: Dark Tinted Glass (#070b16)
+  const windowLitColors = ['#00d2e0', '#e00070', '#e09000', '#70a0e0'];
 
   for (let r = 0; r < rows; r++) {
+    // Generate clean clustered floor blocks (not random noisy scatter)
+    const isCommercialFloor = r % 6 === 0;
+    const floorColor = windowLitColors[r % windowLitColors.length];
+
     for (let c = 0; c < cols; c++) {
-      const isLit = Math.random() < 0.45;
       const wx = c * colWidth + 5;
-      const wy = r * rowHeight + 4;
+      const wy = r * rowHeight + 5;
       const ww = colWidth - 10;
-      const wh = rowHeight - 8;
+      const wh = rowHeight - 10;
+
+      // Grouped coherent window illumination
+      const isLit = isCommercialFloor ? (c % 2 === 0) : ((c + r * 3) % 5 === 0);
 
       if (isLit) {
-        const color = neonPalettes[Math.floor(Math.random() * neonPalettes.length)];
-        const intensity = 0.5 + Math.random() * 0.5;
-        ctx.fillStyle = color;
-        ctx.globalAlpha = intensity;
+        ctx.fillStyle = floorColor;
+        ctx.globalAlpha = 0.85;
         ctx.fillRect(wx, wy, ww, wh);
 
-        // Subtle inner glow
+        // Clean crisp inner glass accent line
         ctx.fillStyle = '#ffffff';
-        ctx.globalAlpha = 0.4;
-        ctx.fillRect(wx + 2, wy + 2, ww - 4, 3);
+        ctx.globalAlpha = 0.45;
+        ctx.fillRect(wx + 2, wy + 2, ww - 4, 2);
       } else {
-        // Dark reflective glass window
-        ctx.fillStyle = '#0b1322';
-        ctx.globalAlpha = 0.8;
+        // Deep obsidian glass window
+        ctx.fillStyle = '#060a14';
+        ctx.globalAlpha = 0.95;
         ctx.fillRect(wx, wy, ww, wh);
       }
     }
@@ -532,15 +532,73 @@ export function createCyberBuildingTexture(): THREE.CanvasTexture {
 
   ctx.globalAlpha = 1.0;
 
-  // Occasional full-width holographic neon horizontal data strips
-  const stripRows = [12, 25, 38];
+  // Controlled full-width horizontal architectural light band
+  const stripRows = [12, 26];
   stripRows.forEach((sr, idx) => {
-    const stripColor = idx % 2 === 0 ? '#00f0ff' : '#ff007f';
+    const stripColor = idx % 2 === 0 ? '#00c8d8' : '#d80068';
     ctx.fillStyle = stripColor;
-    ctx.shadowColor = stripColor;
-    ctx.shadowBlur = 8;
     ctx.fillRect(0, sr * rowHeight, 512, 5);
-    ctx.shadowBlur = 0;
+  });
+
+  // Street-Level Vibrant Storefronts & Canopies
+  ctx.fillStyle = '#08030c';
+  ctx.fillRect(0, 884, 512, 140);
+
+  // Shopfront displays with clean neon signage
+  const shopCount = 4;
+  const shopW = 512 / shopCount;
+  const shopColors = ['#e00050', '#e09000', '#00c8d8', '#d80088'];
+  const shopSigns = ['RAMEN // 24H', 'CYBER // NET', 'NEO TOKYO', 'BAR // 2077'];
+
+  for (let s = 0; s < shopCount; s++) {
+    const sx = s * shopW + 8;
+    const sw = shopW - 16;
+    const sc = shopColors[s % shopColors.length];
+
+    // Shop interior glow
+    ctx.fillStyle = sc;
+    ctx.globalAlpha = 0.3;
+    ctx.fillRect(sx, 920, sw, 96);
+    ctx.globalAlpha = 1.0;
+
+    // Glowing Neon Awning
+    ctx.fillStyle = sc;
+    ctx.fillRect(sx - 2, 912, sw + 4, 6);
+
+    // Storefront Window Sills
+    ctx.strokeStyle = '#203048';
+    ctx.lineWidth = 1.5;
+    ctx.strokeRect(sx, 920, sw, 96);
+
+    // Signboard text
+    ctx.font = 'bold 11px monospace';
+    ctx.fillStyle = '#ffffff';
+    ctx.fillText(shopSigns[s], sx + 6, 904);
+  }
+
+  // Vertical hanging neon kanji / cyber signs down the facade
+  const vSignCols = [2, 13];
+  vSignCols.forEach((colIdx, idx) => {
+    const vx = colIdx * colWidth + 4;
+    const vy = 180 + idx * 100;
+    const vh = 280;
+    const vColor = idx % 2 === 0 ? '#d80068' : '#00c8d8';
+
+    ctx.fillStyle = 'rgba(4, 6, 12, 0.95)';
+    ctx.fillRect(vx, vy, 24, vh);
+
+    ctx.strokeStyle = vColor;
+    ctx.lineWidth = 2;
+    ctx.strokeRect(vx, vy, 24, vh);
+
+    // Clean glyph nodes inside vertical sign
+    ctx.fillStyle = '#ffffff';
+    for (let g = 0; g < 7; g++) {
+      ctx.fillRect(vx + 6, vy + 12 + g * 36, 12, 16);
+      ctx.fillStyle = vColor;
+      ctx.fillRect(vx + 8, vy + 14 + g * 36, 8, 12);
+      ctx.fillStyle = '#ffffff';
+    }
   });
 
   const texture = new THREE.CanvasTexture(canvas);

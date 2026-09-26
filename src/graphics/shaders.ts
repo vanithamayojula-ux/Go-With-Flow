@@ -24,8 +24,9 @@ export const SkyboxShader = {
     uniform vec3 uSunPosition;
     uniform vec3 uSunColor;
     uniform float uTime;
+    uniform float uSpeed;
     uniform float uHazeDensity;
-    uniform float uGridMode; // 1.0 = Tron Wireframe Grid, 0.0 = Cyber Megacity
+    uniform float uGridMode;
     varying vec3 vWorldPosition;
     varying vec2 vUv;
 
@@ -41,48 +42,90 @@ export const SkyboxShader = {
                  mix(hash(i + vec2(0.0, 1.0)), hash(i + vec2(1.0, 1.0)), u.x), u.y);
     }
 
+    // FBM for rich organic deep-space cosmic dust & nebula clouds
+    float fbm(vec2 p) {
+      float v = 0.0;
+      float a = 0.5;
+      vec2 shift = vec2(100.0);
+      mat2 rot = mat2(cos(0.5), sin(0.5), -sin(0.5), cos(0.5));
+      for (int i = 0; i < 4; ++i) {
+        v += a * noise(p);
+        p = rot * p * 2.0 + shift;
+        a *= 0.5;
+      }
+      return v;
+    }
+
     void main() {
       vec3 dir = normalize(vWorldPosition);
-      float elevation = clamp(dir.y, 0.0, 1.0);
+      float elevation = clamp(dir.y * 0.5 + 0.5, 0.0, 1.0);
 
-      // Atmospheric Sky Gradient from Horizon to Zenith
-      vec3 baseVoid = mix(uSkyHorizon, uSkyMid, smoothstep(0.0, 0.45, elevation));
-      baseVoid = mix(baseVoid, uSkyTop, smoothstep(0.35, 1.0, elevation));
+      // Deep Galaxy Void: Dark Blue (#02040c) into Deep Cosmic Purple (#0a0418) to Midnight (#010206)
+      vec3 deepVoid = vec3(0.008, 0.015, 0.045);    // Dark Navy Base
+      vec3 nebulaPurple = vec3(0.045, 0.012, 0.095); // Deep Cosmic Violet
+      vec3 zenithVoid = vec3(0.002, 0.004, 0.012);   // Pure Obsidian Black
+      
+      vec3 galaxyBase = mix(deepVoid, nebulaPurple, smoothstep(0.1, 0.65, elevation));
+      galaxyBase = mix(galaxyBase, zenithVoid, smoothstep(0.6, 1.0, elevation));
 
-      // 1. Crisp Pinpoint Starfield (anti-aliased stars)
-      vec2 starCoord = dir.xz / (abs(dir.y) + 0.12) * 120.0;
-      vec2 starGrid = fract(starCoord) - 0.5;
-      float starId = hash(floor(starCoord));
-      if (starId > 0.965) {
-        float starDist = length(starGrid);
-        float starSize = hash(floor(starCoord) + 17.0) * 0.14 + 0.06;
+      // Slow majestic galaxy rotation (0.01x parallax)
+      float slowTime = uTime * 0.015;
+      float angle = slowTime;
+      mat2 rot = mat2(cos(angle), -sin(angle), sin(angle), cos(angle));
+      vec2 skyCoord = rot * dir.xz / (abs(dir.y) + 0.25);
+
+      // --- Multi-Layer Nebula Clouds ---
+      vec2 nebCoord1 = skyCoord * 1.8 + vec2(slowTime * 0.2, slowTime * 0.1);
+      float nebFbm1 = fbm(nebCoord1);
+      vec2 nebCoord2 = skyCoord * 3.2 - vec2(slowTime * 0.15, slowTime * 0.25);
+      float nebFbm2 = fbm(nebCoord2);
+
+      vec3 nebColA = vec3(0.02, 0.06, 0.14); // Deep Indigo
+      vec3 nebColB = vec3(0.07, 0.01, 0.12); // Royal Violet / Purple
+      vec3 nebColC = vec3(0.00, 0.05, 0.08); // Cyan Filament Tint
+
+      vec3 nebulaGlow = mix(nebColA, nebColB, nebFbm1) * smoothstep(0.25, 0.75, nebFbm1 * 1.2);
+      nebulaGlow += nebColC * smoothstep(0.35, 0.85, nebFbm2) * 0.6;
+      galaxyBase += nebulaGlow * 0.85;
+
+      // --- Layer 1: Distant Pinpoint Starfield (Crisp, High-Density) ---
+      vec2 starGrid1 = skyCoord * 90.0;
+      vec2 starCell1 = fract(starGrid1) - 0.5;
+      float starId1 = hash(floor(starGrid1));
+      if (starId1 > 0.96) {
+        float starDist = length(starCell1);
+        float starSize = hash(floor(starGrid1) + 11.0) * 0.12 + 0.05;
         float starIntensity = smoothstep(starSize, 0.0, starDist);
-        float twinkle = sin(uTime * 3.0 + starId * 50.0) * 0.35 + 0.65;
-        vec3 starCol = mix(vec3(0.6, 0.85, 1.0), vec3(1.0, 0.5, 0.9), hash(floor(starCoord) + 42.0));
-        baseVoid += starCol * starIntensity * twinkle * smoothstep(0.04, 0.35, abs(dir.y));
+        float twinkle = sin(uTime * 2.5 + starId1 * 40.0) * 0.35 + 0.65;
+        vec3 starCol = mix(vec3(0.8, 0.9, 1.0), vec3(0.9, 0.7, 1.0), hash(floor(starGrid1) + 29.0));
+        galaxyBase += starCol * starIntensity * twinkle * 0.75;
       }
 
-      // 2. Distant Subtle Cyber Nebula Sheen
-      float nebula = sin(dir.x * 3.0 + dir.y * 2.0 + uTime * 0.05) * cos(dir.z * 3.0);
-      vec3 nebulaCol = mix(vec3(0.0, 0.4, 0.8), vec3(0.6, 0.0, 0.5), dir.y * 0.5 + 0.5);
-      baseVoid += nebulaCol * clamp(nebula * 0.15, 0.0, 0.2);
+      // --- Layer 2: Fast High-Velocity Speed Streaks at High KM/H ---
+      // When player accelerates, stars along periphery stretch into relativistic warp lines
+      float speedFactor = clamp((uSpeed - 20.0) / 40.0, 0.0, 1.0);
+      if (speedFactor > 0.01) {
+        vec2 streakCoord = dir.xy * 60.0;
+        streakCoord.y += uTime * (uSpeed * 0.4);
+        float streakId = hash(floor(streakCoord));
+        if (streakId > 0.985) {
+          float streakLine = smoothstep(0.08, 0.0, abs(fract(streakCoord.x) - 0.5));
+          galaxyBase += vec3(0.0, 0.85, 1.0) * streakLine * speedFactor * 0.45;
+        }
+      }
 
-      // 3. Tron Wireframe Grid Mode (for "The Grid" zone)
+      // --- Layer 3: Giant Holographic Vector Cyberspace (for Grid Biome) ---
       if (uGridMode > 0.1) {
-        float angle = atan(dir.x, dir.z);
+        float gridAngle = atan(dir.x, dir.z);
         float gridElevation = abs(dir.y);
-        float gridLineX = abs(fract(angle * 16.0) - 0.5);
+        float gridLineX = abs(fract(gridAngle * 16.0) - 0.5);
         float gridLineY = abs(fract(gridElevation * 20.0) - 0.5);
-        float grid = smoothstep(0.47, 0.49, max(1.0 - gridLineX * 2.0, 1.0 - gridLineY * 2.0));
-        vec3 gridColor = mix(vec3(0.0, 0.95, 1.0), vec3(1.0, 0.0, 0.6), sin(angle * 4.0 + uTime) * 0.5 + 0.5);
-        baseVoid += gridColor * grid * 0.6 * uGridMode;
+        float gridMask = (smoothstep(0.03, 0.0, gridLineX) + smoothstep(0.03, 0.0, gridLineY)) * 0.4;
+        galaxyBase += vec3(0.0, 0.9, 0.95) * gridMask * uGridMode;
       }
 
-      // 4. Distant Horizon Neon Haze
-      float horizonHaze = exp(-abs(dir.y) * 10.0);
-      baseVoid += uSkyHorizon * horizonHaze * 0.5;
-
-      gl_FragColor = vec4(baseVoid, 1.0);
+      // Calm horizon blending to preserve gameplay focus
+      gl_FragColor = vec4(galaxyBase, 1.0);
     }
   `
 };
@@ -107,6 +150,7 @@ export const TerrainShader = {
     uniform vec3 uAmbientColor;
     uniform vec3 uCameraPos;
     uniform float uTime;
+    uniform float uSpeed; // Player speed in m/s for animated streaks and pulses
     uniform float uGridMode; // 1.0 = The Grid wireframe
     uniform float uWetReflections;
 
@@ -124,60 +168,92 @@ export const TerrainShader = {
       vec3 N = normalize(vNormal);
       vec3 V = normalize(uCameraPos - vWorldPosition);
 
-      // --- NEON ENERGY WAVE LIQUID SURFACE (Reference Image 2) ---
-      // Flowing liquid currents with swirling blue (#00F0FF) & purple (#9D00FF) energy waves
-      vec2 waveUv = vec2(vWorldPosition.x * 0.18, (vWorldPosition.z - uTime * 14.0) * 0.08);
-      float swirl1 = sin(waveUv.x * 3.0 + sin(waveUv.y * 2.5 + uTime * 1.5)) * 0.5 + 0.5;
-      float swirl2 = cos(waveUv.y * 4.0 + cos(waveUv.x * 2.0 - uTime * 2.0)) * 0.5 + 0.5;
-      float wavePattern = smoothstep(0.15, 0.85, (swirl1 + swirl2) * 0.5);
+      // --- WET CYBERPUNK PAVED STREET WITH CONTROLLED SPECULARITY & DEPTH ---
+      // 1. Rectangular Pavement Slabs & Wet Tile Seams
+      float tileScaleX = 0.55;
+      float tileScaleZ = 0.32;
+      vec2 tileCoord = vec2(vWorldPosition.x * tileScaleX, vWorldPosition.z * tileScaleZ);
+      vec2 tileGrid = fract(tileCoord);
+      float seamX = smoothstep(0.05, 0.0, tileGrid.x) + smoothstep(0.95, 1.0, tileGrid.x);
+      float seamZ = smoothstep(0.05, 0.0, tileGrid.y) + smoothstep(0.95, 1.0, tileGrid.y);
+      float tileSeam = clamp(seamX + seamZ, 0.0, 1.0);
 
-      vec3 liquidCyan = vec3(0.0, 0.94, 1.0);
-      vec3 liquidPurple = vec3(0.62, 0.0, 1.0);
-      vec3 liquidCore = mix(liquidCyan, liquidPurple, sin(vWorldPosition.z * 0.05 + swirl1 * 3.14) * 0.5 + 0.5);
+      // Deep dark asphalt base (contrast > raw brightness)
+      vec3 slabDark = vec3(0.005, 0.008, 0.014);
+      vec3 slabHighlight = vec3(0.012, 0.016, 0.026);
+      float slabVar = fract(sin(floor(tileCoord.x) * 12.9898 + floor(tileCoord.y) * 78.233) * 43758.5453);
+      vec3 pavementBase = mix(slabDark, slabHighlight, slabVar * 0.35);
+      pavementBase = mix(pavementBase, vec3(0.001, 0.002, 0.004), tileSeam * 0.95);
 
-      // Caustic energy highlights
-      float caustic = pow(sin(waveUv.x * 12.0 + swirl2 * 6.28) * sin(waveUv.y * 12.0 + swirl1 * 6.28) * 0.5 + 0.5, 3.0);
-      vec3 liquidHighway = liquidCore * (0.35 + wavePattern * 0.65) + vec3(1.0) * caustic * 0.3;
+      // 2. Controlled Mirror Puddles & Specular Water Film
+      float puddleNoise1 = sin(vWorldPosition.x * 0.28 + sin(vWorldPosition.z * 0.12)) * 0.5 + 0.5;
+      float puddleNoise2 = cos(vWorldPosition.z * 0.22 + vWorldPosition.x * 0.15) * 0.5 + 0.5;
+      float puddleMask = smoothstep(0.38, 0.68, puddleNoise1 * puddleNoise2 * 2.0);
 
-      // Dark obsidian channel beneath energy wave
-      vec3 baseSurface = mix(vec3(0.01, 0.015, 0.03), liquidHighway, 0.85);
+      // Controlled micro ripples linked with speed
+      float rippleFreq = 1.8 + uSpeed * 0.04;
+      float rippleSpeed = 6.0 + uSpeed * 0.8;
+      float ripple = sin((vWorldPosition.z - uTime * rippleSpeed) * rippleFreq + vWorldPosition.x * 3.0) * 0.012;
+      vec3 perturbedN = normalize(N + vec3(ripple, 0.0, ripple * 0.5));
 
-      // --- 3-Lane Neon Highway Markings ---
+      // Fresnel reflection factor
+      float fresnel = pow(1.0 - max(dot(V, perturbedN), 0.0), 3.2);
+      float wetness = clamp(fresnel * 0.65 + puddleMask * 0.30, 0.06, 0.75);
+
+      // 3. Strict Color System:
+      // Primary: Pure Neon Cyan (Player & Highway Rails ONLY)
+      // Secondary: Deep Cosmic Navy/Obsidian
+      vec3 neonCyan = vec3(0.0, 0.85, 0.95);
+      vec3 deepSpaceObsidian = vec3(0.003, 0.005, 0.012);
+
+      // Center corridor subtle ambient starlight reflection
+      float centerDist = abs(vWorldPosition.x);
+      float centerStreak = exp(-centerDist * centerDist * 0.22);
+      vec3 spaceReflection = neonCyan * centerStreak * 0.35;
+
+      // Clean, dark space highway surface
+      vec3 wetSurface = mix(pavementBase, pavementBase * 0.15 + spaceReflection, wetness * 0.55);
+
+      // 4. --- Futuristic Space Highway Markings & Guided Neon Rails ---
       float roadX = vWorldPosition.x;
       float roadZ = vWorldPosition.z;
 
-      // Outer highway boundary neon curb lines (-6.4 and +6.4)
-      float curbLeft = smoothstep(0.25, 0.05, abs(roadX - (-6.4)));
-      float curbRight = smoothstep(0.25, 0.05, abs(roadX - 6.4));
-      float curbLines = curbLeft + curbRight;
+      // Motion blur streak along outer road boundaries (widens dynamically with speed)
+      float edgeDist = abs(roadX);
+      float roadEdgeBlur = smoothstep(5.0, 7.2, edgeDist);
+      float edgeStreakRate = 26.0 + uSpeed * 1.5;
+      float speedStreak = sin((roadZ - uTime * edgeStreakRate) * 0.5) * 0.5 + 0.5;
 
-      // Inner lane divider dash lines
-      float divLeft = smoothstep(0.12, 0.03, abs(roadX - (-2.1)));
-      float divRight = smoothstep(0.12, 0.03, abs(roadX - 2.1));
-      float laneDashes = step(0.45, fract((roadZ - uTime * 32.0) * 0.12));
+      // Outer highway guided neon rail lines (-6.8 and +6.8) - Pure Cyan
+      float railLeft = smoothstep(0.30, 0.02, abs(roadX - (-6.8)));
+      float railRight = smoothstep(0.30, 0.02, abs(roadX - 6.8));
+      float guideRails = railLeft + railRight;
+
+      // Inner lane divider light pulses (-2.3 and +2.3) - Speed-pulsed Cyan dashes
+      float divLeft = smoothstep(0.12, 0.02, abs(roadX - (-2.3)));
+      float divRight = smoothstep(0.12, 0.02, abs(roadX - 2.3));
+      float dashRate = 24.0 + uSpeed * 1.1;
+      float laneDashes = step(0.52, fract((roadZ - uTime * dashRate) * 0.14));
       float dividerLines = (divLeft + divRight) * laneDashes;
 
-      // Road edge glow (Cyan & Electric Magenta/Purple)
-      vec3 curbColor = vec3(0.0, 0.95, 1.0); // Electric Cyan
-      vec3 dividerColor = vec3(0.7, 0.0, 1.0); // Electric Purple
+      // Strict Color System: Cyan ONLY for rails and road guidance
+      vec3 emissiveLines = neonCyan * (guideRails * 1.6 + dividerLines * 0.95);
 
-      vec3 emissiveLines = curbColor * curbLines * 2.8 + dividerColor * dividerLines * 2.2;
+      // Edge motion blur light streaks
+      vec3 gutterStreak = neonCyan * roadEdgeBlur * speedStreak * (0.3 + uSpeed * 0.01);
 
-      // Wet reflections
-      float fresnel = pow(1.0 - max(dot(V, N), 0.0), 3.0);
-      vec3 wetStreaks = liquidCore * caustic * (fresnel * 0.85 + 0.25);
+      vec3 finalCol = wetSurface + emissiveLines + gutterStreak;
 
-      vec3 finalCol = baseSurface + emissiveLines + wetStreaks;
+      // Subtle atmospheric rim lighting
+      float rim = pow(1.0 - max(dot(V, N), 0.0), 4.2);
+      finalCol += neonCyan * rim * 0.14;
 
-      // High-contrast rim light from ambient neon environment
-      float rim = pow(1.0 - max(dot(V, N), 0.0), 4.0);
-      finalCol += liquidCyan * rim * 0.35;
-
-      // Distance Atmospheric Fade into Dark Fog
+      // 5. Depth System: Foreground is Razor-Sharp & Punchy;
+      // Distance smoothly recedes into Deep Cosmic Indigo / Purple Space Void
       float dist = length(uCameraPos - vWorldPosition);
-      float fogFactor = smoothstep(140.0, 420.0, dist);
-      vec3 fogCol = mix(vec3(0.02, 0.05, 0.1), vec3(0.1, 0.02, 0.08), sin(vWorldPosition.z * 0.005) * 0.5 + 0.5);
-      finalCol = mix(finalCol, fogCol, clamp(fogFactor, 0.0, 0.85));
+      float fogFactor = smoothstep(75.0, 320.0, dist);
+      vec3 cosmicVoidFog = vec3(0.004, 0.007, 0.022); // Deep Galaxy Indigo
+      finalCol = mix(finalCol, cosmicVoidFog, clamp(fogFactor, 0.0, 0.96));
 
       gl_FragColor = vec4(finalCol, 1.0);
     }
@@ -322,16 +398,16 @@ export const PostProcessShader = {
         sceneCol += warpFlash * uWarpIntensity * 0.45;
       }
 
-      // 4. Genuine Neon Bloom Halo
+      // 4. Targeted Highlight-Only Bloom (Strict Threshold: Only intense neon cores glow, no screen haze)
       if (uBloom > 0.02) {
         vec3 bloomAccum = vec3(0.0);
         vec2 texel = 1.0 / max(uResolution, vec2(1.0, 1.0));
-        float bMul = uBloom * 2.6;
-        float r1 = 2.5 * bMul;
-        float r2 = 6.0 * bMul;
-        float r3 = 12.0 * bMul;
-        float r4 = 20.0 * bMul;
-        float threshold = 0.48;
+        float bMul = uBloom * 1.8;
+        float r1 = 2.0 * bMul;
+        float r2 = 5.0 * bMul;
+        float r3 = 10.0 * bMul;
+        // High threshold ensures only true highlights (neon signs, thrusters, coins) trigger bloom
+        float threshold = 0.72;
 
         bloomAccum += max(texture2D(tDiffuse, uv + vec2(-r1, 0.0) * texel).rgb - threshold, vec3(0.0)) * 0.25;
         bloomAccum += max(texture2D(tDiffuse, uv + vec2(r1, 0.0) * texel).rgb - threshold, vec3(0.0)) * 0.25;
@@ -345,25 +421,23 @@ export const PostProcessShader = {
 
         bloomAccum += max(texture2D(tDiffuse, uv + vec2(-r3, 0.0) * texel).rgb - threshold, vec3(0.0)) * 0.12;
         bloomAccum += max(texture2D(tDiffuse, uv + vec2(r3, 0.0) * texel).rgb - threshold, vec3(0.0)) * 0.12;
-        bloomAccum += max(texture2D(tDiffuse, uv + vec2(0.0, -r4) * texel).rgb - threshold, vec3(0.0)) * 0.08;
-        bloomAccum += max(texture2D(tDiffuse, uv + vec2(0.0, r4) * texel).rgb - threshold, vec3(0.0)) * 0.08;
 
-        sceneCol += bloomAccum * (0.85 * uBloom);
+        sceneCol += bloomAccum * (1.1 * uBloom);
       }
 
-      // 5. Speed Lines
+      // 5. Dynamic Speed Lines & Peripheral Motion Streaks
       float effSpeedLines = max(uSpeedLines, uWarpIntensity * 1.2);
       if (effSpeedLines > 0.05) {
-        vec2 center = vec2(0.5, 0.45);
+        vec2 center = vec2(0.5, 0.42);
         vec2 dir = uv - center;
         float dist = length(dir);
-        if (dist > 0.32) {
+        if (dist > 0.36) {
           float angle = atan(dir.y, dir.x);
-          float linePattern = sin(angle * 96.0 + uTime * 32.0);
-          linePattern = smoothstep(0.78, 0.99, linePattern);
-          float mask = smoothstep(0.32, 0.92, dist) * effSpeedLines;
-          vec3 speedLineColor = mix(vec3(0.0, 0.95, 1.0), vec3(0.7, 0.0, 1.0), sin(angle * 12.0 + uTime * 10.0) * 0.5 + 0.5);
-          sceneCol += speedLineColor * linePattern * mask * 0.85;
+          float linePattern = sin(angle * 72.0 + uTime * 36.0);
+          linePattern = smoothstep(0.82, 0.99, linePattern);
+          float mask = smoothstep(0.36, 0.90, dist) * effSpeedLines;
+          vec3 speedLineColor = mix(vec3(0.0, 0.72, 0.85), vec3(0.85, 0.0, 0.5), sin(angle * 8.0 + uTime * 8.0) * 0.5 + 0.5);
+          sceneCol += speedLineColor * linePattern * mask * 0.65;
         }
       }
 
@@ -374,22 +448,21 @@ export const PostProcessShader = {
         sceneCol += vec3(0.6, 0.85, 1.0) * streak * 0.25;
       }
 
-      // 7. Film Grain Noise
-      if (uFilmGrain > 0.02) {
-        float grain = (hash(uv + fract(uTime)) - 0.5) * uFilmGrain * 0.18;
-        sceneCol += vec3(grain);
-      }
+      // 7. Depth Vignette & Film Fidelity
+      float screenEdge = length(uv - 0.5);
+      float vignette = smoothstep(0.8, 0.35, screenEdge);
+      sceneCol *= mix(0.78, 1.0, vignette);
 
-      // 8. Color Lift & Scanlines
+      // 8. Color Lift & Crisp Contrast (Deep obsidian contrast > raw brightness)
       if (uColorLift > 0.01) {
-        sceneCol = mix(sceneCol, sceneCol + vec3(0.02, 0.04, 0.08), uColorLift * 0.5);
+        sceneCol = mix(sceneCol, sceneCol + vec3(0.01, 0.02, 0.04), uColorLift * 0.3);
       }
       if (uScanlines > 0.05) {
         float scanline = sin(uv.y * uResolution.y * 0.5) * 0.5 + 0.5;
-        sceneCol *= mix(1.0, 0.92 + 0.08 * scanline, uScanlines);
+        sceneCol *= mix(1.0, 0.95 + 0.05 * scanline, uScanlines);
       }
 
-      // 9. Cyberpunk Contrast & Output
+      // 9. Cyberpunk Contrast & Clean Output
       gl_FragColor = vec4(clamp(sceneCol, 0.0, 1.0), 1.0);
     }
   `

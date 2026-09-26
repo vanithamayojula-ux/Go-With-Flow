@@ -1,242 +1,212 @@
 import * as THREE from 'three';
-import { FoliageShader } from '../graphics/shaders';
-import { createFoliageTexture, createTreeFoliageTexture } from '../graphics/textures';
 import { CyberChunk } from './terrain';
+import { FoliageShader } from '../graphics/shaders';
 
 export class FoliageManager {
   scene: THREE.Scene;
-  foliageTexture: THREE.CanvasTexture;
-  treeTexture: THREE.CanvasTexture;
+  group: THREE.Group;
+
+  grassMesh: THREE.InstancedMesh | null = null;
+  treeMesh: THREE.InstancedMesh | null = null;
 
   grassMaterial: THREE.ShaderMaterial;
   treeMaterial: THREE.ShaderMaterial;
-  trunkMaterial: THREE.MeshLambertMaterial;
-
-  grassMesh: THREE.InstancedMesh;
-  treeMesh: THREE.InstancedMesh;
-  trunkMesh: THREE.InstancedMesh;
-
-  maxGrassInstances = 2000;
-  maxTreeInstances = 250;
 
   private dummy = new THREE.Object3D();
 
   constructor(scene: THREE.Scene) {
     this.scene = scene;
-    this.foliageTexture = createFoliageTexture();
-    this.treeTexture = createTreeFoliageTexture();
+    this.group = new THREE.Group();
+    this.scene.add(this.group);
 
-    // Custom Vertex-Wind Foliage Shader Material
+    // Custom Neon Grass / Energy Reed Shader Material
     this.grassMaterial = new THREE.ShaderMaterial({
-      vertexShader: FoliageShader.vertexShader,
-      fragmentShader: FoliageShader.fragmentShader,
       uniforms: {
-        uTexture: { value: this.foliageTexture },
         uTime: { value: 0 },
-        uWindSpeed: { value: 1.0 },
-        uWindStrength: { value: 0.6 },
-        uPlayerSpeedFactor: { value: 0 },
-        uSunDirection: { value: new THREE.Vector3(0.5, 0.8, -0.3).normalize() },
-        uSunColor: { value: new THREE.Color('#FFF1D0') },
-        uAmbientColor: { value: new THREE.Color('#94BCE8') },
-        uRimLightIntensity: { value: 0.5 },
-        uCameraPos: { value: new THREE.Vector3() },
+        uWindSpeed: { value: 2.0 },
+        uWindStrength: { value: 0.5 },
+        uRimLightIntensity: { value: 0.6 },
         uPlayerPos: { value: new THREE.Vector3() },
+        uCameraPos: { value: new THREE.Vector3() },
+        uSunColor: { value: new THREE.Color(0x00f0ff) },
       },
+      vertexShader: `
+        uniform float uTime;
+        uniform float uWindSpeed;
+        uniform float uWindStrength;
+        uniform vec3 uPlayerPos;
+        varying vec2 vUv;
+        varying vec3 vWorldPosition;
+
+        void main() {
+          vUv = uv;
+          vec4 worldPos = instanceMatrix * vec4(position, 1.0);
+          
+          // Wind sway on upper vertices
+          float sway = sin(uTime * uWindSpeed * 3.0 + worldPos.x * 0.5 + worldPos.z * 0.5) * uWindStrength * uv.y * 0.25;
+          worldPos.x += sway;
+          worldPos.z += sway * 0.5;
+
+          // Player proximity bend
+          float pDist = distance(worldPos.xz, uPlayerPos.xz);
+          if (pDist < 2.5) {
+            vec2 push = normalize(worldPos.xz - uPlayerPos.xz) * (2.5 - pDist) * 0.3 * uv.y;
+            worldPos.x += push.x;
+            worldPos.z += push.y;
+          }
+
+          vWorldPosition = worldPos.xyz;
+          gl_Position = projectionMatrix * viewMatrix * worldPos;
+        }
+      `,
+      fragmentShader: `
+        uniform vec3 uSunColor;
+        uniform float uRimLightIntensity;
+        uniform float uTime;
+        varying vec2 vUv;
+        varying vec3 vWorldPosition;
+
+        void main() {
+          vec3 baseCol = mix(vec3(0.0, 0.4, 0.5), vec3(0.0, 0.95, 1.0), vUv.y);
+          // Neon glow tips
+          float glow = pow(vUv.y, 2.0) * (sin(uTime * 4.0 + vWorldPosition.x) * 0.2 + 0.8);
+          vec3 finalCol = baseCol + vec3(0.0, 0.9, 1.0) * glow * 1.5;
+          gl_FragColor = vec4(finalCol, 1.0);
+        }
+      `,
       side: THREE.DoubleSide,
-      transparent: true,
-      depthWrite: true,
     });
 
-    // Cross-quad foliage geometry for brush grass clumps
-    const geom1 = new THREE.PlaneGeometry(1.4, 1.4, 2, 4);
-    geom1.translate(0, 0.7, 0);
-    const geom2 = geom1.clone();
-    geom2.rotateY(Math.PI / 2);
-
-    const grassGeom = new THREE.BufferGeometry();
-    const pos1 = geom1.attributes.position.array;
-    const pos2 = geom2.attributes.position.array;
-    const uv1 = geom1.attributes.uv.array;
-    const uv2 = geom2.attributes.uv.array;
-    const norm1 = geom1.attributes.normal.array;
-    const norm2 = geom2.attributes.normal.array;
-
-    const mergedPos = new Float32Array(pos1.length + pos2.length);
-    mergedPos.set(pos1, 0);
-    mergedPos.set(pos2, pos1.length);
-
-    const mergedUv = new Float32Array(uv1.length + uv2.length);
-    mergedUv.set(uv1, 0);
-    mergedUv.set(uv2, uv1.length);
-
-    const mergedNorm = new Float32Array(norm1.length + norm2.length);
-    mergedNorm.set(norm1, 0);
-    mergedNorm.set(norm2, norm1.length);
-
-    grassGeom.setAttribute('position', new THREE.BufferAttribute(mergedPos, 3));
-    grassGeom.setAttribute('uv', new THREE.BufferAttribute(mergedUv, 2));
-    grassGeom.setAttribute('normal', new THREE.BufferAttribute(mergedNorm, 3));
-
-    // Custom per-instance attributes for vertex wind shader
-    const aInstancePosition = new Float32Array(this.maxGrassInstances * 3);
-    const aInstanceScale = new Float32Array(this.maxGrassInstances);
-    const aInstanceRot = new Float32Array(this.maxGrassInstances);
-
-    grassGeom.setAttribute('aInstancePosition', new THREE.InstancedBufferAttribute(aInstancePosition, 3));
-    grassGeom.setAttribute('aInstanceScale', new THREE.InstancedBufferAttribute(aInstanceScale, 1));
-    grassGeom.setAttribute('aInstanceRot', new THREE.InstancedBufferAttribute(aInstanceRot, 1));
-
-    this.grassMesh = new THREE.InstancedMesh(grassGeom, this.grassMaterial, this.maxGrassInstances);
-    this.grassMesh.count = 0;
-    this.grassMesh.frustumCulled = false;
-    this.scene.add(this.grassMesh);
-
-    // Tree Foliage Mesh (Puff Spherical Cluster with painterly albedo)
-    const treeFoliageGeom = new THREE.IcosahedronGeometry(2.2, 1);
+    // Custom Neon Tree / Cyber Crystal Spire Shader Material
     this.treeMaterial = new THREE.ShaderMaterial({
-      vertexShader: FoliageShader.vertexShader,
-      fragmentShader: FoliageShader.fragmentShader,
       uniforms: {
-        uTexture: { value: this.treeTexture },
         uTime: { value: 0 },
-        uWindSpeed: { value: 0.6 },
+        uWindSpeed: { value: 1.5 },
         uWindStrength: { value: 0.3 },
-        uPlayerSpeedFactor: { value: 0 },
-        uSunDirection: { value: new THREE.Vector3(0.5, 0.8, -0.3).normalize() },
-        uSunColor: { value: new THREE.Color('#FFF1D0') },
-        uAmbientColor: { value: new THREE.Color('#94BCE8') },
-        uRimLightIntensity: { value: 0.45 },
+        uRimLightIntensity: { value: 0.8 },
         uCameraPos: { value: new THREE.Vector3() },
-        uPlayerPos: { value: new THREE.Vector3() },
+        uSunColor: { value: new THREE.Color(0xff007f) },
       },
-      transparent: true,
-      side: THREE.DoubleSide,
+      vertexShader: `
+        uniform float uTime;
+        uniform float uWindSpeed;
+        uniform float uWindStrength;
+        varying vec2 vUv;
+        varying vec3 vWorldPosition;
+
+        void main() {
+          vUv = uv;
+          vec4 worldPos = instanceMatrix * vec4(position, 1.0);
+          float sway = sin(uTime * uWindSpeed * 2.0 + worldPos.z * 0.3) * uWindStrength * (position.y / 8.0) * 0.15;
+          worldPos.x += sway;
+          vWorldPosition = worldPos.xyz;
+          gl_Position = projectionMatrix * viewMatrix * worldPos;
+        }
+      `,
+      fragmentShader: `
+        uniform float uTime;
+        varying vec2 vUv;
+        varying vec3 vWorldPosition;
+
+        void main() {
+          vec3 col = mix(vec3(0.05, 0.08, 0.18), vec3(1.0, 0.0, 0.5), vUv.y);
+          float pulse = sin(uTime * 3.0 + vWorldPosition.y * 0.5) * 0.3 + 0.7;
+          gl_FragColor = vec4(col * pulse, 1.0);
+        }
+      `,
     });
 
-    const aTreeInstancePos = new Float32Array(this.maxTreeInstances * 3);
-    const aTreeInstanceScale = new Float32Array(this.maxTreeInstances);
-    const aTreeInstanceRot = new Float32Array(this.maxTreeInstances);
+    // Initialize Instanced Meshes
+    const grassGeom = new THREE.ConeGeometry(0.12, 1.2, 4);
+    grassGeom.translate(0, 0.6, 0);
+    this.grassMesh = new THREE.InstancedMesh(grassGeom, this.grassMaterial, 1200);
+    this.grassMesh.count = 0;
+    this.grassMesh.instanceMatrix.setUsage(THREE.DynamicDrawUsage);
+    this.group.add(this.grassMesh);
 
-    treeFoliageGeom.setAttribute('aInstancePosition', new THREE.InstancedBufferAttribute(aTreeInstancePos, 3));
-    treeFoliageGeom.setAttribute('aInstanceScale', new THREE.InstancedBufferAttribute(aTreeInstanceScale, 1));
-    treeFoliageGeom.setAttribute('aInstanceRot', new THREE.InstancedBufferAttribute(aTreeInstanceRot, 1));
-
-    this.treeMesh = new THREE.InstancedMesh(treeFoliageGeom, this.treeMaterial, this.maxTreeInstances);
+    const treeGeom = new THREE.CylinderGeometry(0.05, 0.45, 6.0, 5);
+    treeGeom.translate(0, 3.0, 0);
+    this.treeMesh = new THREE.InstancedMesh(treeGeom, this.treeMaterial, 300);
     this.treeMesh.count = 0;
-    this.treeMesh.frustumCulled = false;
-    this.scene.add(this.treeMesh);
-
-    // Tree Trunk Mesh
-    const trunkGeom = new THREE.CylinderGeometry(0.2, 0.35, 3.2, 6);
-    trunkGeom.translate(0, 1.6, 0);
-    this.trunkMaterial = new THREE.MeshLambertMaterial({ color: 0x5a4332 });
-    this.trunkMesh = new THREE.InstancedMesh(trunkGeom, this.trunkMaterial, this.maxTreeInstances);
-    this.trunkMesh.count = 0;
-    this.trunkMesh.frustumCulled = false;
-    this.scene.add(this.trunkMesh);
+    this.treeMesh.instanceMatrix.setUsage(THREE.DynamicDrawUsage);
+    this.group.add(this.treeMesh);
   }
 
-  updateFoliage(chunks: Map<string, CyberChunk>, playerZ: number, playerX: number, densityMultiplier = 1.0) {
+  updateFoliage(
+    chunks: Map<string, CyberChunk>,
+    playerZ: number,
+    playerX: number,
+    density: number
+  ): void {
+    const grassMesh = this.grassMesh;
+    const treeMesh = this.treeMesh;
+    if (!grassMesh || !treeMesh) return;
+
     let grassIdx = 0;
     let treeIdx = 0;
+    const maxGrass = grassMesh.instanceMatrix.array.length / 16;
+    const maxTrees = treeMesh.instanceMatrix.array.length / 16;
 
-    const posAttr = this.grassMesh.geometry.getAttribute('aInstancePosition') as THREE.InstancedBufferAttribute;
-    const scaleAttr = this.grassMesh.geometry.getAttribute('aInstanceScale') as THREE.InstancedBufferAttribute;
-    const rotAttr = this.grassMesh.geometry.getAttribute('aInstanceRot') as THREE.InstancedBufferAttribute;
+    chunks.forEach(chunk => {
+      // Grass instances
+      if (chunk.foliageInstances?.grass) {
+        for (const g of chunk.foliageInstances.grass) {
+          if (grassIdx >= maxGrass) break;
+          // Distance cull
+          if (Math.abs(g.z - playerZ) > 180) continue;
 
-    const treePosAttr = this.treeMesh.geometry.getAttribute('aInstancePosition') as THREE.InstancedBufferAttribute;
-    const treeScaleAttr = this.treeMesh.geometry.getAttribute('aInstanceScale') as THREE.InstancedBufferAttribute;
-    const treeRotAttr = this.treeMesh.geometry.getAttribute('aInstanceRot') as THREE.InstancedBufferAttribute;
+          this.dummy.position.set(g.x, g.y, g.z);
+          this.dummy.scale.set(g.scale, g.scale * (0.8 + density * 0.4), g.scale);
+          this.dummy.rotation.set(0, g.rot, 0);
+          this.dummy.updateMatrix();
 
-    // Collect all active foliage near player
-    for (const chunk of chunks.values()) {
-      if (!chunk.foliageInstances) continue;
-      const grassList = chunk.foliageInstances.grass || [];
-      const treeList = chunk.foliageInstances.trees || [];
-
-      const dist = Math.hypot(chunk.cx * 80 - playerX, chunk.cz * 80 - playerZ);
-      if (dist > 180) continue; // Distance cull
-
-      // Grass
-      for (let i = 0; i < grassList.length; i++) {
-        if (Math.random() > densityMultiplier && densityMultiplier < 0.99) continue;
-        if (grassIdx >= this.maxGrassInstances) break;
-
-        const g = grassList[i];
-        posAttr.setXYZ(grassIdx, g.x, g.y, g.z);
-        scaleAttr.setX(grassIdx, g.scale);
-        rotAttr.setX(grassIdx, g.rot);
-
-        this.dummy.position.set(g.x, g.y, g.z);
-        this.dummy.scale.set(g.scale, g.scale, g.scale);
-        this.dummy.rotation.set(0, g.rot, 0);
-        this.dummy.updateMatrix();
-        this.grassMesh.setMatrixAt(grassIdx, this.dummy.matrix);
-
-        grassIdx++;
+          grassMesh.setMatrixAt(grassIdx++, this.dummy.matrix);
+        }
       }
 
-      // Trees
-      for (let i = 0; i < treeList.length; i++) {
-        if (treeIdx >= this.maxTreeInstances) break;
-        const t = treeList[i];
+      // Trees / Spire instances
+      if (chunk.foliageInstances?.trees) {
+        for (const t of chunk.foliageInstances.trees) {
+          if (treeIdx >= maxTrees) break;
+          if (Math.abs(t.z - playerZ) > 220) continue;
 
-        // Tree foliage crown
-        treePosAttr.setXYZ(treeIdx, t.x, t.y + 2.8 * t.scale, t.z);
-        treeScaleAttr.setX(treeIdx, t.scale);
-        treeRotAttr.setX(treeIdx, 0);
+          this.dummy.position.set(t.x, t.y, t.z);
+          this.dummy.scale.set(t.scale, t.scale, t.scale);
+          this.dummy.rotation.set(0, (t.x * 12.3) % 6.28, 0);
+          this.dummy.updateMatrix();
 
-        this.dummy.position.set(t.x, t.y + 2.8 * t.scale, t.z);
-        this.dummy.scale.set(t.scale, t.scale, t.scale);
-        this.dummy.rotation.set(0, 0, 0);
-        this.dummy.updateMatrix();
-        this.treeMesh.setMatrixAt(treeIdx, this.dummy.matrix);
-
-        // Trunk
-        this.dummy.position.set(t.x, t.y, t.z);
-        this.dummy.scale.set(t.scale, t.scale, t.scale);
-        this.dummy.updateMatrix();
-        this.trunkMesh.setMatrixAt(treeIdx, this.dummy.matrix);
-
-        treeIdx++;
+          treeMesh.setMatrixAt(treeIdx++, this.dummy.matrix);
+        }
       }
+    });
+
+    grassMesh.count = grassIdx;
+    grassMesh.instanceMatrix.needsUpdate = true;
+
+    treeMesh.count = treeIdx;
+    treeMesh.instanceMatrix.needsUpdate = true;
+  }
+
+  updateShaderTime(timeSeconds: number, speedNorm: number, cameraPos: THREE.Vector3): void {
+    if (this.grassMaterial.uniforms.uTime) {
+      this.grassMaterial.uniforms.uTime.value = timeSeconds;
     }
-
-    this.grassMesh.count = grassIdx;
-    posAttr.needsUpdate = true;
-    scaleAttr.needsUpdate = true;
-    rotAttr.needsUpdate = true;
-    this.grassMesh.instanceMatrix.needsUpdate = true;
-
-    this.treeMesh.count = treeIdx;
-    treePosAttr.needsUpdate = true;
-    treeScaleAttr.needsUpdate = true;
-    treeRotAttr.needsUpdate = true;
-    this.treeMesh.instanceMatrix.needsUpdate = true;
-
-    this.trunkMesh.count = treeIdx;
-    this.trunkMesh.instanceMatrix.needsUpdate = true;
+    if (this.grassMaterial.uniforms.uCameraPos) {
+      this.grassMaterial.uniforms.uCameraPos.value.copy(cameraPos);
+    }
+    if (this.treeMaterial.uniforms.uTime) {
+      this.treeMaterial.uniforms.uTime.value = timeSeconds;
+    }
+    if (this.treeMaterial.uniforms.uCameraPos) {
+      this.treeMaterial.uniforms.uCameraPos.value.copy(cameraPos);
+    }
   }
 
-  updateShaderTime(time: number, playerSpeedNormalized: number, cameraPos: THREE.Vector3) {
-    this.grassMaterial.uniforms.uTime.value = time;
-    this.grassMaterial.uniforms.uPlayerSpeedFactor.value = playerSpeedNormalized;
-    this.grassMaterial.uniforms.uCameraPos.value.copy(cameraPos);
-
-    this.treeMaterial.uniforms.uTime.value = time;
-    this.treeMaterial.uniforms.uPlayerSpeedFactor.value = playerSpeedNormalized;
-    this.treeMaterial.uniforms.uCameraPos.value.copy(cameraPos);
-  }
-
-  dispose() {
-    this.scene.remove(this.grassMesh);
-    this.scene.remove(this.treeMesh);
-    this.scene.remove(this.trunkMesh);
-    this.foliageTexture.dispose();
-    this.treeTexture.dispose();
+  dispose(): void {
+    this.scene.remove(this.group);
     this.grassMaterial.dispose();
     this.treeMaterial.dispose();
-    this.trunkMaterial.dispose();
+    this.grassMesh?.geometry.dispose();
+    this.treeMesh?.geometry.dispose();
   }
 }
