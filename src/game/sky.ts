@@ -90,16 +90,16 @@ export const LIGHTING_PRESETS: Record<string, LightingPresetConfig> = {
   },
   // Aliases for compatibility with biomes
   'neon-undercity': {
-    skyTop: '#01040a',
-    skyMid: '#030c1c',
-    skyHorizon: '#00f0ff',
-    sunColor: '#00f0ff',
-    sunPosition: [40, 80, -160],
-    ambientColor: '#040b18',
-    slopeWarm: '#00e5ff',
-    slopeCool: '#02182b',
-    hazeDensity: 0.9,
-    fogColor: '#020714',
+    skyTop: '#010308',
+    skyMid: '#020712',
+    skyHorizon: '#007a8a',
+    sunColor: '#00c8d8',
+    sunPosition: [0, 85, 30], // Top-front directional lighting toward road and player
+    ambientColor: '#02050c',
+    slopeWarm: '#008a98',
+    slopeCool: '#010d1a',
+    hazeDensity: 0.94,
+    fogColor: '#01040a',
   },
   'dune-nomad': {
     skyTop: '#3a1c00',
@@ -258,16 +258,16 @@ export const LIGHTING_PRESETS: Record<string, LightingPresetConfig> = {
     fogColor: '#0f0a03',
   },
   'midnight-cyan': {
-    skyTop: '#01040a',
-    skyMid: '#030c1c',
-    skyHorizon: '#00f0ff',
-    sunColor: '#00f0ff',
-    sunPosition: [40, 80, -160],
-    ambientColor: '#040b18',
-    slopeWarm: '#00e5ff',
-    slopeCool: '#02182b',
-    hazeDensity: 0.9,
-    fogColor: '#020714',
+    skyTop: '#010308',
+    skyMid: '#020712',
+    skyHorizon: '#007a8a',
+    sunColor: '#00c8d8',
+    sunPosition: [0, 85, 30], // Top-front directional lighting
+    ambientColor: '#02050c',
+    slopeWarm: '#008a98',
+    slopeCool: '#010d1a',
+    hazeDensity: 0.94,
+    fogColor: '#01040a',
   },
   'synthwave-magenta': {
     skyTop: '#05010b',
@@ -393,28 +393,28 @@ export class SkyManager {
   dirLight: THREE.DirectionalLight;
   ambientLight: THREE.AmbientLight;
 
-  // Distant Cyber Aerial Traffic Group
-  trafficGroup: THREE.Group;
-  hoverVehicles: HoverTrafficData[] = [];
-
-  // Giant Holographic Moon / Orbital Ring
+  // Giant Deep-Space Celestial Orbital Ring (Infinite Depth Anchor)
   holoRingMesh: THREE.Mesh;
+
+  // Distant Cosmic Horizon Beacon
+  beaconLightMesh: THREE.Mesh;
 
   constructor(scene: THREE.Scene) {
     this.scene = scene;
 
-    // 1. Cyber Skybox Dome
+    // 1. Deep Space Skybox Dome
     const skyGeom = new THREE.SphereGeometry(900, 32, 24);
     this.skyMaterial = new THREE.ShaderMaterial({
       vertexShader: SkyboxShader.vertexShader,
       fragmentShader: SkyboxShader.fragmentShader,
       uniforms: {
-        uSkyTop: { value: new THREE.Color(LIGHTING_PRESETS['midnight-cyan'].skyTop) },
-        uSkyMid: { value: new THREE.Color(LIGHTING_PRESETS['midnight-cyan'].skyMid) },
-        uSkyHorizon: { value: new THREE.Color(LIGHTING_PRESETS['midnight-cyan'].skyHorizon) },
-        uSunPosition: { value: new THREE.Vector3(40, 80, -160) },
-        uSunColor: { value: new THREE.Color(LIGHTING_PRESETS['midnight-cyan'].sunColor) },
+        uSkyTop: { value: new THREE.Color('#010206') },
+        uSkyMid: { value: new THREE.Color('#0a0418') },
+        uSkyHorizon: { value: new THREE.Color('#02040c') },
+        uSunPosition: { value: new THREE.Vector3(0, 90, 40) },
+        uSunColor: { value: new THREE.Color('#00d2e0') },
         uTime: { value: 0 },
+        uSpeed: { value: 20.0 },
         uHazeDensity: { value: 0.9 },
         uGridMode: { value: 0.0 },
       },
@@ -425,16 +425,13 @@ export class SkyManager {
     this.skyMesh = new THREE.Mesh(skyGeom, this.skyMaterial);
     this.scene.add(this.skyMesh);
 
-    // 2. Cyber Lights (Bright ambient illumination + key lights)
-    this.ambientLight = new THREE.AmbientLight(0xffffff, 1.4);
+    // 2. Cosmic Directional & Ambient Lighting (30% Reduced brightness, strong contrast)
+    this.ambientLight = new THREE.AmbientLight(0x02050e, 0.65);
     this.scene.add(this.ambientLight);
 
-    const backFillLight = new THREE.DirectionalLight(0xffffff, 1.5);
-    backFillLight.position.set(0, 40, -100);
-    this.scene.add(backFillLight);
-
-    this.dirLight = new THREE.DirectionalLight(0x00f0ff, 1.4);
-    this.dirLight.position.set(40, 80, -160);
+    // Directional lighting from top-front illuminating space highway and player cleanly
+    this.dirLight = new THREE.DirectionalLight(0x00d2e0, 0.85);
+    this.dirLight.position.set(0, 90, 40);
     this.dirLight.castShadow = true;
     this.dirLight.shadow.mapSize.width = 1024;
     this.dirLight.shadow.mapSize.height = 1024;
@@ -446,52 +443,25 @@ export class SkyManager {
     this.dirLight.shadow.camera.bottom = -35;
     this.scene.add(this.dirLight);
 
-    // 3. Colossal Holographic Orbital Ring in Upper Sky
-    const ringGeom = new THREE.TorusGeometry(320, 4.5, 16, 64);
+    // 3. Colossal Deep-Space Orbital Ring
+    const ringGeom = new THREE.TorusGeometry(360, 3.5, 16, 64);
     const ringMat = new THREE.MeshBasicMaterial({
-      color: 0x00f0ff,
+      color: 0x00d2e0,
       wireframe: true,
       transparent: true,
       opacity: 0.35,
     });
     this.holoRingMesh = new THREE.Mesh(ringGeom, ringMat);
-    this.holoRingMesh.position.set(0, 220, -380);
-    this.holoRingMesh.rotation.set(0.65, 0.4, 0);
+    this.holoRingMesh.position.set(0, 240, -420);
+    this.holoRingMesh.rotation.set(0.65, 0.35, 0);
     this.scene.add(this.holoRingMesh);
 
-    // 4. Distant Skyway Aerial Traffic (Speeder silhouettes with glowing headlights & taillights)
-    this.trafficGroup = new THREE.Group();
-    this.scene.add(this.trafficGroup);
-
-    const vehicleGeom = new THREE.BoxGeometry(2.4, 0.6, 6.0);
-    const vehicleMat = new THREE.MeshBasicMaterial({ color: 0x0a101d });
-    const headLightMat = new THREE.MeshBasicMaterial({ color: 0x00f0ff });
-    const tailLightMat = new THREE.MeshBasicMaterial({ color: 0xff0044 });
-
-    for (let i = 0; i < 18; i++) {
-      const vGroup = new THREE.Group();
-      const body = new THREE.Mesh(vehicleGeom, vehicleMat);
-      vGroup.add(body);
-
-      // Cyan front lights
-      const hLight = new THREE.Mesh(new THREE.BoxGeometry(1.8, 0.15, 0.2), headLightMat);
-      hLight.position.set(0, 0, 3.0);
-      vGroup.add(hLight);
-
-      // Red tail lights
-      const tLight = new THREE.Mesh(new THREE.BoxGeometry(1.8, 0.15, 0.2), tailLightMat);
-      tLight.position.set(0, 0, -3.0);
-      vGroup.add(tLight);
-
-      const laneX = (Math.random() - 0.5) * 280;
-      const baseY = 40 + Math.random() * 85;
-      const baseZ = (Math.random() - 0.5) * 400;
-      vGroup.position.set(laneX, baseY, baseZ);
-
-      const speed = 25 + Math.random() * 45;
-      this.hoverVehicles.push({ mesh: vGroup, speed, baseY, laneX });
-      this.trafficGroup.add(vGroup);
-    }
+    // 4. Distant Horizon Cosmic Gateway Beacon (Vanishing Point Reference)
+    const beaconGeom = new THREE.SphereGeometry(3.5, 12, 12);
+    const beaconMat = new THREE.MeshBasicMaterial({ color: 0x00d2e0 });
+    this.beaconLightMesh = new THREE.Mesh(beaconGeom, beaconMat);
+    this.beaconLightMesh.position.set(0, 45, 600);
+    this.scene.add(this.beaconLightMesh);
   }
 
   applyLightingPreset(mode: LightingMode) {
@@ -510,8 +480,8 @@ export class SkyManager {
 
     (this.holoRingMesh.material as THREE.MeshBasicMaterial).color.set(preset.sunColor);
 
-    // Real scene-level atmospheric cyberpunk fog (fades all meshes, props & character into darkness)
-    this.scene.fog = new THREE.FogExp2(new THREE.Color(preset.fogColor), 0.0032);
+    // Scene-level atmospheric cosmic depth fog (smooth exponential fade into deep galaxy void)
+    this.scene.fog = new THREE.FogExp2(new THREE.Color(0x020512), 0.0035);
   }
 
   setGridMode(gridMode: number) {
@@ -520,26 +490,25 @@ export class SkyManager {
     }
   }
 
-  update(playerPos: THREE.Vector3, playerVelocityZ: number, time: number) {
+  update(playerPos: THREE.Vector3, playerVelocityZ: number, time: number, playerSpeed = 20) {
     // Skybox follows player camera
     this.skyMesh.position.copy(playerPos);
-    this.holoRingMesh.position.set(playerPos.x, playerPos.y + 220, playerPos.z - 380);
-    this.holoRingMesh.rotation.z = time * 0.05;
+    this.holoRingMesh.position.set(playerPos.x, playerPos.y + 240, playerPos.z - 420);
+    this.holoRingMesh.rotation.z = time * 0.03; // Slow celestial parallax rotation
 
-    // Direct shadow light follows player frustum
-    this.dirLight.position.set(playerPos.x + 30, playerPos.y + 70, playerPos.z - 30);
+    // Anchor vanishing point cosmic gateway
+    this.beaconLightMesh.position.set(0, 45, playerPos.z + 600);
+    const beaconPulse = Math.sin(time * 4.0) * 0.2 + 0.8;
+    (this.beaconLightMesh.material as THREE.MeshBasicMaterial).opacity = beaconPulse;
+
+    // Direct lighting follows player frustum with directional top-front angle
+    this.dirLight.position.set(playerPos.x, playerPos.y + 90, playerPos.z + 40);
     this.dirLight.target.position.copy(playerPos);
     this.dirLight.target.updateMatrixWorld();
 
     this.skyMaterial.uniforms.uTime.value = time;
-
-    // Update Aerial Cyber Traffic
-    for (const v of this.hoverVehicles) {
-      v.mesh.position.z += v.speed * 0.016;
-      if (v.mesh.position.z > playerPos.z + 280) {
-        v.mesh.position.z = playerPos.z - 280;
-        v.mesh.position.x = playerPos.x + (Math.random() - 0.5) * 280;
-      }
+    if (this.skyMaterial.uniforms.uSpeed) {
+      this.skyMaterial.uniforms.uSpeed.value = playerSpeed;
     }
   }
 
@@ -548,9 +517,9 @@ export class SkyManager {
     this.scene.remove(this.dirLight);
     this.scene.remove(this.ambientLight);
     this.scene.remove(this.holoRingMesh);
-    this.scene.remove(this.trafficGroup);
-    this.skyMaterial.dispose();
+    this.scene.remove(this.beaconLightMesh);
     this.skyMesh.geometry.dispose();
+    this.skyMaterial.dispose();
     this.holoRingMesh.geometry.dispose();
   }
 }

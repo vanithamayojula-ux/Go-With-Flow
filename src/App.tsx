@@ -5,6 +5,7 @@ import { ControlsOverlay } from './components/ControlsOverlay';
 import { GraphicsDrawer } from './components/GraphicsDrawer';
 import { AssetDeliverablesModal } from './components/AssetDeliverablesModal';
 import { CosmeticsModal } from './components/CosmeticsModal';
+import { VisualDatasetModal } from './components/VisualDatasetModal';
 import { GameOverModal } from './components/GameOverModal';
 import { PauseModal } from './components/PauseModal';
 import { AudioManager } from './game/audio';
@@ -13,6 +14,7 @@ import {
   GraphicsConfig,
   LightingMode,
   PlayerStats,
+  PlayerUpgrades,
   QualityPreset,
   ShaderParams,
   TrickType,
@@ -74,9 +76,40 @@ export default function App() {
   const [isGraphicsDrawerOpen, setIsGraphicsDrawerOpen] = useState(false);
   const [isDeliverablesOpen, setIsDeliverablesOpen] = useState(false);
   const [isCosmeticsOpen, setIsCosmeticsOpen] = useState(false);
+  const [isDatasetOpen, setIsDatasetOpen] = useState(false);
   const [activeMobileTrick, setActiveMobileTrick] = useState<TrickType | null>(null);
   const [notification, setNotification] = useState<string | null>(null);
   const [isUprightMode, setIsUprightMode] = useState<boolean>(true);
+
+  // Persistent Currency & Cyber Bay Upgrades
+  const [bankedShards, setBankedShards] = useState<number>(() => {
+    try {
+      const saved = localStorage.getItem('skyflow_banked_shards');
+      return saved ? parseInt(saved, 10) || 0 : 0;
+    } catch {
+      return 0;
+    }
+  });
+
+  const [playerUpgrades, setPlayerUpgrades] = useState<PlayerUpgrades>(() => {
+    try {
+      const saved = localStorage.getItem('skyflow_upgrades');
+      return saved
+        ? { magnetLevel: 1, jetpackLevel: 1, overdriveLevel: 1, shieldCapacitorLevel: 0, ...JSON.parse(saved) }
+        : { magnetLevel: 1, jetpackLevel: 1, overdriveLevel: 1, shieldCapacitorLevel: 0 };
+    } catch {
+      return { magnetLevel: 1, jetpackLevel: 1, overdriveLevel: 1, shieldCapacitorLevel: 0 };
+    }
+  });
+
+  const [unlockedItems, setUnlockedItems] = useState<string[]>(() => {
+    try {
+      const saved = localStorage.getItem('skyflow_unlocked_items');
+      return saved ? JSON.parse(saved) : ['cyber-phantom', 'electric-cyan', 'carbon-fiber'];
+    } catch {
+      return ['cyber-phantom', 'electric-cyan', 'carbon-fiber'];
+    }
+  });
 
   // Cyber Navigation State
   const [isGameOver, setIsGameOver] = useState(false);
@@ -137,6 +170,20 @@ export default function App() {
   const notifTimeoutRef = useRef<number | null>(null);
 
   const handleStatsUpdate = useCallback((newStats: PlayerStats, currentFps: number, calls: number, instances: number) => {
+    // Dynamically modulate the speedLineIntensity property based on current player speed stats
+    // As speed exceeds 40, linearly interpolate from 0 to 0.8 to visualize high-velocity movement
+    const currentSpeed = newStats.speed;
+    const dynamicIntensity = currentSpeed > 40
+      ? Math.min(0.8, ((currentSpeed - 40) / 50.0) * 0.8)
+      : 0.0;
+
+    setShaderParams(prev => {
+      if (Math.abs((prev.speedLineIntensity ?? 0) - dynamicIntensity) > 0.015) {
+        return { ...prev, speedLineIntensity: dynamicIntensity };
+      }
+      return prev;
+    });
+
     if (newStats.score > highScore) {
       setHighScore(newStats.score);
       try {
@@ -205,6 +252,88 @@ export default function App() {
     } catch {}
   }, []);
 
+  // Cyber Augment Upgrade Handler
+  const handleUpgrade = useCallback((upgradeKey: keyof PlayerUpgrades, cost: number) => {
+    if (bankedShards < cost) {
+      triggerNotification('⚠️ Insufficient Data Shards for upgrade');
+      return;
+    }
+    const newBank = bankedShards - cost;
+    setBankedShards(newBank);
+    try {
+      localStorage.setItem('skyflow_banked_shards', String(newBank));
+    } catch {}
+
+    setPlayerUpgrades(prev => {
+      const updated = { ...prev, [upgradeKey]: prev[upgradeKey] + 1 };
+      try {
+        localStorage.setItem('skyflow_upgrades', JSON.stringify(updated));
+      } catch {}
+      return updated;
+    });
+    triggerNotification('⚡ Tech Upgrade Installed! Power Augmented!');
+  }, [bankedShards, triggerNotification]);
+
+  // Unlock Hoverboard or Trail Handler
+  const handleUnlockItem = useCallback((itemId: string, cost: number) => {
+    if (bankedShards < cost) {
+      triggerNotification('⚠️ Insufficient Data Shards to unlock item');
+      return;
+    }
+    const newBank = bankedShards - cost;
+    setBankedShards(newBank);
+    try {
+      localStorage.setItem('skyflow_banked_shards', String(newBank));
+    } catch {}
+
+    setUnlockedItems(prev => {
+      if (prev.includes(itemId)) return prev;
+      const updated = [...prev, itemId];
+      try {
+        localStorage.setItem('skyflow_unlocked_items', JSON.stringify(updated));
+      } catch {}
+      return updated;
+    });
+    triggerNotification('✨ Equipment Unlocked! Ready to equip in bay!');
+  }, [bankedShards, triggerNotification]);
+
+  // System Crash / Game Over Handler: Bank run harvest into persistent wallet
+  const handleGameOver = useCallback(() => {
+    setIsGameOver(true);
+    const runShards = stats.dataShardsCollected || stats.windOrbsCollected || 0;
+    if (runShards > 0) {
+      setBankedShards(prev => {
+        const next = prev + runShards;
+        try {
+          localStorage.setItem('skyflow_banked_shards', String(next));
+        } catch {}
+        return next;
+      });
+      triggerNotification(`💾 +${runShards} Data Shards Banked!`);
+    }
+  }, [stats.dataShardsCollected, stats.windOrbsCollected, triggerNotification]);
+
+  // Emergency Revive Handler
+  const handleRevive = useCallback(() => {
+    if (bankedShards >= 15) {
+      const nextBank = bankedShards - 15;
+      setBankedShards(nextBank);
+      try {
+        localStorage.setItem('skyflow_banked_shards', String(nextBank));
+      } catch {}
+      setIsGameOver(false);
+      setReviveCount(c => c + 1);
+    } else if ((stats.dataShardsCollected || stats.windOrbsCollected || 0) >= 15) {
+      setStats(prev => ({
+        ...prev,
+        dataShardsCollected: Math.max(0, (prev.dataShardsCollected || 0) - 15),
+        windOrbsCollected: Math.max(0, (prev.windOrbsCollected || 0) - 15),
+      }));
+      setIsGameOver(false);
+      setReviveCount(c => c + 1);
+    }
+  }, [bankedShards, stats.dataShardsCollected, stats.windOrbsCollected]);
+
   // Keyboard shortcut listener for Escape and P to pause/resume
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
@@ -249,6 +378,7 @@ export default function App() {
           lightingMode={lightingMode}
           shaderParams={shaderParams}
           cosmeticsConfig={cosmeticsConfig}
+          upgrades={playerUpgrades}
           activeMobileTrick={activeMobileTrick}
           onClearMobileTrick={() => setActiveMobileTrick(null)}
           onStatsUpdate={handleStatsUpdate}
@@ -257,7 +387,7 @@ export default function App() {
           isUpright={isUprightMode}
           isPaused={isPaused}
           onNotification={triggerNotification}
-          onGameOver={() => setIsGameOver(true)}
+          onGameOver={handleGameOver}
           restartTrigger={restartCount}
           reviveTrigger={reviveCount}
           shieldTrigger={shieldCount}
@@ -266,6 +396,7 @@ export default function App() {
         {/* Game HUD */}
         <GameHUD
           stats={stats}
+          bankedShards={bankedShards}
           fps={fps}
           drawCalls={drawCalls}
           instanceCount={instanceCount}
@@ -287,6 +418,7 @@ export default function App() {
           onOpenGraphicsDrawer={() => setIsGraphicsDrawerOpen(true)}
           onOpenDeliverables={() => setIsDeliverablesOpen(true)}
           onOpenCosmetics={() => setIsCosmeticsOpen(true)}
+          onOpenDatasetCapture={() => setIsDatasetOpen(true)}
           onPause={() => setIsPaused(prev => !prev)}
           notification={notification}
         />
@@ -321,12 +453,23 @@ export default function App() {
         onClose={() => setIsDeliverablesOpen(false)}
       />
 
+      {/* Visual Dataset Capture & Prompt Engineering Modal */}
+      <VisualDatasetModal
+        isOpen={isDatasetOpen}
+        onClose={() => setIsDatasetOpen(false)}
+      />
+
       {/* Voyager Cosmetics & Equipment Modal */}
       <CosmeticsModal
         isOpen={isCosmeticsOpen}
         onClose={() => setIsCosmeticsOpen(false)}
         cosmetics={cosmeticsConfig}
         onUpdateCosmetics={handleUpdateCosmetics}
+        bankedShards={bankedShards}
+        upgrades={playerUpgrades}
+        onUpgrade={handleUpgrade}
+        unlockedItems={unlockedItems}
+        onUnlockItem={handleUnlockItem}
       />
 
       {/* Game Paused Modal */}
@@ -356,16 +499,15 @@ export default function App() {
       {isGameOver && (
         <GameOverModal
           stats={stats}
+          bankedShards={bankedShards}
           onRestart={() => {
             setIsGameOver(false);
             setRestartCount(c => c + 1);
           }}
-          onRevive={() => {
-            if (stats.windOrbsCollected >= 15) {
-              setStats(prev => ({ ...prev, windOrbsCollected: Math.max(0, prev.windOrbsCollected - 15) }));
-              setIsGameOver(false);
-              setReviveCount(c => c + 1);
-            }
+          onRevive={handleRevive}
+          onOpenShop={() => {
+            setIsGameOver(false);
+            setIsCosmeticsOpen(true);
           }}
         />
       )}

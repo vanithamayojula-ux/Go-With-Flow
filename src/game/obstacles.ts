@@ -1,17 +1,18 @@
 import * as THREE from 'three';
-import { getTerrainHeight } from './terrain';
-import { BiomeType, LaneIndex, ObstacleType, PowerUpType } from '../types';
-import { WORLD_THEMES } from './worldThemes';
-
-export const LANE_WIDTH = 4.2;
+import { BiomeType, LaneIndex, PowerUpType } from '../types';
 
 export function getLaneX(lane: LaneIndex): number {
-  return lane * LANE_WIDTH;
+  if (lane === -1) return -2.0; // Left lane
+  if (lane === 1) return 2.0;  // Right lane
+  return 0.0;                 // Center lane
 }
 
-export interface ObstacleInstance {
+export type ObstacleCategory = 'wave' | 'laser-gate' | 'split-path' | 'boost-gate' | 'grind-rail';
+
+export interface ObstacleItem {
   id: string;
-  type: ObstacleType;
+  type: string;
+  category: ObstacleCategory;
   lane: LaneIndex;
   x: number;
   y: number;
@@ -19,23 +20,53 @@ export interface ObstacleInstance {
   width: number;
   height: number;
   depth: number;
-  mesh: THREE.Group;
-  hasRamp?: boolean;
-  rampStartZ?: number;
+  mesh: THREE.Object3D;
+  cleared?: boolean;
+  canDuck?: boolean;
+  canJump?: boolean;
   isGrindRail?: boolean;
   isBoostGate?: boolean;
   isPortal?: boolean;
   targetBiome?: BiomeType;
-  targetThemeId?: string;
-  baseX?: number;
-  nearMissAwarded?: boolean;
-  cleared: boolean;
+  nearMissed?: boolean;
+
+  // Wave obstacle dynamic properties
+  isWave?: boolean;
+  waveBaseLane?: number;
+  waveAmplitude?: number; // In lane units or meters
+  waveFrequency?: number;
+  wavePhase?: number;
+
+  // Laser Gate dynamic properties
+  isLaserGate?: boolean;
+  gatePattern?: 'slow-blink' | 'fast-blink' | 'alternating';
+  gatePeriod?: number;
+  gatePhase?: number;
+  gateActive?: boolean;
+  warningDuration?: number;
+  beamMesh?: THREE.Mesh;
+  warningMesh?: THREE.Mesh;
+  emitterPillars?: THREE.Mesh[];
+
+  // Split Path properties
+  isSplitPath?: boolean;
+  splitRoute?: 'safe' | 'risky';
+  splitLength?: number;
+  riskRewardIndicator?: THREE.Group;
 }
 
-export interface PowerUpPickup {
+export interface CoinItem {
+  id: string;
+  x: number;
+  y: number;
+  z: number;
+  mesh: THREE.Mesh;
+  collected: boolean;
+}
+
+export interface PowerUpItem {
   id: string;
   type: PowerUpType;
-  lane: LaneIndex;
   x: number;
   y: number;
   z: number;
@@ -43,1162 +74,864 @@ export interface PowerUpPickup {
   collected: boolean;
 }
 
-export interface LaneCoin {
-  id: string;
-  x: number;
-  y: number;
-  z: number;
-  lane: LaneIndex;
-  mesh: THREE.Object3D;
-  collected: boolean;
+export interface CollisionResult {
+  hitPortal?: { targetBiome: BiomeType };
+  hitBoostGate?: boolean;
+  nearMiss?: boolean;
+  nearMissPos?: THREE.Vector3;
+  isGrinding?: boolean;
+  collectedCoins: number;
+  collectedPowerUp?: PowerUpType;
+  hasCrashed?: boolean;
+  hasStumbled?: boolean;
+  crashedObstacle?: ObstacleItem;
 }
 
 export class ObstacleManager {
   scene: THREE.Scene;
-  obstacles: ObstacleInstance[] = [];
-  powerUps: PowerUpPickup[] = [];
-  coins: LaneCoin[] = []; // Data Shards
+  group: THREE.Group;
 
-  lastSpawnZ = 30;
-  spawnInterval = 28;
-  nextObstacleId = 0;
+  obstacles: ObstacleItem[] = [];
+  coins: CoinItem[] = [];
+  powerUps: PowerUpItem[] = [];
 
-  // Shared Cyber Geometries & Materials
-  private pylonGeom = new THREE.CylinderGeometry(0.2, 0.28, 1.4, 8);
-  private pylonMat = new THREE.MeshBasicMaterial({ color: 0xff0033 });
-  private heavyPylonGeom = new THREE.CylinderGeometry(0.35, 0.45, 1.6, 6);
-  private heavyPylonMat = new THREE.MeshStandardMaterial({ color: 0x161b22, metalness: 0.9, roughness: 0.25 });
-  private redWarningGlowMat = new THREE.MeshBasicMaterial({ color: 0xff0033 });
-  private laserBeamGeom = new THREE.BoxGeometry(3.8, 0.45, 0.45); // Thick glowing neon laser beam
-  private laserBeamMat = new THREE.MeshBasicMaterial({ color: 0xff0033 }); // Hot neon red laser
+  private lastSpawnZ = 30;
+  private spawnInterval = 34;
 
-  private overheadArchPillarGeom = new THREE.CylinderGeometry(0.2, 0.25, 3.4, 6);
-  private overheadArchBeamGeom = new THREE.BoxGeometry(4.2, 0.55, 0.55);
-  private overheadBeamMat = new THREE.MeshBasicMaterial({ color: 0xff0033 }); // Hot neon red overhead laser conduit
+  // Rhythmic Pattern System state (Structured musical cadence)
+  private patternSequenceIndex = 0;
+  // Sequence grammar: rhythm-slalom -> wave -> laser-alternating -> jump-duck-tempo -> gap-recovery -> split-choice -> wave-dual
+  private readonly patternSequences = [
+    'rhythm-slalom',
+    'wave-intro',
+    'laser-alternating',
+    'jump-duck-tempo',
+    'gap-recovery',
+    'split-intro',
+    'wave-dual',
+    'rhythm-slalom',
+    'laser-fast',
+  ];
 
-  // Data Shard 3D Gem Geometries & Materials
-  // Plasma Energy Orb Geometries & Materials (Reference Image 5)
-  private orbAuraGeom = new THREE.SphereGeometry(0.5, 16, 16);
-  private orbAuraMat = new THREE.MeshBasicMaterial({ color: 0x00f0ff, transparent: true, opacity: 0.45, blending: THREE.AdditiveBlending });
-  private orbInnerGeom = new THREE.IcosahedronGeometry(0.28, 1);
-  private orbInnerMat = new THREE.MeshBasicMaterial({ color: 0xffffff });
-  private orbRuneRingGeom = new THREE.TorusGeometry(0.52, 0.04, 12, 32);
-  private orbRuneRingMat = new THREE.MeshStandardMaterial({ color: 0x9d00ff, emissive: 0x7700ff, emissiveIntensity: 1.2, metalness: 0.95, roughness: 0.1 });
-
-  private createDataShardGem(): THREE.Group {
-    const gemGroup = new THREE.Group();
-
-    // 1. Translucent outer energy aura (Reference Image 5)
-    const auraMesh = new THREE.Mesh(this.orbAuraGeom, this.orbAuraMat);
-    gemGroup.add(auraMesh);
-
-    // 2. Swirling inner glowing plasma core
-    const innerMesh = new THREE.Mesh(this.orbInnerGeom, this.orbInnerMat);
-    gemGroup.add(innerMesh);
-
-    // 3. Orbiting rune energy ring
-    const ringMesh = new THREE.Mesh(this.orbRuneRingGeom, this.orbRuneRingMat);
-    ringMesh.rotation.x = Math.PI / 3;
-    gemGroup.add(ringMesh);
-
-    return gemGroup;
-  }
-
-  // Boost Gate Hexagonal Arch
-  private boostGateGeom = new THREE.TorusGeometry(2.4, 0.2, 6, 6);
-  private boostGateMat = new THREE.MeshBasicMaterial({ color: 0x00ffaa });
-
-  // Grind Rail Geometry
-  private grindRailGeom = new THREE.CylinderGeometry(0.16, 0.16, 22, 8);
-  private grindRailMat = new THREE.MeshBasicMaterial({ color: 0xff007f });
-
-  // Drone Hazard & Energy Fence Materials (High-Contrast Lethal Red)
-  private droneBodyGeom = new THREE.OctahedronGeometry(0.6);
-  private droneEyeGeom = new THREE.SphereGeometry(0.25, 8, 8);
-  private droneHazardMat = new THREE.MeshBasicMaterial({ color: 0xff0033 });
-  private droneChassisMat = new THREE.MeshBasicMaterial({ color: 0xff0033 });
-
-  private fenceBarGeom = new THREE.BoxGeometry(3.8, 0.5, 0.2);
-  private fenceMat = new THREE.MeshBasicMaterial({ color: 0xff0033 });
-
-  // New Obstacle Geometries & High-Contrast Lethal Red Materials
-  private movingBarrierGeom = new THREE.BoxGeometry(3.6, 0.7, 0.5);
-  private movingBarrierMat = new THREE.MeshBasicMaterial({ color: 0xff0033 });
-
-  private fallingBlockGeom = new THREE.BoxGeometry(2.4, 2.4, 2.4);
-  private fallingBlockMat = new THREE.MeshBasicMaterial({ color: 0xff0033 });
-  private fallingBlockGlowMat = new THREE.MeshBasicMaterial({ color: 0xff0033 });
-
-  private pulsingLaserGeom = new THREE.CylinderGeometry(0.08, 0.08, 4.4, 8);
-  private pulsingLaserMat = new THREE.MeshBasicMaterial({ color: 0xff0033, transparent: true, opacity: 0.9, blending: THREE.AdditiveBlending });
+  // Strict Color System:
+  // Player = Cyan
+  // Obstacles & Hazards = Secondary Magenta / Pink (#e00070 / #ff0055)
+  // Warnings = Vivid Amber (#ffaa00)
+  // Rewards/Safe = Neon Cyan / Gold
+  private barrierMat = new THREE.MeshStandardMaterial({
+    color: 0x0a0f1d,
+    metalness: 0.9,
+    roughness: 0.2,
+  });
+  private laserHazardMat = new THREE.MeshBasicMaterial({ color: 0xe00050 }); // Active Magenta Hazard
+  private warningAmberMat = new THREE.MeshBasicMaterial({
+    color: 0xffaa00,
+    transparent: true,
+    opacity: 0.45,
+  });
+  private cyanNeonMat = new THREE.MeshBasicMaterial({ color: 0x00d2e0 }); // Player / Reward / Boost
+  private goldMat = new THREE.MeshBasicMaterial({ color: 0xffd700 }); // Collectible Shards
+  private safeHoloMat = new THREE.MeshBasicMaterial({
+    color: 0x00d2e0,
+    transparent: true,
+    opacity: 0.35,
+    wireframe: true,
+  });
+  private riskyHoloMat = new THREE.MeshBasicMaterial({
+    color: 0xe00050,
+    transparent: true,
+    opacity: 0.4,
+    wireframe: true,
+  });
 
   constructor(scene: THREE.Scene) {
     this.scene = scene;
-    this.grindRailGeom.rotateX(Math.PI / 2);
+    this.group = new THREE.Group();
+    this.scene.add(this.group);
+
+    this.spawnInitialObstacles();
   }
 
-  update(playerZ: number, time: number) {
-    const dt = 0.016;
-
-    // Difficulty scaling: spawnInterval ramps from 28 down to 18 as playerZ increases
-    const diffFactor = Math.min(1.0, Math.max(0.0, playerZ / 1500));
-    this.spawnInterval = 28 - diffFactor * 10;
-    const droneAggression = 1.0 + diffFactor * 0.75;
-
-    // 1. Procedurally spawn cyberpunk obstacle sections ahead
-    while (this.lastSpawnZ < playerZ + 220) {
-      this.spawnSection(this.lastSpawnZ, diffFactor);
-      this.lastSpawnZ += this.spawnInterval + Math.random() * 8;
-    }
-
-    // 2. Animate dynamic hazards & obstacles
-    for (const obs of this.obstacles) {
-      if (obs.cleared) continue;
-
-      if (obs.type === 'moving-horizontal-barrier') {
-        const base = obs.baseX ?? obs.x;
-        obs.x = base + Math.sin(time * 3.2 * droneAggression + obs.z * 0.1) * 2.2;
-        obs.mesh.position.x = obs.x;
-      } else if (obs.type === 'falling-security-block') {
-        const distZ = obs.z - playerZ;
-        if (distZ < 65 && distZ > -10) {
-          const targetY = getTerrainHeight(obs.x, obs.z) + 1.2;
-          obs.y = THREE.MathUtils.lerp(obs.y, targetY, dt * 10.0 * droneAggression);
-          obs.mesh.position.y = obs.y;
-        }
-      } else if (obs.type === 'pulsing-laser-beam') {
-        const pulse = Math.sin(time * 8.0 * droneAggression) * 0.35 + 0.65;
-        obs.mesh.traverse(child => {
-          if (child instanceof THREE.Mesh && child.material instanceof THREE.MeshBasicMaterial) {
-            child.material.opacity = pulse;
-          }
-        });
-      } else if (obs.type === 'drone-hazard') {
-        const base = obs.baseX ?? obs.x;
-        obs.x = base + Math.sin(time * 2.8 * droneAggression + obs.z) * 1.8;
-        obs.mesh.position.x = obs.x;
-        obs.mesh.position.y = obs.y + Math.sin(time * 4.0) * 0.25;
-      }
-    }
-
-    // 3. Rotate & Levitate 3D Gem Data Shards & Power-up pickups
-    for (const shard of this.coins) {
-      if (!shard.collected) {
-        shard.mesh.rotation.y = time * 3.5;
-        shard.mesh.position.y = shard.y + Math.sin(time * 4.0 + shard.z * 0.5) * 0.15;
-        if (shard.mesh.children[2]) {
-          shard.mesh.children[2].rotation.z = time * 4.0;
-        }
-      }
-    }
-
-    for (const p of this.powerUps) {
-      if (!p.collected) {
-        p.mesh.rotation.y = time * 3.0;
-        p.mesh.position.y += Math.sin(time * 4.5) * 0.006;
-      }
-    }
-
-    // 4. Despawn old obstacles behind player
-    this.cullOldInstances(playerZ - 40);
-  }
-
-  lastPortalZ = 120;
-  portalBiomes: BiomeType[] = WORLD_THEMES.map(t => t.id as BiomeType);
-  portalIndex = 0;
-
-  private spawnSection(z: number, diffFactor = 0) {
-    // Periodically spawn a World Portal Gateway every ~280-380 meters
-    if (z - this.lastPortalZ > 300 + Math.random() * 80) {
-      this.lastPortalZ = z;
-      const lane: LaneIndex = (Math.floor(Math.random() * 3) - 1) as LaneIndex;
-      const targetBiome = this.portalBiomes[this.portalIndex % this.portalBiomes.length];
-      this.portalIndex++;
-      this.spawnWorldPortal(lane, z, targetBiome);
-      return;
-    }
-
-    // Skill-based sequence patterns at higher difficulty
-    const useSequence = Math.random() < (0.2 + diffFactor * 0.5);
-    if (useSequence) {
-      const patternChoice = Math.floor(Math.random() * 4);
-      const mainLane: LaneIndex = (Math.floor(Math.random() * 3) - 1) as LaneIndex;
-      const altLane: LaneIndex = (mainLane === 0 ? 1 : 0) as LaneIndex;
-
-      if (patternChoice === 0) {
-        // Pattern A: Slide under conduit -> Jump over laser barrier -> Data Shards arc
-        this.spawnOverheadConduit(mainLane, z);
-        this.spawnLaserBarrier(mainLane, z + 18);
-        this.spawnDataShardArc(mainLane, z + 18, 5);
-      } else if (patternChoice === 1) {
-        // Pattern B: Maglev train ramp -> Roof data shards -> Rail grind transfer
-        this.spawnMaglevTrain(mainLane, z, true);
-        this.spawnGrindRail(altLane, z + 26);
-      } else if (patternChoice === 2) {
-        // Pattern C: Dual pulsing lasers -> Boost gate exit
-        this.spawnPulsingLaserBeam(-1, z);
-        this.spawnPulsingLaserBeam(1, z + 14);
-        this.spawnBoostGate(0, z + 28);
-      } else {
-        // Pattern D: Falling security block -> Drifting drone -> Power-up reward
-        this.spawnFallingSecurityBlock(mainLane, z);
-        this.spawnDroneHazard(altLane, z + 16);
-        this.spawnPowerUp(mainLane, z + 28);
-      }
-      return;
-    }
-
-    const roll = Math.random();
-
-    if (roll < 0.14) {
-      // Moving Horizontal Barrier
-      const lane: LaneIndex = (Math.floor(Math.random() * 3) - 1) as LaneIndex;
-      this.spawnMovingHorizontalBarrier(lane, z);
-      this.spawnDataShardLine(lane === 0 ? 1 : 0, z - 4, 4);
-    } else if (roll < 0.26) {
-      // Falling Security Block
-      const lane: LaneIndex = (Math.floor(Math.random() * 3) - 1) as LaneIndex;
-      this.spawnFallingSecurityBlock(lane, z);
-      this.spawnDataShardLine(lane === 0 ? -1 : 0, z - 4, 4);
-    } else if (roll < 0.38) {
-      // Pulsing Laser Beam
-      const lane: LaneIndex = (Math.floor(Math.random() * 3) - 1) as LaneIndex;
-      this.spawnPulsingLaserBeam(lane, z);
-      this.spawnDataShardLine(lane, z + 4, 4);
-    } else if (roll < 0.50) {
-      // Grind Rail along lane divider or center lane
-      const lane: LaneIndex = (Math.floor(Math.random() * 3) - 1) as LaneIndex;
-      this.spawnGrindRail(lane, z);
-      this.spawnDataShardArc(lane, z, 6);
-    } else if (roll < 0.62) {
-      // Boost Gate on one lane + Data Shards corridor
-      const lane: LaneIndex = (Math.floor(Math.random() * 3) - 1) as LaneIndex;
-      this.spawnBoostGate(lane, z);
-      this.spawnDataShardLine(lane, z - 8, 5);
-      this.spawnDataShardLine(lane, z + 6, 6);
-    } else if (roll < 0.74) {
-      // Drifting Drone Hazard patrolling a lane
-      const droneLane: LaneIndex = (Math.floor(Math.random() * 3) - 1) as LaneIndex;
-      this.spawnDroneHazard(droneLane, z);
-      const safeLane: LaneIndex = (droneLane === 0 ? 1 : 0) as LaneIndex;
-      this.spawnDataShardLine(safeLane, z - 4, 4);
-    } else if (roll < 0.86) {
-      // Low Energy-Fence requiring jump
-      const fenceLane: LaneIndex = (Math.floor(Math.random() * 3) - 1) as LaneIndex;
-      this.spawnEnergyFence(fenceLane, z);
-      const safeLane: LaneIndex = (fenceLane === 0 ? -1 : 0) as LaneIndex;
-      this.spawnDataShardLine(safeLane, z - 4, 4);
-    } else {
-      // Mag-Lev Hover Train with Sloped Aerodynamic Ramp
-      const trainLane: LaneIndex = (Math.floor(Math.random() * 3) - 1) as LaneIndex;
-      this.spawnMaglevTrain(trainLane, z, true);
+  private spawnInitialObstacles(): void {
+    for (let z = 50; z < 450; z += this.spawnInterval) {
+      this.spawnNextPatternAtZ(z);
+      this.lastSpawnZ = z;
     }
   }
 
-  // --- Cyberpunk Spawn Primitives ---
+  /**
+   * Pattern Sequencer:
+   * Chooses structured pattern sequences rather than uncontrolled randomness.
+   * Ensures high readability (0.5 - 1.0s preview) and rhythm.
+   */
+  private spawnNextPatternAtZ(z: number, playerSpeed = 22): void {
+    const patternType = this.patternSequences[this.patternSequenceIndex % this.patternSequences.length];
+    this.patternSequenceIndex++;
 
-  private spawnDroneHazard(lane: LaneIndex, z: number) {
+    // Calculate normalized difficulty (0.0 to 1.0) based on distance z
+    const difficulty = Math.min(1.0, z / 2000.0);
+
+    switch (patternType) {
+      case 'rhythm-slalom':
+        this.spawnRhythmSlalom(z, difficulty);
+        break;
+      case 'wave-intro':
+        this.spawnWaveObstacle(z, difficulty, false);
+        break;
+      case 'laser-alternating':
+        this.spawnLaserGate(z, 'alternating', difficulty);
+        break;
+      case 'jump-duck-tempo':
+        this.spawnJumpDuckTempo(z, difficulty);
+        break;
+      case 'gap-recovery':
+        this.spawnRecoveryGap(z);
+        break;
+      case 'split-intro':
+        this.spawnSplitPath(z, difficulty, false);
+        break;
+      case 'wave-dual':
+        this.spawnWaveObstacle(z, difficulty, true);
+        break;
+      case 'laser-fast':
+        this.spawnLaserGate(z, 'fast-blink', difficulty);
+        break;
+      default:
+        this.spawnRhythmSlalom(z, difficulty);
+    }
+  }
+
+  // =========================================================================
+  // 0. RHYTHM SLALOM PATTERN (Structured 3-Beat Lane Weave)
+  // - Left -> Right -> Center rhythmic cadence with guide shards
+  // =========================================================================
+  private spawnRhythmSlalom(z: number, difficulty: number): void {
+    // Beat 1: Left lane block (Lane -1), guide shard on Lane 0
+    this.createLowHurdle(-1, z);
+    this.spawnCoin(getLaneX(0), 0.9, z + 2);
+
+    // Beat 2: Right lane block (Lane 1), guide shard on Lane -1
+    this.createLowHurdle(1, z + 14);
+    this.spawnCoin(getLaneX(-1), 0.9, z + 16);
+
+    // Beat 3: Center lane block (Lane 0), guide shard on Lane 1
+    this.createLowHurdle(0, z + 28);
+    this.spawnCoin(getLaneX(1), 0.9, z + 30);
+
+    // Resolve Beat: Boost gate on target lane to reward perfect flow!
+    this.createBoostArch(1, z + 40);
+  }
+
+  // =========================================================================
+  // JUMP & DUCK TEMPO PATTERN (Action Cadence)
+  // - Jump -> Duck -> Grind flow sequence
+  // =========================================================================
+  private spawnJumpDuckTempo(z: number, difficulty: number): void {
+    // Beat 1: Jump over low hurdle on Lane -1
+    this.createLowHurdle(-1, z);
+    this.spawnCoin(getLaneX(-1), 1.8, z); // High coin rewarding jump
+
+    // Beat 2: Overhead neon barrier on Lane 0 (Slide duck under!)
+    this.createHighLaserBarrier(0, z + 15);
+    this.spawnCoin(getLaneX(0), 0.45, z + 15); // Low coin rewarding slide
+
+    // Beat 3: Elevated grind rail on Lane 1
+    this.createGrindRail(1, z + 30, 20);
+    this.spawnCoin(getLaneX(1), 2.2, z + 30);
+  }
+
+  private createHighLaserBarrier(lane: LaneIndex, z: number): void {
     const x = getLaneX(lane);
-    const y = getTerrainHeight(x, z) + 1.2;
+    const barrierGroup = new THREE.Group();
+    barrierGroup.position.set(x, 0, z);
 
-    const group = new THREE.Group();
-    const body = new THREE.Mesh(this.droneBodyGeom, this.droneChassisMat);
-    group.add(body);
+    // Tall support posts
+    const postGeom = new THREE.BoxGeometry(0.2, 3.2, 0.2);
+    const leftPost = new THREE.Mesh(postGeom, this.barrierMat);
+    leftPost.position.set(-1.1, 1.6, 0);
+    const rightPost = new THREE.Mesh(postGeom, this.barrierMat);
+    rightPost.position.set(1.1, 1.6, 0);
+    barrierGroup.add(leftPost, rightPost);
 
-    const eye = new THREE.Mesh(this.droneEyeGeom, this.droneHazardMat);
-    eye.position.set(0, 0, 0.25);
-    group.add(eye);
+    // High horizontal laser beam requiring crouch/slide
+    const beamGeom = new THREE.BoxGeometry(2.1, 0.4, 0.2);
+    const beamMesh = new THREE.Mesh(beamGeom, this.laserHazardMat);
+    beamMesh.position.set(0, 1.8, 0); // High position - slide clears!
+    barrierGroup.add(beamMesh);
 
-    group.position.set(x, y, z);
-    this.scene.add(group);
+    this.group.add(barrierGroup);
 
     this.obstacles.push({
-      id: `drone_${this.nextObstacleId++}`,
-      type: 'drone-hazard',
+      id: `high-barrier-${z}-${lane}`,
+      type: 'high-barrier',
+      category: 'laser-gate',
       lane,
       x,
-      y,
+      y: 1.8,
       z,
-      baseX: x,
-      width: 2.0,
-      height: 1.8,
-      depth: 1.8,
-      mesh: group,
-      cleared: false,
-    });
-  }
-
-  private spawnEnergyFence(lane: LaneIndex, z: number) {
-    const x = getLaneX(lane);
-    const y = getTerrainHeight(x, z);
-
-    const group = new THREE.Group();
-
-    const p1 = new THREE.Mesh(this.pylonGeom, this.pylonMat);
-    p1.position.set(-1.8, 0.5, 0);
-    group.add(p1);
-
-    const p2 = new THREE.Mesh(this.pylonGeom, this.pylonMat);
-    p2.position.set(1.8, 0.5, 0);
-    group.add(p2);
-
-    const fenceBar = new THREE.Mesh(this.fenceBarGeom, this.fenceMat);
-    fenceBar.position.set(0, 0.55, 0);
-    group.add(fenceBar);
-
-    group.position.set(x, y, z);
-    this.scene.add(group);
-
-    this.obstacles.push({
-      id: `fence_${this.nextObstacleId++}`,
-      type: 'energy-fence',
-      lane,
-      x,
-      y,
-      z,
-      width: 3.6,
-      height: 0.95,
-      depth: 0.8,
-      mesh: group,
-      cleared: false,
-    });
-  }
-
-  private spawnLaserBarrier(lane: LaneIndex, z: number) {
-    const x = getLaneX(lane);
-    const y = getTerrainHeight(x, z);
-
-    const group = new THREE.Group();
-
-    // Heavy dark titanium stanchion pylons (Reference Image 4)
-    const pylonLeft = new THREE.Mesh(this.heavyPylonGeom, this.heavyPylonMat);
-    pylonLeft.position.set(-1.85, 0.7, 0);
-    group.add(pylonLeft);
-
-    const pylonRight = new THREE.Mesh(this.heavyPylonGeom, this.heavyPylonMat);
-    pylonRight.position.set(1.85, 0.7, 0);
-    group.add(pylonRight);
-
-    // Red warning light caps on top of pylons
-    const redCapLeft = new THREE.Mesh(new THREE.BoxGeometry(0.5, 0.15, 0.5), this.redWarningGlowMat);
-    redCapLeft.position.set(-1.85, 1.5, 0);
-    group.add(redCapLeft);
-
-    const redCapRight = new THREE.Mesh(new THREE.BoxGeometry(0.5, 0.15, 0.5), this.redWarningGlowMat);
-    redCapRight.position.set(1.85, 1.5, 0);
-    group.add(redCapRight);
-
-    // Heavy crossbeam with glowing red warning strip
-    const crossbeam = new THREE.Mesh(new THREE.BoxGeometry(3.7, 0.25, 0.3), this.heavyPylonMat);
-    crossbeam.position.set(0, 0.65, 0);
-    group.add(crossbeam);
-
-    // Glowing Neon Lethal Red Laser Beam
-    const laser = new THREE.Mesh(this.laserBeamGeom, this.laserBeamMat);
-    laser.position.set(0, 0.65, 0);
-    group.add(laser);
-
-    group.position.set(x, y, z);
-    this.scene.add(group);
-
-    this.obstacles.push({
-      id: `laser_${this.nextObstacleId++}`,
-      type: 'laser-barrier',
-      lane,
-      x,
-      y,
-      z,
-      width: 3.7,
-      height: 1.1,
-      depth: 0.8,
-      mesh: group,
-      cleared: false,
-    });
-  }
-
-  private spawnMovingHorizontalBarrier(lane: LaneIndex, z: number) {
-    const x = getLaneX(lane);
-    const y = getTerrainHeight(x, z) + 0.6;
-
-    const group = new THREE.Group();
-    const bar = new THREE.Mesh(this.movingBarrierGeom, this.movingBarrierMat);
-    group.add(bar);
-
-    // Ground Laser Hazard Sweep Warning Line
-    const sweepMat = new THREE.MeshBasicMaterial({ color: 0xff0033, transparent: true, opacity: 0.75, side: THREE.DoubleSide });
-    const sweepWarning = new THREE.Mesh(new THREE.PlaneGeometry(6.4, 0.4), sweepMat);
-    sweepWarning.rotation.x = Math.PI / 2;
-    sweepWarning.position.set(0, -0.55, 0);
-    group.add(sweepWarning);
-
-    group.position.set(x, y, z);
-    this.scene.add(group);
-
-    this.obstacles.push({
-      id: `mov_bar_${this.nextObstacleId++}`,
-      type: 'moving-horizontal-barrier',
-      lane,
-      x,
-      y,
-      z,
-      baseX: x,
-      width: 3.6,
-      height: 0.8,
+      width: 2.1,
+      height: 1.4,
       depth: 0.6,
-      mesh: group,
-      cleared: false,
+      mesh: barrierGroup,
+      canDuck: true,
+      canJump: false,
     });
   }
 
-  private spawnFallingSecurityBlock(lane: LaneIndex, z: number) {
-    const x = getLaneX(lane);
-    const groundY = getTerrainHeight(x, z);
-    const y = groundY + 12.0; // Starts up high, drops as player approaches
+  // =========================================================================
+  // 1. WAVE OBSTACLES (Primary System)
+  // - Moves smoothly in predictable sine-wave across lanes
+  // - Player moves in sync with wave rhythm
+  // - Never blocks all lanes simultaneously; rhythmically readable
+  // =========================================================================
+  private spawnWaveObstacle(z: number, difficulty: number, isDual = false, tempoMultiplier = 1.0): void {
+    const waveGroup = new THREE.Group();
 
-    const group = new THREE.Group();
-    const block = new THREE.Mesh(this.fallingBlockGeom, this.fallingBlockMat);
-    group.add(block);
+    // Magenta Drone / Energy Orb with hover thruster
+    const coreGeom = new THREE.SphereGeometry(0.75, 16, 16);
+    const coreMesh = new THREE.Mesh(coreGeom, this.laserHazardMat);
+    waveGroup.add(coreMesh);
 
-    const glowTrim = new THREE.Mesh(new THREE.BoxGeometry(2.5, 0.2, 2.5), this.fallingBlockGlowMat);
-    group.add(glowTrim);
+    // Hazard ring indicator
+    const ringGeom = new THREE.TorusGeometry(1.05, 0.08, 8, 20);
+    const ringMesh = new THREE.Mesh(ringGeom, this.laserHazardMat);
+    ringMesh.rotation.x = Math.PI / 2;
+    waveGroup.add(ringMesh);
 
-    // Red Impact Zone Warning Decal Projection on Ground
-    const warnMat = new THREE.MeshBasicMaterial({ color: 0xff0033, wireframe: true, transparent: true, opacity: 0.85 });
-    const targetDecal = new THREE.Mesh(new THREE.PlaneGeometry(2.6, 2.6), warnMat);
-    targetDecal.rotation.x = Math.PI / 2;
-    targetDecal.position.set(0, groundY - y + 0.05, 0);
-    group.add(targetDecal);
-
-    group.position.set(x, y, z);
-    this.scene.add(group);
-
-    this.obstacles.push({
-      id: `fall_block_${this.nextObstacleId++}`,
-      type: 'falling-security-block',
-      lane,
-      x,
-      y,
-      z,
-      width: 2.6,
-      height: 2.6,
-      depth: 2.6,
-      mesh: group,
-      cleared: false,
-    });
-  }
-
-  private spawnPulsingLaserBeam(lane: LaneIndex, z: number) {
-    const x = getLaneX(lane);
-    const y = getTerrainHeight(x, z) + 0.8;
-
-    const group = new THREE.Group();
-    const beam = new THREE.Mesh(this.pulsingLaserGeom, this.pulsingLaserMat);
-    beam.rotateZ(Math.PI / 2);
-    group.add(beam);
-
-    group.position.set(x, y, z);
-    this.scene.add(group);
-
-    this.obstacles.push({
-      id: `pulse_laser_${this.nextObstacleId++}`,
-      type: 'pulsing-laser-beam',
-      lane,
-      x,
-      y,
-      z,
-      width: 4.4,
-      height: 0.9,
-      depth: 0.6,
-      mesh: group,
-      cleared: false,
-    });
-  }
-
-  private spawnOverheadConduit(lane: LaneIndex, z: number) {
-    const x = getLaneX(lane);
-    const y = getTerrainHeight(x, z);
-
-    const group = new THREE.Group();
-
-    // Tall side pillars
-    const p1 = new THREE.Mesh(this.overheadArchPillarGeom, this.pylonMat);
-    p1.position.set(-2.0, 1.7, 0);
-    group.add(p1);
-
-    const p2 = new THREE.Mesh(this.overheadArchPillarGeom, this.pylonMat);
-    p2.position.set(2.0, 1.7, 0);
-    group.add(p2);
-
-    // High Voltage Glowing Beam (Clearance ~1.3m -> must duck/slide!)
-    const beam = new THREE.Mesh(this.overheadArchBeamGeom, this.overheadBeamMat);
-    beam.position.set(0, 2.0, 0);
-    group.add(beam);
-
-    group.position.set(x, y, z);
-    this.scene.add(group);
-
-    this.obstacles.push({
-      id: `conduit_${this.nextObstacleId++}`,
-      type: 'overhead-conduit',
-      lane,
-      x,
-      y,
-      z,
-      width: 4.0,
-      height: 2.2,
-      depth: 0.8,
-      mesh: group,
-      cleared: false,
-    });
-  }
-
-  private spawnBoostGate(lane: LaneIndex, z: number) {
-    const x = getLaneX(lane);
-    const y = getTerrainHeight(x, z);
-
-    const group = new THREE.Group();
-    const hexArch = new THREE.Mesh(this.boostGateGeom, this.boostGateMat);
-    hexArch.position.set(0, 2.2, 0);
-    group.add(hexArch);
-
-    group.position.set(x, y, z);
-    this.scene.add(group);
-
-    this.obstacles.push({
-      id: `boost_gate_${this.nextObstacleId++}`,
-      type: 'boost-gate',
-      lane,
-      x,
-      y,
-      z,
-      width: 3.8,
-      height: 3.5,
-      depth: 1.2,
-      mesh: group,
-      isBoostGate: true,
-      cleared: false,
-    });
-  }
-
-  private spawnGrindRail(lane: LaneIndex, z: number) {
-    const x = getLaneX(lane);
-    const y = getTerrainHeight(x, z);
-
-    const group = new THREE.Group();
-    const rail = new THREE.Mesh(this.grindRailGeom, this.grindRailMat);
-    rail.position.set(0, 1.1, 0);
-    group.add(rail);
-
-    // Stanchion supports
-    [-8, 0, 8].forEach(pz => {
-      const sup = new THREE.Mesh(new THREE.CylinderGeometry(0.1, 0.12, 1.1, 6), this.pylonMat);
-      sup.position.set(0, 0.55, pz);
-      group.add(sup);
-    });
-
-    group.position.set(x, y, z);
-    this.scene.add(group);
-
-    this.obstacles.push({
-      id: `rail_${this.nextObstacleId++}`,
-      type: 'grind-rail',
-      lane,
-      x,
-      y,
-      z,
-      width: 1.2,
-      height: 1.5,
-      depth: 22.0,
-      mesh: group,
-      isGrindRail: true,
-      cleared: false,
-    });
-  }
-
-  private spawnMaglevTrain(lane: LaneIndex, z: number, withRamp: boolean) {
-    const x = getLaneX(lane);
-    const y = getTerrainHeight(x, z);
-
-    const group = new THREE.Group();
-
-    // Streamlined aerodynamic hover train car
-    const trainLength = 24.0;
-    const trainGeom = new THREE.BoxGeometry(3.6, 2.8, trainLength);
-    const trainMat = new THREE.MeshLambertMaterial({ color: 0x0c1220 });
-    const trainBody = new THREE.Mesh(trainGeom, trainMat);
-    trainBody.position.set(0, 1.4, 0);
-    group.add(trainBody);
-
-    // Glowing Neon Side Windows (Cyan strips)
-    const windowGeom = new THREE.BoxGeometry(3.65, 0.4, trainLength * 0.85);
-    const windowMat = new THREE.MeshBasicMaterial({ color: 0x00f0ff });
-    const windows = new THREE.Mesh(windowGeom, windowMat);
-    windows.position.set(0, 2.0, 0);
-    group.add(windows);
-
-    // Front Aerodynamic Cowcatcher Wedge Ramp
-    if (withRamp) {
-      const rampLength = 7.0;
-      const rampGeom = new THREE.BufferGeometry();
-      const hw = 1.8;
-      const vertices = new Float32Array([
-        -hw, 0.1, -rampLength,
-        hw, 0.1, -rampLength,
-        hw, 2.8, 0,
-        -hw, 0.1, -rampLength,
-        hw, 2.8, 0,
-        -hw, 2.8, 0,
-      ]);
-      rampGeom.setAttribute('position', new THREE.BufferAttribute(vertices, 3));
-      rampGeom.computeVertexNormals();
-
-      const rampMat = new THREE.MeshBasicMaterial({ color: 0x00f0ff, wireframe: false });
-      const rampMesh = new THREE.Mesh(rampGeom, rampMat);
-      rampMesh.position.set(0, 0, -trainLength / 2);
-      group.add(rampMesh);
-    }
-
-    group.position.set(x, y, z);
-    this.scene.add(group);
-
-    this.obstacles.push({
-      id: `maglev_${this.nextObstacleId++}`,
-      type: withRamp ? 'maglev-ramp' : 'maglev-hauler',
-      lane,
-      x,
-      y,
-      z,
-      width: 3.6,
-      height: 2.8,
-      depth: trainLength,
-      mesh: group,
-      hasRamp: withRamp,
-      rampStartZ: z - trainLength / 2 - 7.0,
-      cleared: false,
-    });
-
-    // Data Shards line along roof of the train
-    this.spawnDataShardLine(lane, z - 8, 5, y + 3.4);
-  }
-
-  private spawnWorldPortal(lane: LaneIndex, z: number, targetBiome: BiomeType) {
-    const x = getLaneX(lane);
-    const y = getTerrainHeight(x, z);
-
-    const group = new THREE.Group();
-
-    const portalColors: Record<string, number> = {
-      'volcanic-forge': 0xff3300,
-      'crystal-glacier': 0x00f7ff,
-      'quantum-desert': 0xffaa00,
-      'cyber-forest': 0x00ff88,
-      'orbital-ring': 0xff00aa,
-      'the-grid': 0x00ff66,
-      'neon-undercity': 0x00f0ff,
-    };
-    const pColor = portalColors[targetBiome] || 0x00f0ff;
-
-    const ringMat = new THREE.MeshBasicMaterial({ color: pColor });
-    const ring = new THREE.Mesh(new THREE.TorusGeometry(3.0, 0.35, 12, 32), ringMat);
-    ring.position.set(0, 2.6, 0);
-    group.add(ring);
-
-    const vortexMat = new THREE.MeshBasicMaterial({
-      color: pColor,
+    // Downward laser scanner cone showing lane footprint on pavement
+    const scanGeom = new THREE.ConeGeometry(0.9, 1.4, 8, 1, true);
+    scanGeom.rotateX(Math.PI);
+    const scanMat = new THREE.MeshBasicMaterial({
+      color: 0xe00050,
       transparent: true,
-      opacity: 0.85,
-      blending: THREE.AdditiveBlending,
+      opacity: 0.25,
       side: THREE.DoubleSide,
     });
-    const vortex = new THREE.Mesh(new THREE.CircleGeometry(2.8, 24), vortexMat);
-    vortex.position.set(0, 2.6, 0);
-    group.add(vortex);
+    const scanMesh = new THREE.Mesh(scanGeom, scanMat);
+    scanMesh.position.set(0, -0.7, 0);
+    waveGroup.add(scanMesh);
 
-    const outerRingMat = new THREE.MeshBasicMaterial({
-      color: 0xffffff,
-      wireframe: true,
-    });
-    const outerRing = new THREE.Mesh(new THREE.TorusGeometry(3.6, 0.1, 8, 24), outerRingMat);
-    outerRing.position.set(0, 2.6, 0);
-    group.add(outerRing);
+    const baseLane = isDual ? -0.8 : 0.0;
+    const waveAmp = isDual ? 1.6 : 2.4; // Max sweep: spans from -2.4 to +2.4
+    const waveFreq = (1.2 + difficulty * 0.8) * tempoMultiplier;
+    const wavePhase = (z * 0.05) % (Math.PI * 2);
 
-    group.position.set(x, y, z);
-    this.scene.add(group);
+    waveGroup.position.set(baseLane, 1.4, z);
+    this.group.add(waveGroup);
 
     this.obstacles.push({
-      id: `portal_${this.nextObstacleId++}`,
-      type: 'world-portal',
+      id: `wave-${z}-1`,
+      type: 'wave-drone',
+      category: 'wave',
+      lane: 0,
+      x: baseLane,
+      y: 1.4,
+      z,
+      width: 1.8,
+      height: 1.8,
+      depth: 1.2,
+      mesh: waveGroup,
+      isWave: true,
+      waveBaseLane: baseLane,
+      waveAmplitude: waveAmp,
+      waveFrequency: waveFreq,
+      wavePhase,
+    });
+
+    // Dual offset wave creates alternating weave pattern (lane 1 open, then lane -1 open)
+    if (isDual) {
+      const waveGroup2 = new THREE.Group();
+      const core2 = new THREE.Mesh(coreGeom, this.laserHazardMat);
+      waveGroup2.add(core2);
+      const ring2 = new THREE.Mesh(ringGeom, this.laserHazardMat);
+      ring2.rotation.x = Math.PI / 2;
+      waveGroup2.add(ring2);
+
+      const baseLane2 = 0.8;
+      const wavePhase2 = wavePhase + Math.PI; // Inverted phase guarantees passable corridor
+      waveGroup2.position.set(baseLane2, 1.4, z + 8);
+      this.group.add(waveGroup2);
+
+      this.obstacles.push({
+        id: `wave-${z}-2`,
+        type: 'wave-drone',
+        category: 'wave',
+        lane: 0,
+        x: baseLane2,
+        y: 1.4,
+        z: z + 8,
+        width: 1.8,
+        height: 1.8,
+        depth: 1.2,
+        mesh: waveGroup2,
+        isWave: true,
+        waveBaseLane: baseLane2,
+        waveAmplitude: waveAmp,
+        waveFrequency: waveFreq,
+        wavePhase: wavePhase2,
+      });
+    }
+
+    // Guide coins showing the rhythmic flow line through the wave
+    for (let i = 0; i < 4; i++) {
+      const cz = z + 12 + i * 4;
+      const progress = (i / 4) * Math.PI * 2;
+      const coinLaneX = Math.sin(progress) * 2.2;
+      this.spawnCoin(coinLaneX, 0.9, cz);
+    }
+  }
+
+  // =========================================================================
+  // 2. LASER GATES (Timing System)
+  // - Laser barriers cycle ON/OFF in readable patterns
+  // - Advance visual warning (amber pulse) before beam activates
+  // - Consistent timing: slow blink, fast blink, alternating lanes
+  // =========================================================================
+  private spawnLaserGate(z: number, pattern: 'slow-blink' | 'fast-blink' | 'alternating', difficulty: number): void {
+    const lanes: LaneIndex[] = [-1, 0, 1];
+
+    if (pattern === 'alternating') {
+      // Lane -1 and Lane 1 alternate with Center Lane 0
+      this.createSingleLaserGate(lanes[0], z, pattern, 0.0, difficulty);
+      this.createSingleLaserGate(lanes[2], z, pattern, 0.0, difficulty);
+      this.createSingleLaserGate(lanes[1], z, pattern, Math.PI, difficulty);
+    } else {
+      // Pick 2 lanes to have blinking laser gates, leaving 1 always safe escape route
+      const safeLane = lanes[Math.floor(Math.random() * lanes.length)];
+      for (const lane of lanes) {
+        if (lane !== safeLane) {
+          this.createSingleLaserGate(lane, z, pattern, 0.0, difficulty);
+        }
+      }
+    }
+
+    // Place reward coin on the timing opening
+    const safeLaneX = 0;
+    this.spawnCoin(safeLaneX, 0.9, z + 6);
+  }
+
+  private createSingleLaserGate(
+    lane: LaneIndex,
+    z: number,
+    pattern: 'slow-blink' | 'fast-blink' | 'alternating',
+    phaseOffset: number,
+    difficulty: number
+  ): void {
+    const x = getLaneX(lane);
+    const gateGroup = new THREE.Group();
+    gateGroup.position.set(x, 0, z);
+
+    // Emitter pillars (Left & Right posts)
+    const pillarGeom = new THREE.BoxGeometry(0.24, 2.8, 0.35);
+    const leftPillar = new THREE.Mesh(pillarGeom, this.barrierMat);
+    leftPillar.position.set(-1.1, 1.4, 0);
+    const rightPillar = new THREE.Mesh(pillarGeom, this.barrierMat);
+    rightPillar.position.set(1.1, 1.4, 0);
+    gateGroup.add(leftPillar, rightPillar);
+
+    // Active Laser Beam Mesh (Secondary Magenta)
+    const beamGeom = new THREE.BoxGeometry(2.1, 0.22, 0.18);
+    const beamMesh = new THREE.Mesh(beamGeom, this.laserHazardMat);
+    beamMesh.position.set(0, 1.4, 0);
+    gateGroup.add(beamMesh);
+
+    // Amber Pre-fire Warning Filament (Visible when charging)
+    const warnGeom = new THREE.BoxGeometry(2.1, 0.06, 0.06);
+    const warningMesh = new THREE.Mesh(warnGeom, this.warningAmberMat);
+    warningMesh.position.set(0, 1.4, 0);
+    warningMesh.visible = false;
+    gateGroup.add(warningMesh);
+
+    this.group.add(gateGroup);
+
+    // Period scaling based on difficulty & pattern:
+    // slow-blink: 2.2s period (1.1s ON, 1.1s OFF)
+    // fast-blink: 1.4s period (0.7s ON, 0.7s OFF)
+    // alternating: 1.8s period
+    const basePeriod = pattern === 'slow-blink' ? 2.4 - difficulty * 0.4 : pattern === 'fast-blink' ? 1.4 : 1.8;
+
+    this.obstacles.push({
+      id: `laser-${z}-${lane}`,
+      type: 'laser-gate',
+      category: 'laser-gate',
       lane,
       x,
-      y,
+      y: 1.4,
       z,
-      width: 4.8,
-      height: 5.2,
+      width: 2.2,
+      height: 2.2,
+      depth: 0.6,
+      mesh: gateGroup,
+      isLaserGate: true,
+      gatePattern: pattern,
+      gatePeriod: basePeriod,
+      gatePhase: phaseOffset,
+      gateActive: true,
+      warningDuration: 0.45,
+      beamMesh,
+      warningMesh,
+      emitterPillars: [leftPillar, rightPillar],
+      canDuck: false,
+      canJump: false,
+    });
+  }
+
+  // =========================================================================
+  // 3. SPLIT PATH (Decision System)
+  // - Road branches into Safe Route (clear, low reward) vs Risky Route (hazards, dense shards)
+  // - Clear visual cues: Cyan/Safe signage vs Magenta/Hazard signage
+  // - Seamless merge back after split length (36m)
+  // =========================================================================
+  private spawnSplitPath(z: number, difficulty: number, isDense = false): void {
+    const splitLength = 36;
+    const safeLane: LaneIndex = -1;
+    const riskyLane: LaneIndex = 1;
+
+    // Decision Arch at entry to split (Z = z)
+    const archGroup = new THREE.Group();
+    archGroup.position.set(0, 0, z);
+
+    // Safe route holographic archway (Left Lane -1)
+    const safeSignGeom = new THREE.RingGeometry(0.8, 1.0, 16);
+    const safeSign = new THREE.Mesh(safeSignGeom, this.safeHoloMat);
+    safeSign.position.set(getLaneX(safeLane), 2.2, 0);
+    archGroup.add(safeSign);
+
+    // Risky route holographic hazard archway (Right Lane 1)
+    const riskSignGeom = new THREE.RingGeometry(0.8, 1.0, 16);
+    const riskSign = new THREE.Mesh(riskSignGeom, this.riskyHoloMat);
+    riskSign.position.set(getLaneX(riskyLane), 2.2, 0);
+    archGroup.add(riskSign);
+
+    // Center divider pylon splitting lanes
+    const dividerPylon = new THREE.Mesh(new THREE.BoxGeometry(0.4, 3.0, splitLength), this.barrierMat);
+    dividerPylon.position.set(0, 1.5, splitLength / 2);
+    archGroup.add(dividerPylon);
+
+    this.group.add(archGroup);
+
+    // Populate SAFE ROUTE:
+    // Single occasional jumpable low hurdle or clear path, modest single coin line
+    const safeX = getLaneX(safeLane);
+    this.spawnCoin(safeX, 0.9, z + 10);
+    this.spawnCoin(safeX, 0.9, z + 22);
+
+    // Low obstacle on safe route only at higher difficulties
+    if (difficulty > 0.4) {
+      this.createLowHurdle(safeLane, z + 16);
+    }
+
+    // Populate RISKY ROUTE:
+    // Dense data shard clusters (high reward: 6-8 coins + powerup), but guarded by laser gates
+    const riskyX = getLaneX(riskyLane);
+    for (let c = 0; c < (isDense ? 8 : 5); c++) {
+      this.spawnCoin(riskyX, 0.9, z + 6 + c * 3.5);
+    }
+
+    // Hazard on risky route: Precision timing laser gate or hurdle
+    this.createSingleLaserGate(riskyLane, z + 14, 'fast-blink', 0, difficulty);
+    if (isDense) {
+      this.createLowHurdle(riskyLane, z + 26);
+    }
+
+    // High Value PowerUp at end of risky route
+    this.spawnPowerUp(riskyX, z + 30);
+  }
+
+  // =========================================================================
+  // Recovery Gap & Flow Restorers
+  // =========================================================================
+  private spawnRecoveryGap(z: number): void {
+    // A clean rhythm gap with a grind rail or boost gate that rewards flow
+    const rand = Math.random();
+    if (rand < 0.5) {
+      // Grind rail down center lane
+      this.createGrindRail(0, z, 26);
+      for (let i = 0; i < 4; i++) {
+        this.spawnCoin(0, 1.6, z + 4 + i * 5);
+      }
+    } else {
+      // Boost archway giving speed surge
+      this.createBoostArch(0, z);
+      this.spawnCoin(0, 0.9, z + 8);
+      this.spawnCoin(0, 0.9, z + 14);
+    }
+  }
+
+  private createLowHurdle(lane: LaneIndex, z: number): void {
+    const x = getLaneX(lane);
+    const hurdleGroup = new THREE.Group();
+    hurdleGroup.position.set(x, 0.45, z);
+
+    const beam = new THREE.Mesh(new THREE.BoxGeometry(2.1, 0.22, 0.3), this.laserHazardMat);
+    hurdleGroup.add(beam);
+
+    this.group.add(hurdleGroup);
+    this.obstacles.push({
+      id: `hurdle-${z}-${lane}`,
+      type: 'low-hurdle',
+      category: 'wave',
+      lane,
+      x,
+      y: 0.45,
+      z,
+      width: 2.1,
+      height: 0.9,
+      depth: 0.8,
+      mesh: hurdleGroup,
+      canJump: true,
+    });
+  }
+
+  private createGrindRail(lane: LaneIndex, z: number, length: number): void {
+    const x = getLaneX(lane);
+    const railGroup = new THREE.Group();
+    railGroup.position.set(x, 1.2, z);
+
+    const railGeom = new THREE.CylinderGeometry(0.12, 0.12, length, 8);
+    railGeom.rotateX(Math.PI / 2);
+    const railMesh = new THREE.Mesh(railGeom, this.cyanNeonMat);
+    railGroup.add(railMesh);
+
+    // Support posts
+    for (let p = -length / 2; p <= length / 2; p += 8) {
+      const post = new THREE.Mesh(new THREE.BoxGeometry(0.15, 1.2, 0.15), this.barrierMat);
+      post.position.set(0, -0.6, p);
+      railGroup.add(post);
+    }
+
+    this.group.add(railGroup);
+    this.obstacles.push({
+      id: `rail-${z}`,
+      type: 'grind-rail',
+      category: 'grind-rail',
+      lane,
+      x,
+      y: 1.2,
+      z,
+      width: 1.2,
+      height: 1.2,
+      depth: length,
+      mesh: railGroup,
+      isGrindRail: true,
+    });
+  }
+
+  private createBoostArch(lane: LaneIndex, z: number): void {
+    const x = getLaneX(lane);
+    const archGroup = new THREE.Group();
+    archGroup.position.set(x, 1.8, z);
+
+    const ringGeom = new THREE.TorusGeometry(1.6, 0.12, 8, 24);
+    const ringMesh = new THREE.Mesh(ringGeom, this.cyanNeonMat);
+    archGroup.add(ringMesh);
+
+    this.group.add(archGroup);
+    this.obstacles.push({
+      id: `boost-${z}`,
+      type: 'boost-gate',
+      category: 'boost-gate',
+      lane,
+      x,
+      y: 1.8,
+      z,
+      width: 3.2,
+      height: 3.2,
       depth: 1.5,
-      mesh: group,
-      isPortal: true,
-      targetBiome,
-      cleared: false,
+      mesh: archGroup,
+      isBoostGate: true,
     });
   }
 
-  // --- Collectible Data Shards ---
-
-  private spawnDataShardLine(lane: LaneIndex, startZ: number, count: number, customY?: number) {
-    const x = getLaneX(lane);
-    for (let i = 0; i < count; i++) {
-      const z = startZ + i * 3.5;
-      const y = customY !== undefined ? customY : getTerrainHeight(x, z) + 1.2;
-
-      const shard = this.createDataShardGem();
-      shard.position.set(x, y, z);
-      this.scene.add(shard);
-
-      this.coins.push({
-        id: `shard_${this.nextObstacleId++}`,
-        x,
-        y,
-        z,
-        lane,
-        mesh: shard,
-        collected: false,
-      });
-    }
-  }
-
-  private spawnDataShardArc(lane: LaneIndex, startZ: number, count: number) {
-    const x = getLaneX(lane);
-    for (let i = 0; i < count; i++) {
-      const frac = i / (count - 1);
-      const arcY = Math.sin(frac * Math.PI) * 2.5; // Capped arc height (2.5m) so all tokens are easily reachable
-      const z = startZ + i * 3.2;
-      const y = getTerrainHeight(x, z) + 1.2 + arcY;
-
-      const shard = this.createDataShardGem();
-      shard.position.set(x, y, z);
-      this.scene.add(shard);
-
-      this.coins.push({
-        id: `shard_arc_${this.nextObstacleId++}`,
-        x,
-        y,
-        z,
-        lane,
-        mesh: shard,
-        collected: false,
-      });
-    }
-  }
-
-  private spawnPowerUp(lane: LaneIndex, z: number) {
-    const x = getLaneX(lane);
-    const y = getTerrainHeight(x, z) + 1.4;
-
-    const types: PowerUpType[] = ['quantum-magnet', 'sonic-jetpack', 'holo-shield', 'overdrive-2x'];
-    const type = types[Math.floor(Math.random() * types.length)];
-
-    const group = new THREE.Group();
-
-    // Holographic Cyber Power-Up Container
-    const coreMat = new THREE.MeshBasicMaterial({
-      color: type === 'quantum-magnet' ? 0x00f0ff : type === 'sonic-jetpack' ? 0xff00ff : type === 'holo-shield' ? 0x00ff88 : 0xffaa00,
-    });
-
-    const box = new THREE.Mesh(new THREE.BoxGeometry(0.9, 0.9, 0.9), coreMat);
-    group.add(box);
-
-    const ring = new THREE.Mesh(new THREE.TorusGeometry(0.75, 0.08, 8, 16), coreMat);
-    group.add(ring);
-
-    group.position.set(x, y, z);
-    this.scene.add(group);
-
-    this.powerUps.push({
-      id: `p_${this.nextObstacleId++}`,
-      type,
-      lane,
+  private spawnCoin(x: number, y: number, z: number): void {
+    const coinMesh = new THREE.Mesh(new THREE.OctahedronGeometry(0.24), this.goldMat);
+    coinMesh.position.set(x, y, z);
+    this.group.add(coinMesh);
+    this.coins.push({
+      id: `coin-${z}-${x}`,
       x,
       y,
       z,
-      mesh: group,
+      mesh: coinMesh,
       collected: false,
     });
   }
 
-  /**
-   * Computes height of obstacle surfaces (train roofs, train ramps, grind rails)
-   * under player's current (x, z) coordinate.
-   */
-  getObstacleSurfaceHeight(x: number, z: number, playerY: number): number {
-    let maxSurfaceH = 0;
-    for (const obs of this.obstacles) {
-      if (obs.cleared) continue;
-      const halfW = obs.width / 2 + 0.6;
-      if (Math.abs(x - obs.x) > halfW) continue;
+  private spawnPowerUp(x: number, z: number): void {
+    const pTypes: PowerUpType[] = ['quantum-magnet', 'sonic-jetpack', 'holo-shield', 'overdrive-2x'];
+    const pType = pTypes[Math.floor(Math.random() * pTypes.length)];
+    const pGroup = new THREE.Group();
+    pGroup.position.set(x, 1.2, z);
+    const pCore = new THREE.Mesh(new THREE.DodecahedronGeometry(0.35), this.cyanNeonMat);
+    pGroup.add(pCore);
+    const pGlow = new THREE.PointLight(0x00d2e0, 1.5, 4.0);
+    pGroup.add(pGlow);
+    this.group.add(pGroup);
 
-      if (obs.type === 'maglev-hauler' || obs.type === 'maglev-ramp' || obs.type === 'spirit-train' || obs.type === 'spirit-train-ramp') {
-        const trainHalfD = obs.depth / 2;
-        const trainTop = obs.y + obs.height;
-
-        if (obs.hasRamp && obs.rampStartZ !== undefined) {
-          const rampStart = obs.rampStartZ;
-          const rampEnd = obs.z - trainHalfD;
-          if (z >= rampStart && z <= rampEnd) {
-            // Player is surfing up the front ramp!
-            const rampProgress = (z - rampStart) / (rampEnd - rampStart);
-            const rampH = obs.y + rampProgress * obs.height;
-            if (rampH > maxSurfaceH) maxSurfaceH = rampH;
-            continue;
-          }
-        }
-
-        // On top of train roof: only support if player is actually elevated up at roof height!
-        if (z >= obs.z - trainHalfD && z <= obs.z + trainHalfD) {
-          if (playerY >= trainTop - 0.75 && trainTop > maxSurfaceH) {
-            maxSurfaceH = trainTop;
-          }
-        }
-      } else if (obs.isGrindRail) {
-        if (Math.abs(z - obs.z) <= obs.depth / 2 + 0.5) {
-          const railTop = obs.y + 1.25;
-          if (playerY >= obs.y + 0.4 && railTop > maxSurfaceH) {
-            maxSurfaceH = railTop;
-          }
-        }
-      }
-    }
-    return maxSurfaceH;
-  }
-
-  // --- Collision Detection ---
-
-  checkCollisions(
-    playerPos: THREE.Vector3,
-    isSliding: boolean
-  ): {
-    hasCrashed: boolean;
-    hasStumbled: boolean;
-    nearMiss: boolean;
-    crashedObstacle?: ObstacleInstance;
-    isGrinding: boolean;
-    hitBoostGate: boolean;
-    hitPortal?: { targetBiome: BiomeType };
-    collectedCoins: number;
-    collectedPowerUp?: PowerUpType;
-  } {
-    let hasCrashed = false;
-    let hasStumbled = false;
-    let nearMiss = false;
-    let crashedObstacle: ObstacleInstance | undefined;
-    let isGrinding = false;
-    let hitBoostGate = false;
-    let hitPortal: { targetBiome: BiomeType } | undefined;
-    let collectedCoins = 0;
-    let collectedPowerUp: PowerUpType | undefined;
-
-    // 1. Data Shards Collection (3.2m reach radius for smooth token harvesting)
-    for (const shard of this.coins) {
-      if (shard.collected) continue;
-      const dx = playerPos.x - shard.x;
-      const dy = playerPos.y - shard.y;
-      const dz = playerPos.z - shard.z;
-      const distSq = dx * dx + dy * dy + dz * dz;
-
-      if (distSq < 3.2 * 3.2) {
-        shard.collected = true;
-        this.scene.remove(shard.mesh);
-        shard.mesh.traverse(child => {
-          if (child instanceof THREE.Mesh) {
-            child.geometry?.dispose();
-          }
-        });
-        collectedCoins++;
-      }
-    }
-
-    // 2. Power-Up Pickups
-    for (const p of this.powerUps) {
-      if (p.collected) continue;
-      const dx = playerPos.x - p.x;
-      const dy = playerPos.y - p.y;
-      const dz = playerPos.z - p.z;
-      const distSq = dx * dx + dy * dy + dz * dz;
-
-      if (distSq < 3.4 * 3.4) {
-        p.collected = true;
-        this.scene.remove(p.mesh);
-        collectedPowerUp = p.type;
-      }
-    }
-
-    // 3. Obstacle Collision & Interactivity Checks
-    for (const obs of this.obstacles) {
-      if (obs.cleared) continue;
-
-      const halfDepth = obs.depth / 2 + 0.8;
-      const dz = playerPos.z - obs.z;
-
-      if (Math.abs(dz) > halfDepth + 1.5) continue;
-
-      const halfWidth = obs.width / 2 + 0.5;
-      const dx = playerPos.x - obs.x;
-
-      // Handle World Portals
-      if (obs.isPortal || obs.type === 'world-portal') {
-        if (Math.abs(dz) < 2.2 && Math.abs(dx) < 3.2) {
-          hitPortal = { targetBiome: obs.targetBiome || 'volcanic-forge' };
-          obs.cleared = true;
-        }
-        continue;
-      }
-
-      // Near-Miss Style Bonus detection (passing close without hitting)
-      if (!obs.nearMissAwarded && !obs.isGrindRail && !obs.isBoostGate) {
-        if (Math.abs(dz) < halfDepth + 0.8) {
-          const edgeDist = Math.abs(dx) - halfWidth;
-          if (edgeDist > 0 && edgeDist < 2.2) {
-            obs.nearMissAwarded = true;
-            nearMiss = true;
-          }
-        }
-      }
-
-      if (Math.abs(dx) > halfWidth) continue;
-
-      // Handle Grind Rails
-      if (obs.isGrindRail) {
-        if (Math.abs(dx) < 1.4 && playerPos.y >= obs.y + 0.8 && playerPos.y <= obs.y + 2.2) {
-          isGrinding = true;
-          playerPos.y = obs.y + 1.25; // Magnetically lock onto rail
-        }
-        continue;
-      }
-
-      // Handle Boost Gates
-      if (obs.isBoostGate) {
-        if (Math.abs(dz) < 1.5) {
-          hitBoostGate = true;
-          obs.cleared = true;
-        }
-        continue;
-      }
-
-      // Handle Falling Security Block separately (Check 3D Bounding Box Center so player can pass underneath elevated blocks)
-      if (obs.type === 'falling-security-block') {
-        const blockCenterY = obs.y;
-        const blockHalfH = obs.height / 2 + 0.3;
-        if (Math.abs(playerPos.y - blockCenterY) < blockHalfH) {
-          hasCrashed = true;
-          crashedObstacle = obs;
-          obs.cleared = true;
-          break;
-        } else if (playerPos.z > obs.z + halfDepth) {
-          obs.cleared = true;
-        }
-        continue;
-      }
-
-      // Handle Laser Barrier, Low Energy Fence, Moving Horizontal Barrier, Pulsing Laser (Jump over / avoid)
-      if (
-        obs.type === 'laser-barrier' ||
-        obs.type === 'energy-fence' ||
-        obs.type === 'low-hurdle' ||
-        obs.type === 'moving-horizontal-barrier' ||
-        obs.type === 'pulsing-laser-beam'
-      ) {
-        const barrierTop = obs.y + obs.height;
-        if (playerPos.y > barrierTop + 0.15) {
-          obs.cleared = true;
-        } else {
-          hasCrashed = true;
-          crashedObstacle = obs;
-          obs.cleared = true;
-          break;
-        }
-      } else if (obs.type === 'overhead-conduit' || obs.type === 'high-barrier') {
-        if (isSliding) {
-          obs.cleared = true; // Safely slid underneath!
-        } else {
-          hasCrashed = true;
-          crashedObstacle = obs;
-          obs.cleared = true;
-          break;
-        }
-      } else if (obs.type === 'drone-hazard') {
-        hasCrashed = true;
-        crashedObstacle = obs;
-        obs.cleared = true;
-        break;
-      } else if (obs.type === 'maglev-hauler' || obs.type === 'maglev-ramp' || obs.type === 'spirit-train' || obs.type === 'spirit-train-ramp') {
-        const trainTop = obs.y + obs.height;
-        const trainHalfD = obs.depth / 2;
-
-        if (playerPos.y >= trainTop - 0.35) {
-          // Skating along roof! Safe!
-        } else if (obs.hasRamp && obs.rampStartZ !== undefined && playerPos.z >= obs.rampStartZ && playerPos.z <= obs.z - trainHalfD) {
-          // Riding up front ramp! Safe!
-        } else if (Math.abs(dz) < trainHalfD) {
-          hasCrashed = true;
-          crashedObstacle = obs;
-          obs.cleared = true;
-          break;
-        }
-      }
-    }
-
-    return { hasCrashed, hasStumbled, nearMiss, crashedObstacle, isGrinding, hitBoostGate, hitPortal, collectedCoins, collectedPowerUp };
-  }
-
-  // Magnet effect: attract nearby data shards
-  attractCoinsToPlayer(playerPos: THREE.Vector3, radius = 28.0, dt = 0.016) {
-    for (const shard of this.coins) {
-      if (shard.collected) continue;
-      const dx = playerPos.x - shard.x;
-      const dy = playerPos.y - shard.y;
-      const dz = playerPos.z - shard.z;
-      const dist = Math.sqrt(dx * dx + dy * dy + dz * dz);
-
-      if (dist < radius) {
-        const pullSpeed = 32.0 * dt;
-        shard.x += (dx / dist) * pullSpeed;
-        shard.y += (dy / dist) * pullSpeed;
-        shard.z += (dz / dist) * pullSpeed;
-        shard.mesh.position.set(shard.x, shard.y, shard.z);
-      }
-    }
-  }
-
-  removeObstacle(obstacle: ObstacleInstance) {
-    this.scene.remove(obstacle.mesh);
-    this.obstacles = this.obstacles.filter(o => o.id !== obstacle.id);
-  }
-
-  clearAhead(playerZ: number, distance = 60) {
-    this.obstacles = this.obstacles.filter(obs => {
-      if (obs.z >= playerZ - 5 && obs.z <= playerZ + distance) {
-        this.scene.remove(obs.mesh);
-        return false;
-      }
-      return true;
+    this.powerUps.push({
+      id: `pu-${z}`,
+      type: pType,
+      x,
+      y: 1.2,
+      z,
+      mesh: pGroup,
+      collected: false,
     });
   }
 
-  cullOldInstances(minZ: number) {
+  // =========================================================================
+  // UPDATE LOOP: Real-time Behavior, Wave Trajectories & Laser Timing
+  // =========================================================================
+  update(playerZ: number, timeSeconds: number, playerSpeed = 20): void {
+    // 1. Animate Wave Obstacles (Smooth Sine-Wave Movement)
+    for (const obs of this.obstacles) {
+      if (obs.isWave && !obs.cleared) {
+        const freq = obs.waveFrequency ?? 1.2;
+        const amp = obs.waveAmplitude ?? 2.4;
+        const phase = obs.wavePhase ?? 0;
+        const base = obs.waveBaseLane ?? 0;
+
+        // X = base + amp * sin(time * freq + phase)
+        const targetX = base + Math.sin(timeSeconds * freq + phase) * amp;
+        obs.x = targetX;
+        obs.mesh.position.x = targetX;
+
+        // Subtle banking roll into the curve
+        const bankAngle = -Math.cos(timeSeconds * freq + phase) * 0.25;
+        obs.mesh.rotation.z = bankAngle;
+      }
+
+      // 2. Animate Laser Gates (Timing Cycle & Pre-fire Warning)
+      if (obs.isLaserGate && !obs.cleared) {
+        const period = obs.gatePeriod ?? 2.0;
+        const phase = obs.gatePhase ?? 0;
+        const cycleProgress = ((timeSeconds + phase) % period) / period; // 0.0 to 1.0
+
+        // Timing definition:
+        // 0.0 to 0.45: Laser ACTIVE (Hazard)
+        // 0.45 to 0.80: Laser OFF (Safe to pass)
+        // 0.80 to 1.00: Warning Charging (Amber blinking filament warning player)
+        if (cycleProgress < 0.45) {
+          // ACTIVE BEAM
+          obs.gateActive = true;
+          if (obs.beamMesh) obs.beamMesh.visible = true;
+          if (obs.warningMesh) obs.warningMesh.visible = false;
+        } else if (cycleProgress < 0.80) {
+          // INACTIVE / OPEN WINDOW
+          obs.gateActive = false;
+          if (obs.beamMesh) obs.beamMesh.visible = false;
+          if (obs.warningMesh) obs.warningMesh.visible = false;
+        } else {
+          // CHARGE WARNING
+          obs.gateActive = false;
+          if (obs.beamMesh) obs.beamMesh.visible = false;
+          if (obs.warningMesh) {
+            obs.warningMesh.visible = true;
+            // Rapid strobe as activation nears
+            const warnPulse = Math.sin(timeSeconds * 24.0) > 0;
+            obs.warningMesh.visible = warnPulse;
+          }
+        }
+      }
+    }
+
+    // 3. Animate coins & powerups rotation
+    for (const c of this.coins) {
+      if (!c.collected) {
+        c.mesh.rotation.y = timeSeconds * 4.0;
+      }
+    }
+    for (const p of this.powerUps) {
+      if (!p.collected) {
+        p.mesh.rotation.y = timeSeconds * 3.0;
+        p.mesh.position.y = 1.2 + Math.sin(timeSeconds * 4.0) * 0.15;
+      }
+    }
+
+    // 4. Progressive Spawn Ahead (Dynamic speed synchronization = ~0.9-1.1s reaction window)
+    const reactionTimeSec = 1.0;
+    const dynamicSpacing = THREE.MathUtils.clamp((playerSpeed / 3.6) * reactionTimeSec * 2.2, 32, 58);
+
+    while (this.lastSpawnZ < playerZ + 420) {
+      this.lastSpawnZ += dynamicSpacing;
+      this.spawnNextPatternAtZ(this.lastSpawnZ, playerSpeed);
+    }
+
+    // 5. Cull behind player
+    const cullZ = playerZ - 60;
     this.obstacles = this.obstacles.filter(obs => {
-      if (obs.z < minZ) {
-        this.scene.remove(obs.mesh);
+      if (obs.z < cullZ) {
+        this.group.remove(obs.mesh);
         return false;
       }
       return true;
     });
 
     this.coins = this.coins.filter(c => {
-      if (c.z < minZ || c.collected) {
-        this.scene.remove(c.mesh);
+      if (c.z < cullZ || c.collected) {
+        this.group.remove(c.mesh);
         return false;
       }
       return true;
     });
 
     this.powerUps = this.powerUps.filter(p => {
-      if (p.z < minZ || p.collected) {
-        this.scene.remove(p.mesh);
+      if (p.z < cullZ || p.collected) {
+        this.group.remove(p.mesh);
         return false;
       }
       return true;
     });
   }
 
-  reset() {
-    for (const obs of this.obstacles) this.scene.remove(obs.mesh);
-    for (const c of this.coins) this.scene.remove(c.mesh);
-    for (const p of this.powerUps) this.scene.remove(p.mesh);
-    this.obstacles = [];
-    this.coins = [];
-    this.powerUps = [];
-    this.lastSpawnZ = 30;
-    this.nextObstacleId = 0;
+  attractCoinsToPlayer(playerPos: THREE.Vector3, magnetRadius: number, dt: number): void {
+    for (const c of this.coins) {
+      if (c.collected) continue;
+      const dist = Math.hypot(playerPos.x - c.x, playerPos.z - c.z);
+      if (dist < magnetRadius) {
+        const pullFactor = Math.min(1.0, 16.0 * dt);
+        c.x = THREE.MathUtils.lerp(c.x, playerPos.x, pullFactor);
+        c.z = THREE.MathUtils.lerp(c.z, playerPos.z, pullFactor);
+        c.y = THREE.MathUtils.lerp(c.y, playerPos.y + 0.5, pullFactor);
+        c.mesh.position.set(c.x, c.y, c.z);
+      }
+    }
   }
 
-  dispose() {
-    for (const obs of this.obstacles) {
-      this.scene.remove(obs.mesh);
-      obs.mesh.traverse(child => {
-        if (child instanceof THREE.Mesh) {
-          child.geometry?.dispose();
-          if (Array.isArray(child.material)) {
-            child.material.forEach(m => m.dispose());
-          } else {
-            child.material?.dispose();
-          }
-        }
-      });
-    }
-    this.obstacles = [];
+  checkCollisions(playerPos: THREE.Vector3, isSliding: boolean): CollisionResult {
+    const result: CollisionResult = {
+      collectedCoins: 0,
+    };
 
+    const px = playerPos.x;
+    const py = playerPos.y;
+    const pz = playerPos.z;
+
+    // 1. Coins Check (Generous pickup radius for smooth reward flow)
     for (const c of this.coins) {
-      this.scene.remove(c.mesh);
-      c.mesh.traverse(child => {
-        if (child instanceof THREE.Mesh) {
-          child.geometry?.dispose();
-          if (Array.isArray(child.material)) {
-            child.material.forEach(m => m.dispose());
-          } else {
-            child.material?.dispose();
-          }
-        }
-      });
+      if (c.collected) continue;
+      if (Math.abs(c.z - pz) < 1.5 && Math.abs(c.x - px) < 1.25 && Math.abs(c.y - py) < 2.2) {
+        c.collected = true;
+        c.mesh.visible = false;
+        result.collectedCoins += 1;
+      }
     }
-    this.coins = [];
 
+    // 2. PowerUps Check
     for (const p of this.powerUps) {
-      this.scene.remove(p.mesh);
-      p.mesh.traverse(child => {
-        if (child instanceof THREE.Mesh) {
-          child.geometry?.dispose();
-          if (Array.isArray(child.material)) {
-            child.material.forEach(m => m.dispose());
-          } else {
-            child.material?.dispose();
-          }
-        }
-      });
+      if (p.collected) continue;
+      if (Math.abs(p.z - pz) < 1.7 && Math.abs(p.x - px) < 1.35 && Math.abs(p.y - py) < 2.4) {
+        p.collected = true;
+        p.mesh.visible = false;
+        result.collectedPowerUp = p.type;
+      }
     }
-    this.powerUps = [];
 
-    this.pylonGeom.dispose();
-    this.heavyPylonGeom.dispose();
-    this.laserBeamGeom.dispose();
-    this.overheadArchPillarGeom.dispose();
-    this.overheadArchBeamGeom.dispose();
-    this.orbAuraGeom.dispose();
-    this.orbInnerGeom.dispose();
-    this.orbRuneRingGeom.dispose();
-    this.boostGateGeom.dispose();
-    this.grindRailGeom.dispose();
-    this.droneBodyGeom.dispose();
-    this.droneEyeGeom.dispose();
-    this.fenceBarGeom.dispose();
-    this.movingBarrierGeom.dispose();
-    this.fallingBlockGeom.dispose();
-    this.pulsingLaserGeom.dispose();
+    // 3. Obstacles Check (Tight, fair, and rhythm-calibrated bounds)
+    for (const obs of this.obstacles) {
+      if (obs.cleared) continue;
 
-    this.pylonMat.dispose();
-    this.heavyPylonMat.dispose();
-    this.redWarningGlowMat.dispose();
-    this.laserBeamMat.dispose();
-    this.overheadBeamMat.dispose();
-    this.orbAuraMat.dispose();
-    this.orbInnerMat.dispose();
-    this.orbRuneRingMat.dispose();
-    this.boostGateMat.dispose();
-    this.grindRailMat.dispose();
-    this.droneHazardMat.dispose();
-    this.droneChassisMat.dispose();
-    this.fenceMat.dispose();
-    this.movingBarrierMat.dispose();
-    this.fallingBlockMat.dispose();
-    this.fallingBlockGlowMat.dispose();
-    this.pulsingLaserMat.dispose();
+      const dz = obs.z - pz;
+      const dx = Math.abs(obs.x - px);
+
+      // Boost Arch pass-through
+      if (obs.isBoostGate) {
+        if (Math.abs(dz) < 1.6 && dx < 1.8) {
+          obs.cleared = true;
+          result.hitBoostGate = true;
+        }
+        continue;
+      }
+
+      // Grind Rail
+      if (obs.isGrindRail) {
+        const halfDepth = obs.depth / 2;
+        if (pz >= obs.z - halfDepth && pz <= obs.z + halfDepth && dx < 0.85) {
+          result.isGrinding = true;
+        }
+        continue;
+      }
+
+      // Inactive laser gates are safe to skate through
+      if (obs.isLaserGate && !obs.gateActive) {
+        continue;
+      }
+
+      // Tight hitbox calculation (Prevents unfair edge collisions)
+      const obsHalfWidth = (obs.width ?? 2.0) * 0.38;
+      const obsHalfDepth = Math.max(0.45, (obs.depth ?? 1.0) * 0.38);
+
+      // Near-Miss detection (Skillful grazing: within 0.35m-1.15m of obstacle boundary)
+      if (!obs.nearMissed && Math.abs(dz) < 1.4 && dx >= (obsHalfWidth + 0.22) && dx <= (obsHalfWidth + 1.15)) {
+        obs.nearMissed = true;
+        result.nearMiss = true;
+        result.nearMissPos = new THREE.Vector3(obs.x, obs.y, obs.z);
+      }
+
+      // Physical Collision
+      if (Math.abs(dz) < (obsHalfDepth + 0.45) && dx < (obsHalfWidth + 0.24)) {
+        // High barrier / laser duck clearance
+        if (obs.canDuck && isSliding) {
+          continue;
+        }
+        // Low hurdle jump clearance
+        if (obs.canJump && py > 1.25) {
+          continue;
+        }
+
+        // Stumble or Crash
+        obs.cleared = true;
+        result.crashedObstacle = obs;
+        if (obs.type === 'low-hurdle') {
+          result.hasStumbled = true;
+        } else {
+          result.hasCrashed = true;
+        }
+      }
+    }
+
+    return result;
+  }
+
+  removeObstacle(obstacle: ObstacleItem): void {
+    const idx = this.obstacles.indexOf(obstacle);
+    if (idx !== -1) {
+      this.group.remove(obstacle.mesh);
+      this.obstacles.splice(idx, 1);
+    }
+  }
+
+  clearAhead(playerZ: number, distance: number): void {
+    this.obstacles = this.obstacles.filter(obs => {
+      if (obs.z >= playerZ && obs.z <= playerZ + distance) {
+        this.group.remove(obs.mesh);
+        return false;
+      }
+      return true;
+    });
+  }
+
+  reset(): void {
+    while (this.obstacles.length > 0) {
+      const obs = this.obstacles.pop();
+      if (obs) this.group.remove(obs.mesh);
+    }
+    while (this.coins.length > 0) {
+      const c = this.coins.pop();
+      if (c) this.group.remove(c.mesh);
+    }
+    while (this.powerUps.length > 0) {
+      const p = this.powerUps.pop();
+      if (p) this.group.remove(p.mesh);
+    }
+    this.lastSpawnZ = 30;
+    this.patternSequenceIndex = 0;
+    this.spawnInitialObstacles();
+  }
+
+  dispose(): void {
+    this.reset();
+    this.scene.remove(this.group);
   }
 }
+

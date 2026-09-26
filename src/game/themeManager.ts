@@ -1,370 +1,169 @@
 import * as THREE from 'three';
-import { WorldTheme, WORLD_THEMES, getNextTheme } from './worldThemes';
+import { BiomeType } from '../types';
 import { SkyManager } from './sky';
 import { TerrainManager } from './terrain';
 import { ObstacleManager } from './obstacles';
-import { createWindPetalTexture } from '../graphics/textures';
+
+export interface ThemeDefinition {
+  id: BiomeType;
+  name: string;
+  color: string;
+  secondaryColor: string;
+  skyTopColor: number;
+  skyHorizonColor: number;
+  sunColor: number;
+}
+
+export const THEME_REGISTRY: Record<string, ThemeDefinition> = {
+  'neon-undercity': {
+    id: 'neon-undercity',
+    name: 'Neon Undercity // Sector 01',
+    color: '#00F0FF',
+    secondaryColor: '#FF007F',
+    skyTopColor: 0x050711,
+    skyHorizonColor: 0x0c152b,
+    sunColor: 0x00f0ff,
+  },
+  'quantum-desert': {
+    id: 'quantum-desert',
+    name: 'Quantum Desert // Amber Mesas',
+    color: '#FFAA00',
+    secondaryColor: '#FF3300',
+    skyTopColor: 0x160804,
+    skyHorizonColor: 0x3d1708,
+    sunColor: 0xffaa00,
+  },
+  'cyber-forest': {
+    id: 'cyber-forest',
+    name: 'Cyber Forest // Bioluminescent Canopy',
+    color: '#00FF66',
+    secondaryColor: '#00F0FF',
+    skyTopColor: 0x021208,
+    skyHorizonColor: 0x062814,
+    sunColor: 0x00ff88,
+  },
+  'orbital-ring': {
+    id: 'orbital-ring',
+    name: 'Orbital Ring // Stellar Void',
+    color: '#FFFFFF',
+    secondaryColor: '#9D00FF',
+    skyTopColor: 0x000206,
+    skyHorizonColor: 0x080f24,
+    sunColor: 0xffffff,
+  },
+  'the-grid': {
+    id: 'the-grid',
+    name: 'The Grid // Vector Cyberspace',
+    color: '#00FFFF',
+    secondaryColor: '#0088FF',
+    skyTopColor: 0x02040a,
+    skyHorizonColor: 0x04182b,
+    sunColor: 0x00e5ff,
+  },
+  'volcanic-forge': {
+    id: 'volcanic-forge',
+    name: 'Volcanic Forge // Magma Core',
+    color: '#FF3300',
+    secondaryColor: '#FF9900',
+    skyTopColor: 0x180303,
+    skyHorizonColor: 0x380905,
+    sunColor: 0xff4400,
+  },
+  'crystal-glacier': {
+    id: 'crystal-glacier',
+    name: 'Crystal Glacier // Frost Realm',
+    color: '#99EEFF',
+    secondaryColor: '#0066FF',
+    skyTopColor: 0x030d1a,
+    skyHorizonColor: 0x0a2647,
+    sunColor: 0x88ddff,
+  },
+  'derelict-station': {
+    id: 'derelict-station',
+    name: 'Derelict Station // Hazard Zone',
+    color: '#FFCC00',
+    secondaryColor: '#FF2200',
+    skyTopColor: 0x0a0902,
+    skyHorizonColor: 0x241d06,
+    sunColor: 0xffbb00,
+  },
+};
 
 export class ThemeManager {
   scene: THREE.Scene;
-  currentTheme: WorldTheme;
-  targetTheme: WorldTheme | null = null;
-  transitionTimer: number = 0;
-  transitionDuration: number = 1.25;
-  private petalTex: THREE.CanvasTexture | null = null;
+  currentTheme: ThemeDefinition;
 
-  // Lerp targets & animated states
-  skyTopColor: THREE.Color;
-  skyBottomColor: THREE.Color;
-  fogColor: THREE.Color;
-  fogDensity: number;
-  ambientLightColor: THREE.Color;
-  ambientLightIntensity: number;
-  directionalLightColor: THREE.Color;
-  directionalLightIntensity: number;
-  groundColor: THREE.Color;
-  trackColor: THREE.Color;
-  laneLineColor: THREE.Color;
-  buildingColors: THREE.Color[];
-  accentGlowColor: THREE.Color;
-  portalColor: THREE.Color;
-
-  // Particle System
-  activeParticlePoints: THREE.Points | null = null;
-  activeParticleType: string = 'none';
-  particleVelocities: THREE.Vector3[] = [];
+  // Warp Portal FX Group
+  private warpGroup: THREE.Group;
+  private warpRings: THREE.Mesh[] = [];
+  private isWarping = false;
+  private warpTimer = 0;
 
   constructor(scene: THREE.Scene) {
     this.scene = scene;
-    this.currentTheme = WORLD_THEMES[0];
-    this.petalTex = createWindPetalTexture();
+    this.currentTheme = THEME_REGISTRY['neon-undercity'];
 
-    this.skyTopColor = new THREE.Color(this.currentTheme.skyColorTop);
-    this.skyBottomColor = new THREE.Color(this.currentTheme.skyColorBottom);
-    this.fogColor = new THREE.Color(this.currentTheme.fogColor);
-    this.fogDensity = this.currentTheme.fogDensity;
-    this.ambientLightColor = new THREE.Color(this.currentTheme.ambientLightColor);
-    this.ambientLightIntensity = this.currentTheme.ambientLightIntensity;
-    this.directionalLightColor = new THREE.Color(this.currentTheme.directionalLightColor);
-    this.directionalLightIntensity = this.currentTheme.directionalLightIntensity;
-    this.groundColor = new THREE.Color(this.currentTheme.groundColor);
-    this.trackColor = new THREE.Color(this.currentTheme.trackColor);
-    this.laneLineColor = new THREE.Color(this.currentTheme.laneLineColor);
-    this.buildingColors = this.currentTheme.buildingColors.map((c) => new THREE.Color(c));
-    this.accentGlowColor = new THREE.Color(this.currentTheme.accentGlowColor);
-    this.portalColor = new THREE.Color(this.currentTheme.portalColor);
+    this.warpGroup = new THREE.Group();
+    this.warpGroup.visible = false;
+    this.scene.add(this.warpGroup);
 
-    this.setupParticles(this.currentTheme, new THREE.Vector3(0, 0, 0));
-  }
-
-  setupParticles(theme: WorldTheme, playerPos: THREE.Vector3) {
-    // Safely dispose old particle system before spawning new one
-    if (this.activeParticlePoints) {
-      this.scene.remove(this.activeParticlePoints);
-      this.activeParticlePoints.geometry.dispose();
-      if (Array.isArray(this.activeParticlePoints.material)) {
-        this.activeParticlePoints.material.forEach((m) => m.dispose());
-      } else {
-        this.activeParticlePoints.material.dispose();
-      }
-      this.activeParticlePoints = null;
-      this.particleVelocities = [];
-    }
-
-    this.activeParticleType = theme.particleType;
-    if (theme.particleType === 'none') return;
-
-    const baseCount = 360;
-    const count = Math.floor(baseCount * theme.particleDensity);
-    const geometry = new THREE.BufferGeometry();
-    const positions = new Float32Array(count * 3);
-    this.particleVelocities = [];
-
-    const rangeX = 70;
-    const rangeY = 35;
-    const rangeZ = 100;
-
-    for (let i = 0; i < count; i++) {
-      const px = playerPos.x + (Math.random() - 0.5) * rangeX;
-      const py = playerPos.y + Math.random() * rangeY;
-      const pz = playerPos.z + (Math.random() - 0.5) * rangeZ;
-
-      positions[i * 3] = px;
-      positions[i * 3 + 1] = py;
-      positions[i * 3 + 2] = pz;
-
-      let vx = 0, vy = 0, vz = 0;
-
-      switch (theme.particleType) {
-        case 'rain':
-          vx = (Math.random() - 0.5) * 0.4;
-          vy = -38.0 - Math.random() * 15.0;
-          vz = (Math.random() - 0.5) * 0.4;
-          break;
-        case 'snow':
-          vx = (Math.random() - 0.5) * 1.6;
-          vy = -2.2 - Math.random() * 2.0;
-          vz = (Math.random() - 0.5) * 1.6;
-          break;
-        case 'sand':
-          vx = 14.0 + Math.random() * 12.0;
-          vy = -1.5 - Math.random() * 2.0;
-          vz = 4.0 + Math.random() * 8.0;
-          break;
-        case 'embers':
-          vx = (Math.random() - 0.5) * 2.2;
-          vy = 3.5 + Math.random() * 4.5;
-          vz = (Math.random() - 0.5) * 2.2;
-          break;
-        case 'fireflies':
-          vx = (Math.random() - 0.5) * 1.4;
-          vy = (Math.random() - 0.5) * 1.4;
-          vz = (Math.random() - 0.5) * 1.4;
-          break;
-        case 'stars':
-          vx = 0; vy = 0; vz = 0;
-          break;
-      }
-      this.particleVelocities.push(new THREE.Vector3(vx, vy, vz));
-    }
-
-    geometry.setAttribute('position', new THREE.BufferAttribute(positions, 3));
-
-    let particleSize = 1.4;
-    if (theme.particleType === 'rain') particleSize = 0.9;
-    if (theme.particleType === 'snow') particleSize = 1.9;
-    if (theme.particleType === 'fireflies') particleSize = 2.6;
-    if (theme.particleType === 'embers') particleSize = 2.2;
-    if (theme.particleType === 'stars') particleSize = 1.2;
-
-    const materialParams: THREE.PointsMaterialParameters = {
-      color: theme.particleColor,
-      size: particleSize,
+    // Build Portal Rings for transition FX
+    const ringMat = new THREE.MeshBasicMaterial({
+      color: 0x00f0ff,
       transparent: true,
-      opacity: 0.85,
-      blending: THREE.AdditiveBlending,
-      depthWrite: false,
-    };
-
-    if (theme.id === 'sky-realm' && this.petalTex) {
-      materialParams.map = this.petalTex;
-      materialParams.size = 2.8;
+      opacity: 0.8,
+    });
+    for (let i = 0; i < 5; i++) {
+      const ringGeom = new THREE.TorusGeometry(3.5 + i * 0.8, 0.12, 8, 32);
+      const ring = new THREE.Mesh(ringGeom, ringMat);
+      ring.position.z = i * 4.0;
+      this.warpRings.push(ring);
+      this.warpGroup.add(ring);
     }
-
-    const material = new THREE.PointsMaterial(materialParams);
-
-    this.activeParticlePoints = new THREE.Points(geometry, material);
-    this.scene.add(this.activeParticlePoints);
   }
 
-  updateParticles(dt: number, playerPos: THREE.Vector3, timeSeconds: number) {
-    if (!this.activeParticlePoints) return;
-    const posAttr = this.activeParticlePoints.geometry.attributes.position as THREE.BufferAttribute;
-    const positions = posAttr.array as Float32Array;
-    const count = positions.length / 3;
+  triggerPortalWarp(targetBiome: BiomeType, playerPos: THREE.Vector3): void {
+    const nextTheme = THEME_REGISTRY[targetBiome] || THEME_REGISTRY['neon-undercity'];
+    this.currentTheme = nextTheme;
 
-    const rangeX = 70;
-    const rangeY = 35;
-    const rangeZ = 100;
+    this.isWarping = true;
+    this.warpTimer = 1.2;
 
-    for (let i = 0; i < count; i++) {
-      let x = positions[i * 3];
-      let y = positions[i * 3 + 1];
-      let z = positions[i * 3 + 2];
-      const vel = this.particleVelocities[i] || new THREE.Vector3();
-
-      if (this.activeParticleType === 'fireflies') {
-        x += Math.sin(timeSeconds * 2.2 + i) * 0.04 + vel.x * dt;
-        y += Math.cos(timeSeconds * 1.9 + i) * 0.04 + vel.y * dt;
-        z += Math.sin(timeSeconds * 1.6 + i * 2) * 0.04 + vel.z * dt;
-      } else if (this.activeParticleType === 'stars') {
-        // Subtle ambient float
-        x += Math.sin(timeSeconds * 0.5 + i) * 0.01;
-        y += Math.cos(timeSeconds * 0.5 + i) * 0.01;
-      } else {
-        x += vel.x * dt;
-        y += vel.y * dt;
-        z += vel.z * dt;
-      }
-
-      // Recycle particles relative to player space
-      if (y < playerPos.y - 4.0 && (this.activeParticleType === 'rain' || this.activeParticleType === 'snow' || this.activeParticleType === 'sand')) {
-        y = playerPos.y + rangeY;
-        x = playerPos.x + (Math.random() - 0.5) * rangeX;
-        z = playerPos.z + (Math.random() - 0.5) * rangeZ;
-      } else if (y > playerPos.y + rangeY && this.activeParticleType === 'embers') {
-        y = playerPos.y;
-        x = playerPos.x + (Math.random() - 0.5) * rangeX;
-        z = playerPos.z + (Math.random() - 0.5) * rangeZ;
-      }
-
-      if (Math.abs(x - playerPos.x) > rangeX * 0.6) {
-        x = playerPos.x + (Math.random() - 0.5) * rangeX;
-      }
-      if (z < playerPos.z - rangeZ * 0.5 || z > playerPos.z + rangeZ * 0.5) {
-        z = playerPos.z + (Math.random() - 0.5) * rangeZ;
-      }
-
-      positions[i * 3] = x;
-      positions[i * 3 + 1] = y;
-      positions[i * 3 + 2] = z;
-    }
-
-    posAttr.needsUpdate = true;
-  }
-
-  triggerPortalWarp(targetThemeId?: string, playerPos?: THREE.Vector3) {
-    const nextTheme = getNextTheme(this.currentTheme.id);
-    let target = nextTheme;
-    if (targetThemeId) {
-      const match = WORLD_THEMES.find((t) => t.id === targetThemeId);
-      if (match) target = match;
-    }
-
-    this.targetTheme = target;
-    this.transitionTimer = 0;
-
-    if (playerPos) {
-      this.setupParticles(target, playerPos);
-    }
+    this.warpGroup.position.set(playerPos.x, playerPos.y + 1.2, playerPos.z + 10);
+    this.warpGroup.visible = true;
   }
 
   update(
     dt: number,
-    skyMgr: SkyManager | null,
-    terrainMgr: TerrainManager | null,
-    obstacleMgr: ObstacleManager | null,
+    skyMgr: SkyManager,
+    terrainMgr: TerrainManager,
+    obstacleMgr: ObstacleManager,
     playerPos: THREE.Vector3,
     timeSeconds: number
-  ) {
-    // Smooth Color & Lighting Lerp
-    if (this.targetTheme) {
-      this.transitionTimer += dt / this.transitionDuration;
-      const t = Math.min(1.0, Math.max(0.0, this.transitionTimer));
+  ): void {
+    if (this.isWarping) {
+      this.warpTimer -= dt;
 
-      const startTop = new THREE.Color(this.currentTheme.skyColorTop);
-      const targetTop = new THREE.Color(this.targetTheme.skyColorTop);
-      this.skyTopColor.lerpColors(startTop, targetTop, t);
+      // Animate expanding warp rings
+      for (let i = 0; i < this.warpRings.length; i++) {
+        const ring = this.warpRings[i];
+        ring.rotation.z = timeSeconds * (i % 2 === 0 ? 3 : -3);
+        const scale = 1.0 + (1.2 - this.warpTimer) * 0.8;
+        ring.scale.set(scale, scale, scale);
+      }
 
-      const startBottom = new THREE.Color(this.currentTheme.skyColorBottom);
-      const targetBottom = new THREE.Color(this.targetTheme.skyColorBottom);
-      this.skyBottomColor.lerpColors(startBottom, targetBottom, t);
-
-      const startFog = new THREE.Color(this.currentTheme.fogColor);
-      const targetFog = new THREE.Color(this.targetTheme.fogColor);
-      this.fogColor.lerpColors(startFog, targetFog, t);
-
-      this.fogDensity = THREE.MathUtils.lerp(this.currentTheme.fogDensity, this.targetTheme.fogDensity, t);
-
-      const startAmb = new THREE.Color(this.currentTheme.ambientLightColor);
-      const targetAmb = new THREE.Color(this.targetTheme.ambientLightColor);
-      this.ambientLightColor.lerpColors(startAmb, targetAmb, t);
-      this.ambientLightIntensity = THREE.MathUtils.lerp(this.currentTheme.ambientLightIntensity, this.targetTheme.ambientLightIntensity, t);
-
-      const startDir = new THREE.Color(this.currentTheme.directionalLightColor);
-      const targetDir = new THREE.Color(this.targetTheme.directionalLightColor);
-      this.directionalLightColor.lerpColors(startDir, targetDir, t);
-      this.directionalLightIntensity = THREE.MathUtils.lerp(this.currentTheme.directionalLightIntensity, this.targetTheme.directionalLightIntensity, t);
-
-      const startGround = new THREE.Color(this.currentTheme.groundColor);
-      const targetGround = new THREE.Color(this.targetTheme.groundColor);
-      this.groundColor.lerpColors(startGround, targetGround, t);
-
-      const startTrack = new THREE.Color(this.currentTheme.trackColor);
-      const targetTrack = new THREE.Color(this.targetTheme.trackColor);
-      this.trackColor.lerpColors(startTrack, targetTrack, t);
-
-      const startLane = new THREE.Color(this.currentTheme.laneLineColor);
-      const targetLane = new THREE.Color(this.targetTheme.laneLineColor);
-      this.laneLineColor.lerpColors(startLane, targetLane, t);
-
-      const startAccent = new THREE.Color(this.currentTheme.accentGlowColor);
-      const targetAccent = new THREE.Color(this.targetTheme.accentGlowColor);
-      this.accentGlowColor.lerpColors(startAccent, targetAccent, t);
-
-      const startPortal = new THREE.Color(this.currentTheme.portalColor);
-      const targetPortal = new THREE.Color(this.targetTheme.portalColor);
-      this.portalColor.lerpColors(startPortal, targetPortal, t);
-
-      if (t >= 1.0) {
-        this.currentTheme = this.targetTheme;
-        this.targetTheme = null;
+      if (this.warpTimer <= 0) {
+        this.isWarping = false;
+        this.warpGroup.visible = false;
       }
     }
-
-    // Apply values to Sky & Lights
-    if (skyMgr) {
-      if (skyMgr.skyMaterial && skyMgr.skyMaterial.uniforms) {
-        if (skyMgr.skyMaterial.uniforms.uSkyTop) skyMgr.skyMaterial.uniforms.uSkyTop.value.copy(this.skyTopColor);
-        if (skyMgr.skyMaterial.uniforms.uSkyMid) skyMgr.skyMaterial.uniforms.uSkyMid.value.copy(this.skyBottomColor);
-        if (skyMgr.skyMaterial.uniforms.uSkyHorizon) skyMgr.skyMaterial.uniforms.uSkyHorizon.value.copy(this.accentGlowColor);
-      }
-      if (skyMgr.ambientLight) {
-        skyMgr.ambientLight.color.copy(this.ambientLightColor);
-        skyMgr.ambientLight.intensity = this.ambientLightIntensity;
-      }
-      if (skyMgr.dirLight) {
-        skyMgr.dirLight.color.copy(this.directionalLightColor);
-        skyMgr.dirLight.intensity = this.directionalLightIntensity;
-      }
-      if (skyMgr.holoRingMesh && skyMgr.holoRingMesh.material instanceof THREE.MeshBasicMaterial) {
-        skyMgr.holoRingMesh.material.color.copy(this.accentGlowColor);
-      }
-    }
-
-    // Apply Fog to Scene
-    if (this.scene.fog instanceof THREE.FogExp2) {
-      this.scene.fog.color.copy(this.fogColor);
-      this.scene.fog.density = this.fogDensity;
-    } else {
-      this.scene.fog = new THREE.FogExp2(this.fogColor.getHex(), this.fogDensity);
-    }
-
-    // Apply colors to Terrain & Materials
-    if (terrainMgr) {
-      if (terrainMgr.curbRailMat) terrainMgr.curbRailMat.color.copy(this.laneLineColor);
-      if (terrainMgr.wireframeMat) terrainMgr.wireframeMat.color.copy(this.accentGlowColor);
-      if (terrainMgr.neonCyanMat) terrainMgr.neonCyanMat.color.copy(this.accentGlowColor);
-
-      if (terrainMgr.terrainMaterial && terrainMgr.terrainMaterial.uniforms) {
-        if (terrainMgr.terrainMaterial.uniforms.uSunColor) {
-          terrainMgr.terrainMaterial.uniforms.uSunColor.value.copy(this.directionalLightColor);
-        }
-        if (terrainMgr.terrainMaterial.uniforms.uAmbientColor) {
-          terrainMgr.terrainMaterial.uniforms.uAmbientColor.value.copy(this.ambientLightColor);
-        }
-      }
-    }
-
-    // Update Portals to hint next theme color
-    if (obstacleMgr) {
-      const nextTheme = getNextTheme(this.currentTheme.id);
-      const nextPortalColor = new THREE.Color(nextTheme.portalColor);
-      for (const obs of obstacleMgr.obstacles) {
-        if (obs.isPortal || obs.type === 'world-portal') {
-          obs.mesh.traverse((child) => {
-            if (child instanceof THREE.Mesh && child.material instanceof THREE.MeshBasicMaterial) {
-              child.material.color.copy(nextPortalColor);
-            }
-          });
-        }
-      }
-    }
-
-    // Update Particle Drift & Recycling
-    this.updateParticles(dt, playerPos, timeSeconds);
   }
 
-  dispose() {
-    if (this.activeParticlePoints) {
-      this.scene.remove(this.activeParticlePoints);
-      this.activeParticlePoints.geometry.dispose();
-      if (Array.isArray(this.activeParticlePoints.material)) {
-        this.activeParticlePoints.material.forEach((m) => m.dispose());
-      } else {
-        this.activeParticlePoints.material.dispose();
-      }
-      this.activeParticlePoints = null;
+  dispose(): void {
+    this.scene.remove(this.warpGroup);
+    for (const ring of this.warpRings) {
+      ring.geometry.dispose();
+      (ring.material as THREE.Material).dispose();
     }
   }
 }

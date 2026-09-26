@@ -1,9 +1,10 @@
 import React, { useState } from 'react';
-import { Volume2, VolumeX, Sliders, Eye, Palette, Smartphone, Monitor, Shield, Trophy, Zap, Radio, Terminal, Pause } from 'lucide-react';
+import { Volume2, VolumeX, Sliders, Eye, Palette, Smartphone, Monitor, Shield, Trophy, Zap, Radio, Terminal, Pause, Camera } from 'lucide-react';
 import { BiomeType, LightingMode, PlayerStats } from '../types';
 
 interface GameHUDProps {
   stats: PlayerStats;
+  bankedShards?: number;
   fps: number;
   drawCalls: number;
   instanceCount: number;
@@ -19,12 +20,14 @@ interface GameHUDProps {
   onOpenGraphicsDrawer: () => void;
   onOpenDeliverables: () => void;
   onOpenCosmetics: () => void;
+  onOpenDatasetCapture?: () => void;
   onPause?: () => void;
   notification: string | null;
 }
 
 export const GameHUD: React.FC<GameHUDProps> = ({
   stats,
+  bankedShards = 0,
   fps,
   drawCalls,
   instanceCount,
@@ -40,6 +43,7 @@ export const GameHUD: React.FC<GameHUDProps> = ({
   onOpenGraphicsDrawer,
   onOpenDeliverables,
   onOpenCosmetics,
+  onOpenDatasetCapture,
   onPause,
   notification,
 }) => {
@@ -187,72 +191,114 @@ export const GameHUD: React.FC<GameHUDProps> = ({
           {/* Core Metrics: Speed, Score, Shards, Distance */}
           <div className="flex items-center space-x-2 pointer-events-auto flex-wrap gap-y-1.5">
             {/* Speedometer */}
-            <div className="px-3 py-1.5 rounded-lg bg-black/80 backdrop-blur-md border border-cyan-500/40 text-cyan-300 flex items-center space-x-2 shadow-md">
-              <span className="text-[9px] text-cyan-500 font-bold uppercase tracking-wider">SPEED</span>
-              <span className="text-base font-black font-mono tracking-tight text-cyan-100">
+            <div className="px-3 py-1.5 rounded-lg bg-slate-950/90 backdrop-blur-md border border-cyan-500/30 text-cyan-300 flex items-center space-x-2 shadow-sm">
+              <span className="text-[9px] text-cyan-400 font-bold uppercase tracking-wider">SPEED</span>
+              <span className="text-base font-black font-mono tracking-tight text-white">
                 {stats.speed} <span className="text-[10px] text-cyan-400 font-normal">KM/H</span>
               </span>
             </div>
 
             {/* Score & Multiplier */}
-            <div className="px-3 py-1.5 rounded-lg bg-black/80 backdrop-blur-md border border-fuchsia-500/40 text-fuchsia-300 flex items-center space-x-2 shadow-md">
-              <span className="text-[9px] text-fuchsia-500 font-bold uppercase tracking-wider">SCORE</span>
+            <div className="px-3 py-1.5 rounded-lg bg-slate-950/90 backdrop-blur-md border border-fuchsia-500/30 text-fuchsia-300 flex items-center space-x-2 shadow-sm">
+              <span className="text-[9px] text-fuchsia-400 font-bold uppercase tracking-wider">SCORE</span>
               <span className="text-base font-black font-mono tracking-tight text-white">
                 {stats.score.toLocaleString()}
               </span>
               {stats.scoreMultiplier > 1 && (
-                <span className="px-1.5 py-0.2 rounded bg-fuchsia-500 text-white text-[10px] font-black animate-pulse">
+                <span className="px-1.5 py-0.2 rounded bg-fuchsia-600 text-white text-[10px] font-black">
                   x{stats.scoreMultiplier}
                 </span>
               )}
             </div>
 
             {/* High Score Trophy */}
-            <div className="px-2.5 py-1.5 rounded-lg bg-black/70 backdrop-blur-md border border-amber-500/30 text-amber-300 flex items-center space-x-1.5 shadow-sm">
+            <div className="px-2.5 py-1.5 rounded-lg bg-slate-950/90 backdrop-blur-md border border-amber-500/30 text-amber-300 flex items-center space-x-1.5 shadow-sm">
               <Trophy className="w-3.5 h-3.5 text-amber-400" />
               <span className="text-xs font-bold text-amber-200">
                 {stats.highScore > 0 ? stats.highScore.toLocaleString() : '0'}
               </span>
             </div>
 
-            {/* Data Shards Collected */}
-            <div className="px-2.5 py-1.5 rounded-lg bg-black/70 backdrop-blur-md border border-cyan-500/30 text-cyan-300 flex items-center space-x-1.5 shadow-sm">
+            {/* Data Shards Harvested this run */}
+            <div className="px-2.5 py-1.5 rounded-lg bg-slate-950/90 backdrop-blur-md border border-cyan-500/30 text-cyan-300 flex items-center space-x-1.5 shadow-sm" title="Run Data Shards">
               <span className="text-xs">💎</span>
               <span className="text-xs font-bold text-cyan-100">
-                {stats.dataShardsCollected || stats.windOrbsCollected || 0}
+                +{stats.dataShardsCollected || stats.windOrbsCollected || 0}
+              </span>
+            </div>
+
+            {/* Total Banked Shards Wallet */}
+            <div className="px-2.5 py-1.5 rounded-lg bg-cyan-950/40 backdrop-blur-md border border-cyan-500/40 text-cyan-300 flex items-center space-x-1.5 shadow-sm" title="Banked Shards (Spend in Upgrades Bay)">
+              <span className="text-[10px] text-cyan-400 font-bold uppercase">BANK</span>
+              <span className="text-xs font-black font-mono text-white">
+                {bankedShards.toLocaleString()}
               </span>
             </div>
 
             {/* Distance */}
-            <div className="px-2.5 py-1.5 rounded-lg bg-black/70 backdrop-blur-md border border-slate-700 text-slate-300 flex items-center space-x-1 shadow-sm">
+            <div className="px-2.5 py-1.5 rounded-lg bg-slate-950/90 backdrop-blur-md border border-slate-800 text-slate-300 flex items-center space-x-1 shadow-sm">
               <span className="text-[10px] text-slate-500 font-bold">DST</span>
               <span className="text-xs font-bold font-mono text-slate-200">{stats.distance}M</span>
             </div>
           </div>
 
-          {/* Active Cyber Power-Ups Strip */}
-          <div className="flex items-center space-x-1.5 pointer-events-auto">
-            {stats.activePowerUps?.magnetTimer > 0 && (
-              <div className="px-2 py-0.5 rounded bg-red-600/90 border border-red-400 text-white text-[10px] font-bold flex items-center space-x-1 shadow-md animate-pulse">
-                <span>🧲 QUANTUM MAGNET</span>
-                <span className="bg-black/60 px-1 rounded font-mono">{Math.ceil(stats.activePowerUps.magnetTimer)}s</span>
-              </div>
-            )}
-            {stats.activePowerUps?.jetpackTimer > 0 && (
-              <div className="px-2 py-0.5 rounded bg-cyan-600/90 border border-cyan-400 text-white text-[10px] font-bold flex items-center space-x-1 shadow-md animate-bounce">
-                <span>🚀 SONIC JETPACK</span>
-                <span className="bg-black/60 px-1 rounded font-mono">{Math.ceil(stats.activePowerUps.jetpackTimer)}s</span>
-              </div>
-            )}
-            {stats.activePowerUps?.multiplierTimer > 0 && (
-              <div className="px-2 py-0.5 rounded bg-amber-600/90 border border-amber-400 text-white text-[10px] font-bold flex items-center space-x-1 shadow-md">
-                <span>✨ 2X OVERDRIVE</span>
-                <span className="bg-black/60 px-1 rounded font-mono">{Math.ceil(stats.activePowerUps.multiplierTimer)}s</span>
-              </div>
-            )}
+          {/* Active Cyber Power-Ups Strip with Live Countdown Gauges */}
+          <div className="flex items-center space-x-2 pointer-events-auto flex-wrap gap-y-1">
+            {stats.activePowerUps?.magnetTimer > 0 && (() => {
+              const maxDur = stats.activePowerUps.magnetMaxDuration || 10;
+              const pct = Math.min(100, Math.max(0, (stats.activePowerUps.magnetTimer / maxDur) * 100));
+              return (
+                <div className="flex flex-col px-2.5 py-1 rounded-lg bg-black/85 border border-cyan-400 text-white text-[10px] shadow-lg shadow-cyan-950/40">
+                  <div className="flex items-center space-x-1.5 font-bold">
+                    <span className="animate-pulse">🧲</span>
+                    <span className="text-cyan-300">MAGNET</span>
+                    <span className="font-mono text-white ml-auto">{stats.activePowerUps.magnetTimer.toFixed(1)}s</span>
+                  </div>
+                  <div className="w-full h-1 bg-slate-800 rounded-full mt-1 overflow-hidden">
+                    <div className="h-full bg-cyan-400 transition-all duration-100" style={{ width: `${pct}%` }} />
+                  </div>
+                </div>
+              );
+            })()}
+
+            {stats.activePowerUps?.jetpackTimer > 0 && (() => {
+              const maxDur = stats.activePowerUps.jetpackMaxDuration || 7;
+              const pct = Math.min(100, Math.max(0, (stats.activePowerUps.jetpackTimer / maxDur) * 100));
+              return (
+                <div className="flex flex-col px-2.5 py-1 rounded-lg bg-black/85 border border-fuchsia-400 text-white text-[10px] shadow-lg shadow-fuchsia-950/40">
+                  <div className="flex items-center space-x-1.5 font-bold">
+                    <span className="animate-bounce">🚀</span>
+                    <span className="text-fuchsia-300">JETPACK</span>
+                    <span className="font-mono text-white ml-auto">{stats.activePowerUps.jetpackTimer.toFixed(1)}s</span>
+                  </div>
+                  <div className="w-full h-1 bg-slate-800 rounded-full mt-1 overflow-hidden">
+                    <div className="h-full bg-fuchsia-400 transition-all duration-100" style={{ width: `${pct}%` }} />
+                  </div>
+                </div>
+              );
+            })()}
+
+            {stats.activePowerUps?.multiplierTimer > 0 && (() => {
+              const maxDur = stats.activePowerUps.multiplierMaxDuration || 12;
+              const pct = Math.min(100, Math.max(0, (stats.activePowerUps.multiplierTimer / maxDur) * 100));
+              return (
+                <div className="flex flex-col px-2.5 py-1 rounded-lg bg-black/85 border border-amber-400 text-white text-[10px] shadow-lg shadow-amber-950/40">
+                  <div className="flex items-center space-x-1.5 font-bold">
+                    <span className="animate-spin">⚡</span>
+                    <span className="text-amber-300">2X BOOST</span>
+                    <span className="font-mono text-white ml-auto">{stats.activePowerUps.multiplierTimer.toFixed(1)}s</span>
+                  </div>
+                  <div className="w-full h-1 bg-slate-800 rounded-full mt-1 overflow-hidden">
+                    <div className="h-full bg-amber-400 transition-all duration-100" style={{ width: `${pct}%` }} />
+                  </div>
+                </div>
+              );
+            })()}
+
             {stats.activePowerUps?.hoverboardShield && (
-              <div className="px-2 py-0.5 rounded bg-emerald-600/90 border border-emerald-400 text-white text-[10px] font-bold flex items-center space-x-1 shadow-md">
-                <span>🛡️ HOLO-SHIELD</span>
+              <div className="flex items-center space-x-1.5 px-2.5 py-1 rounded-lg bg-emerald-950/80 border border-emerald-400 text-white text-[10px] font-bold shadow-md shadow-emerald-950/40 animate-pulse">
+                <span>🛡️</span>
+                <span className="text-emerald-300 uppercase tracking-wide">HOLO-SHIELD ENGAGED</span>
               </div>
             )}
           </div>
@@ -404,6 +450,17 @@ export const GameHUD: React.FC<GameHUDProps> = ({
           >
             <Palette className="w-4 h-4" />
           </button>
+
+          {/* Dataset Capture & Visual Engineering */}
+          {onOpenDatasetCapture && (
+            <button
+              onClick={onOpenDatasetCapture}
+              className="p-2 rounded-lg bg-black/60 border border-slate-700 text-slate-300 hover:text-cyan-300 backdrop-blur-md active:scale-95"
+              title="Visual Dataset Capture & AI Prompt Engineering"
+            >
+              <Camera className="w-4 h-4 text-cyan-400" />
+            </button>
+          )}
 
           {/* Graphics Settings */}
           <button
