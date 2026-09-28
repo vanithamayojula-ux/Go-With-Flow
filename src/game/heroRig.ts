@@ -161,23 +161,44 @@ export function buildHeroRig(heroId: HeroId): HeroRig | null {
       const mats = Array.isArray(mesh.material) ? mesh.material : [mesh.material];
       for (const m of mats) {
         if (!m) continue;
-        if ((m as THREE.MeshStandardMaterial).isMeshStandardMaterial) {
+        if ((m as THREE.MeshStandardMaterial).isMeshStandardMaterial || (m as any).isMaterial) {
           const stdMat = m as THREE.MeshStandardMaterial;
-          // Albedo lift for dark heroes (Shadow, Void)
+
+          // 1. Color map sRGB color space & mipmaps
+          if (stdMat.map) {
+            stdMat.map.colorSpace = THREE.SRGBColorSpace;
+            stdMat.map.generateMipmaps = true;
+            stdMat.map.minFilter = THREE.LinearMipmapLinearFilter;
+            stdMat.map.needsUpdate = true;
+          }
+
+          // 2. Normal map softening (clamp normalScale to 0.45 to prevent noisy spongy appearance)
+          if (stdMat.normalMap) {
+            stdMat.normalScale.set(0.45, 0.45);
+          }
+
+          // 3. Roughness floor & metalness ceiling for solid matte cyber finish
+          stdMat.roughness = Math.max(0.45, Math.min(stdMat.roughness || 0.5, 0.75));
+          stdMat.metalness = Math.min(stdMat.metalness || 0.3, 0.65);
+          stdMat.envMapIntensity = 0.8;
+
+          // 4. Remove transmission, clearcoat, sheen noise
+          (stdMat as any).transmission = 0;
+          (stdMat as any).clearcoat = 0;
+          (stdMat as any).sheen = 0;
+
+          // 5. Albedo lift for dark heroes (Shadow, Void)
           const hsl = { h: 0, s: 0, l: 0 };
           stdMat.color.getHSL(hsl);
-          if (hsl.l < 0.32) {
-            stdMat.color.setHSL(hsl.h, Math.min(1.0, hsl.s * 1.25), Math.max(0.36, hsl.l * 1.85));
+          if (hsl.l < 0.35) {
+            stdMat.color.setHSL(hsl.h, Math.min(1.0, hsl.s * 1.2), Math.max(0.38, hsl.l * 1.9));
           }
-          // Add subtle hero rim emissive
+
+          // 6. Hero accent rim emissive
           if (stdMat.emissive) {
-            const currentEmissive = stdMat.emissive.getHex();
-            if (currentEmissive === 0x000000) {
-              stdMat.emissive.copy(heroColor).multiplyScalar(0.25);
-            }
+            stdMat.emissive.copy(heroColor).multiplyScalar(0.28);
           }
-          stdMat.roughness = Math.min(stdMat.roughness, 0.45);
-          stdMat.metalness = Math.max(stdMat.metalness, 0.25);
+
           stdMat.needsUpdate = true;
         }
       }
@@ -185,13 +206,13 @@ export function buildHeroRig(heroId: HeroId): HeroRig | null {
   });
 
   // Dedicated dynamic back rim light (behind and above hero, illuminating contours toward camera)
-  const rimLight = new THREE.PointLight(heroDef.trail || heroDef.color, 3.2, 6.0);
-  rimLight.position.set(0, 1.65, -0.65);
+  const rimLight = new THREE.PointLight(heroDef.trail || heroDef.color, 3.4, 6.5);
+  rimLight.position.set(0, 1.7, -0.65);
   root.add(rimLight);
 
   // Front fill light
-  const frontFill = new THREE.PointLight(heroDef.color, 1.8, 5.0);
-  frontFill.position.set(0, 1.4, 0.8);
+  const frontFill = new THREE.PointLight(heroDef.color, 2.0, 5.5);
+  frontFill.position.set(0, 1.4, 0.9);
   root.add(frontFill);
 
   interface BoneDriverEntry {

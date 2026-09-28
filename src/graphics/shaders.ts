@@ -153,6 +153,9 @@ export const TerrainShader = {
     uniform float uSpeed; // Player speed in m/s for animated streaks and pulses
     uniform float uGridMode; // 1.0 = The Grid wireframe
     uniform float uWetReflections;
+    uniform float uLaneWidth;
+    uniform float uRailX;
+    uniform float uDividerX;
 
     varying vec3 vWorldPosition;
     varying vec3 vNormal;
@@ -214,37 +217,35 @@ export const TerrainShader = {
       // Clean, dark space highway surface
       vec3 wetSurface = mix(pavementBase, pavementBase * 0.15 + spaceReflection, wetness * 0.55);
 
-      // 4. --- Futuristic Space Highway Markings & Guided Neon Rails ---
+      // 4. --- EXACT 3-LANE SPACE HIGHWAY MARKINGS & GUIDED NEON RAILS ---
       float roadX = vWorldPosition.x;
       float roadZ = vWorldPosition.z;
+      float laneW = uLaneWidth > 0.1 ? uLaneWidth : 2.6;
+      float railX = uRailX > 0.1 ? uRailX : 4.5;
+      float divX = uDividerX > 0.1 ? uDividerX : 1.3;
 
-      // Motion blur streak along outer road boundaries (widens dynamically with speed)
-      float edgeDist = abs(roadX);
-      float roadEdgeBlur = smoothstep(5.0, 7.2, edgeDist);
-      float edgeStreakRate = 26.0 + uSpeed * 1.5;
-      float speedStreak = sin((roadZ - uTime * edgeStreakRate) * 0.5) * 0.5 + 0.5;
+      // Exactly 2 Solid glowing outer highway rails (+-railX)
+      float railLeft = smoothstep(0.20, 0.02, abs(roadX - (-railX)));
+      float railRight = smoothstep(0.20, 0.02, abs(roadX - railX));
+      float guideRails = railLeft * 1.5 + railRight * 1.5;
 
-      // Outer highway guided neon rail lines (-3.1 / +3.1 inner lane rails, -6.5 / +6.5 outer boundary)
-      float railInnerLeft = smoothstep(0.20, 0.02, abs(roadX - (-3.1)));
-      float railInnerRight = smoothstep(0.20, 0.02, abs(roadX - 3.1));
-      float railOuterLeft = smoothstep(0.25, 0.02, abs(roadX - (-6.5)));
-      float railOuterRight = smoothstep(0.25, 0.02, abs(roadX - 6.5));
-      float guideRails = railInnerLeft * 1.2 + railInnerRight * 1.2 + railOuterLeft * 0.8 + railOuterRight * 0.8;
-
-      // Inner 3-lane divider light dashes between lanes (-1.0 and +1.0)
-      float divLeft = smoothstep(0.12, 0.02, abs(roadX - (-1.0)));
-      float divRight = smoothstep(0.12, 0.02, abs(roadX - 1.0));
+      // Exactly 2 Dashed lane divider lines between the 3 lanes (+-divX)
+      float divLeft = smoothstep(0.12, 0.02, abs(roadX - (-divX)));
+      float divRight = smoothstep(0.12, 0.02, abs(roadX - divX));
       float dashRate = 24.0 + uSpeed * 1.1;
       float laneDashes = step(0.45, fract((roadZ - uTime * dashRate) * 0.16));
       float dividerLines = (divLeft + divRight) * laneDashes;
 
+      // Subtle lane center flow guides (marking the 3 lane paths)
+      float laneCenterL = smoothstep(0.40, 0.04, abs(roadX - (-laneW)));
+      float laneCenterC = smoothstep(0.40, 0.04, abs(roadX - 0.0));
+      float laneCenterR = smoothstep(0.40, 0.04, abs(roadX - laneW));
+      float laneFlow = (laneCenterL + laneCenterC + laneCenterR) * 0.08 * (sin((roadZ - uTime * 28.0) * 0.2) * 0.5 + 0.5);
+
       // Strict Color System: Cyan ONLY for rails and road guidance
-      vec3 emissiveLines = neonCyan * (guideRails * 1.4 + dividerLines * 1.2);
+      vec3 emissiveLines = neonCyan * (guideRails * 1.5 + dividerLines * 1.3 + laneFlow);
 
-      // Edge motion blur light streaks
-      vec3 gutterStreak = neonCyan * roadEdgeBlur * speedStreak * (0.3 + uSpeed * 0.01);
-
-      vec3 finalCol = wetSurface + emissiveLines + gutterStreak;
+      vec3 finalCol = wetSurface + emissiveLines;
 
       // Subtle atmospheric rim lighting
       float rim = pow(1.0 - max(dot(V, N), 0.0), 4.2);

@@ -6,7 +6,6 @@ export interface PlayerCharacter {
   group: THREE.Group;
   board: THREE.Group;
   boards?: Record<string, THREE.Object3D>;
-  companions?: Record<string, THREE.Object3D>;
   helmets?: Record<string, THREE.Object3D>;
   armors?: Record<string, THREE.Object3D>;
   visorMesh?: THREE.Mesh;
@@ -79,46 +78,66 @@ export function createPlayerCharacter(heroId?: HeroId): PlayerCharacter {
     thickness: 0.5,
   });
 
-  // 1. Hoverboard Group
+  // 1. Hoverboard Group (Full Cyberpunk Board: 2.2m x 0.70m)
   const boardGroup = new THREE.Group();
   boardGroup.name = 'HoverboardGroup';
   boardGroup.position.set(0, 0.15, 0);
 
-  // Main board deck (Sleek dark matte carbon)
-  const deckGeom = new THREE.BoxGeometry(0.55, 0.08, 1.85);
+  // Main board deck (Sleek dark matte carbon composite)
+  const deckGeom = new THREE.BoxGeometry(0.70, 0.08, 2.15);
   const deckMesh = new THREE.Mesh(deckGeom, carbonDeckMat);
   boardGroup.add(deckMesh);
 
-  // Deck side neon rails
-  const railGeom = new THREE.BoxGeometry(0.04, 0.06, 1.8);
+  // Center Grip Pad Strip
+  const gripGeom = new THREE.BoxGeometry(0.52, 0.015, 1.90);
+  const gripMat = new THREE.MeshStandardMaterial({ color: 0x060910, roughness: 0.9, metalness: 0.1 });
+  const gripMesh = new THREE.Mesh(gripGeom, gripMat);
+  gripMesh.position.set(0, 0.045, 0);
+  boardGroup.add(gripMesh);
+
+  // Tapered Nose & Tail Upward Kicks
+  const noseKickGeom = new THREE.BoxGeometry(0.64, 0.07, 0.22);
+  const noseKick = new THREE.Mesh(noseKickGeom, carbonDeckMat);
+  noseKick.position.set(0, 0.055, 1.15);
+  noseKick.rotation.x = -0.15; // Upward nose angle
+  boardGroup.add(noseKick);
+
+  const tailKickGeom = new THREE.BoxGeometry(0.64, 0.07, 0.22);
+  const tailKick = new THREE.Mesh(tailKickGeom, carbonDeckMat);
+  tailKick.position.set(0, 0.055, -1.15);
+  tailKick.rotation.x = 0.15; // Upward tail angle
+  boardGroup.add(tailKick);
+
+  // Deck side glowing neon rails
+  const railGeom = new THREE.BoxGeometry(0.045, 0.065, 2.15);
   const leftRail = new THREE.Mesh(railGeom, neonCyanMat);
-  leftRail.position.set(-0.28, 0.02, 0);
+  leftRail.position.set(-0.355, 0.02, 0);
   const rightRail = new THREE.Mesh(railGeom, neonCyanMat);
-  rightRail.position.set(0.28, 0.02, 0);
+  rightRail.position.set(0.355, 0.02, 0);
   boardGroup.add(leftRail, rightRail);
 
   // Front nose bumper neon trim
-  const noseGeom = new THREE.BoxGeometry(0.52, 0.05, 0.04);
+  const noseGeom = new THREE.BoxGeometry(0.62, 0.05, 0.04);
   const noseTrim = new THREE.Mesh(noseGeom, neonCyanMat);
-  noseTrim.position.set(0, 0.02, 0.92);
+  noseTrim.position.set(0, 0.07, 1.25);
   boardGroup.add(noseTrim);
 
   // Twin Rear Thruster Turbines (Dark titanium with glowing inner nozzles)
-  const thrusterGeom = new THREE.CylinderGeometry(0.09, 0.11, 0.3, 12);
+  const thrusterGeom = new THREE.CylinderGeometry(0.10, 0.12, 0.35, 12);
   const leftThruster = new THREE.Mesh(thrusterGeom, thrusterMat);
   leftThruster.rotation.x = Math.PI / 2;
-  leftThruster.position.set(-0.2, -0.04, -0.85);
+  leftThruster.position.set(-0.24, -0.04, -1.02);
   const rightThruster = new THREE.Mesh(thrusterGeom, thrusterMat);
   rightThruster.rotation.x = Math.PI / 2;
-  rightThruster.position.set(0.2, -0.04, -0.85);
+  rightThruster.position.set(0.24, -0.04, -1.02);
   boardGroup.add(leftThruster, rightThruster);
 
-  // Thruster glowing inner rings
-  const nozzleGeom = new THREE.RingGeometry(0.03, 0.08, 12);
+  // Thruster glowing inner nozzles
+  const nozzleGeom = new THREE.RingGeometry(0.03, 0.09, 12);
   const leftNozzle = new THREE.Mesh(nozzleGeom, neonCyanMat);
-  leftNozzle.position.set(-0.2, -0.04, -1.01);
+  leftNozzle.position.set(-0.24, -0.04, -1.20);
   const rightNozzle = new THREE.Mesh(nozzleGeom, neonCyanMat);
-  rightNozzle.position.set(0.2, -0.04, -1.01);
+  rightNozzle.position.set(0.24, -0.04, -1.20);
   boardGroup.add(leftNozzle, rightNozzle);
 
   // 1. Directional forward-facing headlight / thruster spot illuminating road ahead
@@ -129,7 +148,7 @@ export function createPlayerCharacter(heroId?: HeroId): PlayerCharacter {
   boardGroup.add(forwardSpotLight.target);
 
   // 2. Trailing energy stream cone behind hoverboard
-  const streamGeom = new THREE.ConeGeometry(0.32, 1.5, 8, 1, true);
+  const streamGeom = new THREE.ConeGeometry(0.35, 1.6, 8, 1, true);
   streamGeom.rotateX(-Math.PI / 2);
   const streamMat = new THREE.MeshBasicMaterial({
     color: 0x00d2e0,
@@ -139,15 +158,15 @@ export function createPlayerCharacter(heroId?: HeroId): PlayerCharacter {
     blending: THREE.AdditiveBlending,
   });
   const energyStreamMesh = new THREE.Mesh(streamGeom, streamMat);
-  energyStreamMesh.position.set(0, -0.04, -1.6);
+  energyStreamMesh.position.set(0, -0.04, -1.8);
   boardGroup.add(energyStreamMesh);
 
-  // Underglow light disc & Ground Aura (Soft glow around player and on road)
-  const underglowGeom = new THREE.PlaneGeometry(0.7, 2.1);
+  // Underglow light disc & Ground Aura
+  const underglowGeom = new THREE.PlaneGeometry(0.85, 2.4);
   const underglowMat = new THREE.MeshBasicMaterial({
     color: 0x00d2e0,
     transparent: true,
-    opacity: 0.45,
+    opacity: 0.40,
     side: THREE.DoubleSide,
   });
   const underglowMesh = new THREE.Mesh(underglowGeom, underglowMat);
@@ -155,8 +174,19 @@ export function createPlayerCharacter(heroId?: HeroId): PlayerCharacter {
   underglowMesh.position.set(0, -0.06, 0);
   boardGroup.add(underglowMesh);
 
-  // Soft Ground Aura Ring projecting onto pavement
-  const auraGeom = new THREE.RingGeometry(0.4, 1.2, 24);
+  // Soft Ground Hover Shadow & Aura Ring
+  const shadowBlobMat = new THREE.MeshBasicMaterial({
+    color: 0x020408,
+    transparent: true,
+    opacity: 0.55,
+    side: THREE.DoubleSide,
+  });
+  const shadowBlob = new THREE.Mesh(new THREE.PlaneGeometry(0.9, 2.3), shadowBlobMat);
+  shadowBlob.rotation.x = Math.PI / 2;
+  shadowBlob.position.set(0, -0.15, 0);
+  boardGroup.add(shadowBlob);
+
+  const auraGeom = new THREE.RingGeometry(0.45, 1.3, 24);
   const auraMat = new THREE.MeshBasicMaterial({
     color: 0x00d2e0,
     transparent: true,
@@ -283,15 +313,12 @@ export function createPlayerCharacter(heroId?: HeroId): PlayerCharacter {
     'carbon-fiber': torsoMesh,
   };
 
-  const companions: Record<string, THREE.Object3D> = {};
-
   const playerChar: PlayerCharacter = {
     group: rootGroup,
     board: boardGroup,
     boards,
     helmets,
     armors,
-    companions,
     visorMesh,
     underglowMesh,
     underglowLight,
@@ -392,48 +419,55 @@ export function animatePlayerCharacter(
     b.rightArm.rotation.set(0, 0, 0);
     b.rightForearm.rotation.set(0, 0, 0);
 
-    // 1. Dynamic Athletic Surfer Stance
+    // 1. Dynamic Athletic Surfer Stance (Planted Feet on Hoverboard Deck)
     const bob = Math.sin(time * 6 * speedFactor) * 0.02 * speedFactor;
-    b.hips.position.y = 0.72 + bob;
+    b.hips.position.y = 0.68 + bob;
 
-    b.spine.rotation.x = 0.14;
+    b.spine.rotation.set(0.12, -0.18, -turnVelocity * 0.09);
     const runCycle = Math.sin(time * 6 * speedFactor);
-    b.leftThigh.rotation.x = 0.15 + runCycle * 0.25;
-    b.leftShin.rotation.x = -0.35;
-    b.rightThigh.rotation.x = -0.15 - runCycle * 0.25;
-    b.rightShin.rotation.x = -0.25;
 
-    const armSwing = Math.sin(time * 6 * speedFactor) * 0.35;
-    b.leftArm.rotation.set(-0.25 + armSwing, 0, 0);
-    b.rightArm.rotation.set(0.25 - armSwing, 0, 0);
-    b.leftForearm.rotation.set(-0.65, 0, 0);
-    b.rightForearm.rotation.set(-0.65, 0, 0);
+    // Front leg (Left foot forward on deck)
+    b.leftThigh.rotation.set(0.28 + runCycle * 0.15, -0.15, 0.10);
+    b.leftShin.rotation.set(-0.48, 0, 0);
+    b.leftFoot.rotation.set(0.12, 0, 0);
+
+    // Rear leg (Right foot back near thrusters)
+    b.rightThigh.rotation.set(-0.22 - runCycle * 0.15, 0.18, -0.10);
+    b.rightShin.rotation.set(-0.42, 0, 0);
+    b.rightFoot.rotation.set(0.14, 0, 0);
+
+    // Dynamic arm balance
+    const armSwing = Math.sin(time * 6 * speedFactor) * 0.25;
+    b.leftArm.rotation.set(-0.35 + armSwing, 0.20, -0.35);
+    b.rightArm.rotation.set(0.30 - armSwing, -0.20, 0.35);
+    b.leftForearm.rotation.set(-0.55, 0, 0);
+    b.rightForearm.rotation.set(-0.60, 0, 0);
 
     // 2. Movement States
     if (isSliding) {
       // Deep aerodynamic duck
-      b.hips.position.y = 0.45;
-      b.spine.rotation.x = -0.25;
-      b.leftThigh.rotation.x = 0.8;
-      b.leftShin.rotation.x = -0.7;
-      b.rightThigh.rotation.x = 0.8;
-      b.rightShin.rotation.x = -0.7;
-      b.leftArm.rotation.x = 0.4;
-      b.rightArm.rotation.x = 0.4;
+      b.hips.position.y = 0.40;
+      b.spine.rotation.x = -0.28;
+      b.leftThigh.rotation.x = 0.85;
+      b.leftShin.rotation.x = -0.75;
+      b.rightThigh.rotation.x = 0.85;
+      b.rightShin.rotation.x = -0.75;
+      b.leftArm.rotation.x = 0.45;
+      b.rightArm.rotation.x = 0.45;
       b.leftForearm.rotation.x = -0.3;
       b.rightForearm.rotation.x = -0.3;
     } else if (isGrinding) {
       // Grind Balance Stance (Arms Outward)
-      b.leftArm.rotation.z = 1.2;
-      b.rightArm.rotation.z = -1.2;
+      b.leftArm.rotation.z = 1.25;
+      b.rightArm.rotation.z = -1.25;
       b.spine.rotation.z = Math.sin(time * 12) * 0.08;
     } else if (!state.isGrounded) {
       // Jump Rise / Fall
       b.hips.position.y = 0.95;
-      b.leftThigh.rotation.x = 0.45;
+      b.leftThigh.rotation.x = 0.55;
       b.leftShin.rotation.x = -0.65;
       b.rightThigh.rotation.x = -0.35;
-      b.rightShin.rotation.x = -0.45;
+      b.rightShin.rotation.x = -0.50;
       b.leftArm.rotation.x = -0.6;
       b.rightArm.rotation.x = -0.6;
       b.leftForearm.rotation.x = -0.4;

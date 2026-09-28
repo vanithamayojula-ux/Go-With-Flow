@@ -58,8 +58,6 @@ export interface CosmeticsConfig {
   visorColor?: string;
   underglowColor?: string;
   characterStyle?: 'cyber-runner' | 'net-stalker' | 'void-drifter' | 'grid-phantom';
-  companionEnabled?: boolean;
-  companionStyle?: 'recon-orb' | 'stealth-hex' | 'neon-wasp';
 }
 
 export interface SessionGoal {

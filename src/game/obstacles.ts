@@ -1,11 +1,10 @@
 import * as THREE from 'three';
 import { BiomeType, LaneIndex, PowerUpType } from '../types';
 import { getTerrainHeight, getBiomeAt } from './terrain';
+import { LANE_WIDTH, laneToWorldX } from './trackConfig';
 
 export function getLaneX(lane: LaneIndex): number {
-  if (lane === -1) return -2.0; // Left lane
-  if (lane === 1) return 2.0;  // Right lane
-  return 0.0;                 // Center lane
+  return laneToWorldX(lane);
 }
 
 export function laneIndexFromNumber(n: number): LaneIndex {
@@ -439,24 +438,24 @@ export class ObstacleManager {
     const blockGroup = new THREE.Group();
     blockGroup.position.set(x, groundH, z);
 
-    // Main solid cyber barrier
-    const mainGeom = new THREE.BoxGeometry(1.95, 2.2, 0.8);
+    // Main solid cyber barrier (fits 2.6m lane)
+    const mainGeom = new THREE.BoxGeometry(2.45, 2.2, 0.8);
     const mainMesh = new THREE.Mesh(mainGeom, this.barrierMat);
     mainMesh.position.set(0, 1.1, 0);
     blockGroup.add(mainMesh);
 
     // High-visibility neon magenta hazard perimeter & warning edge
-    const edgeGeom = new THREE.BoxGeometry(2.02, 0.18, 0.85);
+    const edgeGeom = new THREE.BoxGeometry(2.52, 0.18, 0.85);
     const edgeMesh = new THREE.Mesh(edgeGeom, this.laserHazardMat);
     edgeMesh.position.set(0, 2.15, 0);
     blockGroup.add(edgeMesh);
 
-    const edgeMesh2 = new THREE.Mesh(new THREE.BoxGeometry(2.02, 0.18, 0.85), this.laserHazardMat);
+    const edgeMesh2 = new THREE.Mesh(new THREE.BoxGeometry(2.52, 0.18, 0.85), this.laserHazardMat);
     edgeMesh2.position.set(0, 0.15, 0);
     blockGroup.add(edgeMesh2);
 
     // Ground Warning Telegraph Strip (projected on road ahead)
-    const telegraphGeom = new THREE.PlaneGeometry(1.8, 4.0);
+    const telegraphGeom = new THREE.PlaneGeometry(2.35, 4.0);
     telegraphGeom.rotateX(-Math.PI / 2);
     const telegraphMesh = new THREE.Mesh(telegraphGeom, this.telegraphMat);
     telegraphMesh.position.set(0, 0.05, -3.0);
@@ -473,7 +472,7 @@ export class ObstacleManager {
       x,
       y: groundH + 1.1,
       z,
-      width: 2.0,
+      width: 2.45,
       height: 2.2,
       depth: 0.8,
       mesh: blockGroup,
@@ -490,20 +489,20 @@ export class ObstacleManager {
     hurdleGroup.position.set(x, groundH, z);
 
     // Low neon hurdle beam
-    const beamGeom = new THREE.BoxGeometry(2.0, 0.3, 0.35);
+    const beamGeom = new THREE.BoxGeometry(2.45, 0.32, 0.35);
     const beam = new THREE.Mesh(beamGeom, this.laserHazardMat);
     beam.position.set(0, 0.45, 0);
     hurdleGroup.add(beam);
 
     // Base anchors
     const postL = new THREE.Mesh(new THREE.BoxGeometry(0.18, 0.55, 0.35), this.barrierMat);
-    postL.position.set(-0.95, 0.28, 0);
+    postL.position.set(-1.18, 0.28, 0);
     const postR = new THREE.Mesh(new THREE.BoxGeometry(0.18, 0.55, 0.35), this.barrierMat);
-    postR.position.set(0.95, 0.28, 0);
+    postR.position.set(1.18, 0.28, 0);
     hurdleGroup.add(postL, postR);
 
     // Warning strip
-    const telegraphGeom = new THREE.PlaneGeometry(1.8, 3.0);
+    const telegraphGeom = new THREE.PlaneGeometry(2.35, 3.0);
     telegraphGeom.rotateX(-Math.PI / 2);
     const telegraphMesh = new THREE.Mesh(telegraphGeom, this.telegraphMat);
     telegraphMesh.position.set(0, 0.04, -2.5);
@@ -520,7 +519,7 @@ export class ObstacleManager {
       x,
       y: groundH + 0.45,
       z,
-      width: 2.0,
+      width: 2.45,
       height: 0.9,
       depth: 0.8,
       mesh: hurdleGroup,
@@ -539,19 +538,19 @@ export class ObstacleManager {
     // Tall support posts
     const postGeom = new THREE.BoxGeometry(0.2, 3.2, 0.2);
     const leftPost = new THREE.Mesh(postGeom, this.barrierMat);
-    leftPost.position.set(-1.05, 1.6, 0);
+    leftPost.position.set(-1.25, 1.6, 0);
     const rightPost = new THREE.Mesh(postGeom, this.barrierMat);
-    rightPost.position.set(1.05, 1.6, 0);
+    rightPost.position.set(1.25, 1.6, 0);
     barrierGroup.add(leftPost, rightPost);
 
     // High laser beam allowing slide clearance underneath
-    const beamGeom = new THREE.BoxGeometry(2.0, 0.4, 0.2);
+    const beamGeom = new THREE.BoxGeometry(2.45, 0.4, 0.2);
     const beamMesh = new THREE.Mesh(beamGeom, this.laserHazardMat);
     beamMesh.position.set(0, 1.85, 0);
     barrierGroup.add(beamMesh);
 
     // Amber warning decal underneath
-    const telegraphGeom = new THREE.PlaneGeometry(1.8, 3.0);
+    const telegraphGeom = new THREE.PlaneGeometry(2.35, 3.0);
     telegraphGeom.rotateX(-Math.PI / 2);
     const telegraphMesh = new THREE.Mesh(telegraphGeom, this.warningAmberMat);
     telegraphMesh.position.set(0, 0.04, -2.5);
@@ -568,7 +567,7 @@ export class ObstacleManager {
       x,
       y: groundH + 1.85,
       z,
-      width: 2.0,
+      width: 2.45,
       height: 1.4,
       depth: 0.6,
       mesh: barrierGroup,

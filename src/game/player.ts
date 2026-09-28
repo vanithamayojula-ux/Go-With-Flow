@@ -43,11 +43,6 @@ export class PlayerManager {
   underglowMesh?: THREE.Mesh;
   underglowLight?: THREE.PointLight;
 
-  // Cyber Recon Drone Companion
-  cyberDroneMesh: THREE.Group;
-  droneEyeMesh?: THREE.Mesh;
-  droneRingMesh?: THREE.Mesh;
-  cyberDroneTime = Math.random() * Math.PI * 2;
   stumbleTimer = 0;
 
   // Mid-Air Trick & Slow-Motion Window
@@ -216,27 +211,7 @@ export class PlayerManager {
     playerGlowLight.position.set(0, 0.8, 0);
     this.group.add(playerGlowLight);
 
-    // 3. Autonomous Cyber Drone Companion (Stable Hovering Recon Drone)
-    this.cyberDroneMesh = new THREE.Group();
-    const droneBodyMat = new THREE.MeshStandardMaterial({ color: 0x080e1a, metalness: 0.9, roughness: 0.2 });
-    const droneBody = new THREE.Mesh(new THREE.OctahedronGeometry(0.22), droneBodyMat);
-    this.cyberDroneMesh.add(droneBody);
-
-    // Glowing Optical Scanner Lens Eye
-    const droneEyeMat = new THREE.MeshBasicMaterial({ color: 0x00f0ff });
-    this.droneEyeMesh = new THREE.Mesh(new THREE.CylinderGeometry(0.08, 0.08, 0.06, 8), droneEyeMat);
-    this.droneEyeMesh.rotateX(Math.PI / 2);
-    this.droneEyeMesh.position.set(0, 0, 0.16);
-    this.cyberDroneMesh.add(this.droneEyeMesh);
-
-    // Magnetic Stabilization Ring
-    this.droneRingMesh = new THREE.Mesh(new THREE.TorusGeometry(0.3, 0.02, 6, 16), droneEyeMat);
-    this.cyberDroneMesh.add(this.droneRingMesh);
-
-    this.cyberDroneMesh.position.set(1.25, 1.75, -0.5);
-    this.group.add(this.cyberDroneMesh);
-
-    // 4. Holo-Shield Bubble
+    // 3. Holo-Shield Bubble
     const shieldGeom = new THREE.SphereGeometry(1.55, 16, 16);
     const shieldMat = new THREE.MeshBasicMaterial({
       color: 0x00ffaa,
@@ -363,17 +338,7 @@ export class PlayerManager {
       });
     }
 
-    // 2. Companion Model Selection & Toggle
-    const cId = config.companionStyle || 'recon-orb';
-    const cEnabled = config.companionEnabled !== false;
-    const companions = pc.companions;
-    if (companions) {
-      Object.keys(companions).forEach(key => {
-        if (companions[key]) companions[key].visible = cEnabled && (key === cId);
-      });
-    }
-
-    // 3. Helmet / Style Selection
+    // 2. Helmet / Style Selection
     const hId = config.characterStyle || 'cyber-runner';
     const helmets = pc.helmets;
     if (helmets) {
@@ -920,16 +885,6 @@ export class PlayerManager {
     this.characterMesh.rotation.x = slidePitch;
     this.characterMesh.rotation.y = (this.isGrounded ? 0 : this.spinAngle);
     this.characterMesh.position.y = slideCrouchY;
-
-    // Cyber Recon Drone Companion stable hover/bob beside player shoulder (No yaw-spin-away bug)
-    this.cyberDroneTime += effectiveDt;
-    const dtT = this.cyberDroneTime;
-    this.cyberDroneMesh.position.set(
-      1.25,
-      1.75 + Math.sin(dtT * 3.0) * 0.12,
-      -0.45 + Math.cos(dtT * 1.5) * 0.08
-    );
-    this.cyberDroneMesh.rotation.set(0, 0, 0); // Stays facing forward, stable observation angle!
 
     // Overdrive & Combo Tiers calculation
     let odTier: OverdriveTier = 'Dormant';
