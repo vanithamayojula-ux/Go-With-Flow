@@ -224,20 +224,22 @@ export const TerrainShader = {
       float edgeStreakRate = 26.0 + uSpeed * 1.5;
       float speedStreak = sin((roadZ - uTime * edgeStreakRate) * 0.5) * 0.5 + 0.5;
 
-      // Outer highway guided neon rail lines (-6.8 and +6.8) - Pure Cyan
-      float railLeft = smoothstep(0.30, 0.02, abs(roadX - (-6.8)));
-      float railRight = smoothstep(0.30, 0.02, abs(roadX - 6.8));
-      float guideRails = railLeft + railRight;
+      // Outer highway guided neon rail lines (-3.1 / +3.1 inner lane rails, -6.5 / +6.5 outer boundary)
+      float railInnerLeft = smoothstep(0.20, 0.02, abs(roadX - (-3.1)));
+      float railInnerRight = smoothstep(0.20, 0.02, abs(roadX - 3.1));
+      float railOuterLeft = smoothstep(0.25, 0.02, abs(roadX - (-6.5)));
+      float railOuterRight = smoothstep(0.25, 0.02, abs(roadX - 6.5));
+      float guideRails = railInnerLeft * 1.2 + railInnerRight * 1.2 + railOuterLeft * 0.8 + railOuterRight * 0.8;
 
-      // Inner lane divider light pulses (-2.3 and +2.3) - Speed-pulsed Cyan dashes
-      float divLeft = smoothstep(0.12, 0.02, abs(roadX - (-2.3)));
-      float divRight = smoothstep(0.12, 0.02, abs(roadX - 2.3));
+      // Inner 3-lane divider light dashes between lanes (-1.0 and +1.0)
+      float divLeft = smoothstep(0.12, 0.02, abs(roadX - (-1.0)));
+      float divRight = smoothstep(0.12, 0.02, abs(roadX - 1.0));
       float dashRate = 24.0 + uSpeed * 1.1;
-      float laneDashes = step(0.52, fract((roadZ - uTime * dashRate) * 0.14));
+      float laneDashes = step(0.45, fract((roadZ - uTime * dashRate) * 0.16));
       float dividerLines = (divLeft + divRight) * laneDashes;
 
       // Strict Color System: Cyan ONLY for rails and road guidance
-      vec3 emissiveLines = neonCyan * (guideRails * 1.6 + dividerLines * 0.95);
+      vec3 emissiveLines = neonCyan * (guideRails * 1.4 + dividerLines * 1.2);
 
       // Edge motion blur light streaks
       vec3 gutterStreak = neonCyan * roadEdgeBlur * speedStreak * (0.3 + uSpeed * 0.01);

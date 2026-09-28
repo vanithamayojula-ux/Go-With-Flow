@@ -35,16 +35,35 @@ export function createPlayerCharacter(heroId?: HeroId): PlayerCharacter {
   rootGroup.name = 'PlayerCharacterRoot';
 
   // Materials
+  const carbonDeckMat = new THREE.MeshStandardMaterial({
+    color: 0x0a0f18, // Matte carbon composite (non-glaring, non-overexposed)
+    roughness: 0.55,
+    metalness: 0.35,
+  });
+
+  const thrusterMat = new THREE.MeshStandardMaterial({
+    color: 0x1c2333, // Dark titanium alloy thruster housings
+    roughness: 0.3,
+    metalness: 0.75,
+  });
+
   const suitMat = new THREE.MeshStandardMaterial({
-    color: 0x121722,
+    color: 0x1a2233,
     roughness: 0.35,
-    metalness: 0.7,
+    metalness: 0.6,
   });
 
   const armorWhiteMat = new THREE.MeshStandardMaterial({
-    color: 0xf5f7fb,
-    roughness: 0.15,
-    metalness: 0.85,
+    color: 0xd8e4f0,
+    roughness: 0.25,
+    metalness: 0.7,
+  });
+
+  const outlineMat = new THREE.MeshBasicMaterial({
+    color: 0x00d2e0,
+    side: THREE.BackSide,
+    transparent: true,
+    opacity: 0.35,
   });
 
   // Strict 25% brightness balanced Cyan and Magenta
@@ -60,28 +79,15 @@ export function createPlayerCharacter(heroId?: HeroId): PlayerCharacter {
     thickness: 0.5,
   });
 
-  // Crisp Cyber Outline Material (Back-face scaled inverted hull)
-  const outlineMat = new THREE.MeshBasicMaterial({
-    color: 0x00f0ff,
-    side: THREE.BackSide,
-    transparent: true,
-    opacity: 0.45,
-  });
-
   // 1. Hoverboard Group
   const boardGroup = new THREE.Group();
   boardGroup.name = 'HoverboardGroup';
   boardGroup.position.set(0, 0.15, 0);
 
-  // Main board deck
+  // Main board deck (Sleek dark matte carbon)
   const deckGeom = new THREE.BoxGeometry(0.55, 0.08, 1.85);
-  const deckMesh = new THREE.Mesh(deckGeom, suitMat);
+  const deckMesh = new THREE.Mesh(deckGeom, carbonDeckMat);
   boardGroup.add(deckMesh);
-
-  // Deck Outline Mesh for Crisp Foreground Pop
-  const deckOutlineGeom = new THREE.BoxGeometry(0.58, 0.10, 1.88);
-  const deckOutlineMesh = new THREE.Mesh(deckOutlineGeom, outlineMat);
-  boardGroup.add(deckOutlineMesh);
 
   // Deck side neon rails
   const railGeom = new THREE.BoxGeometry(0.04, 0.06, 1.8);
@@ -91,18 +97,32 @@ export function createPlayerCharacter(heroId?: HeroId): PlayerCharacter {
   rightRail.position.set(0.28, 0.02, 0);
   boardGroup.add(leftRail, rightRail);
 
-  // Twin Rear Thruster Turbines
+  // Front nose bumper neon trim
+  const noseGeom = new THREE.BoxGeometry(0.52, 0.05, 0.04);
+  const noseTrim = new THREE.Mesh(noseGeom, neonCyanMat);
+  noseTrim.position.set(0, 0.02, 0.92);
+  boardGroup.add(noseTrim);
+
+  // Twin Rear Thruster Turbines (Dark titanium with glowing inner nozzles)
   const thrusterGeom = new THREE.CylinderGeometry(0.09, 0.11, 0.3, 12);
-  const leftThruster = new THREE.Mesh(thrusterGeom, armorWhiteMat);
+  const leftThruster = new THREE.Mesh(thrusterGeom, thrusterMat);
   leftThruster.rotation.x = Math.PI / 2;
   leftThruster.position.set(-0.2, -0.04, -0.85);
-  const rightThruster = new THREE.Mesh(thrusterGeom, armorWhiteMat);
+  const rightThruster = new THREE.Mesh(thrusterGeom, thrusterMat);
   rightThruster.rotation.x = Math.PI / 2;
   rightThruster.position.set(0.2, -0.04, -0.85);
   boardGroup.add(leftThruster, rightThruster);
 
+  // Thruster glowing inner rings
+  const nozzleGeom = new THREE.RingGeometry(0.03, 0.08, 12);
+  const leftNozzle = new THREE.Mesh(nozzleGeom, neonCyanMat);
+  leftNozzle.position.set(-0.2, -0.04, -1.01);
+  const rightNozzle = new THREE.Mesh(nozzleGeom, neonCyanMat);
+  rightNozzle.position.set(0.2, -0.04, -1.01);
+  boardGroup.add(leftNozzle, rightNozzle);
+
   // 1. Directional forward-facing headlight / thruster spot illuminating road ahead
-  const forwardSpotLight = new THREE.SpotLight(0x00d2e0, 2.8, 26, Math.PI / 6, 0.4, 1.1);
+  const forwardSpotLight = new THREE.SpotLight(0x00d2e0, 2.4, 26, Math.PI / 6, 0.4, 1.1);
   forwardSpotLight.position.set(0, 0.1, 0.6);
   forwardSpotLight.target.position.set(0, -0.3, 12.0);
   boardGroup.add(forwardSpotLight);
@@ -114,7 +134,7 @@ export function createPlayerCharacter(heroId?: HeroId): PlayerCharacter {
   const streamMat = new THREE.MeshBasicMaterial({
     color: 0x00d2e0,
     transparent: true,
-    opacity: 0.70,
+    opacity: 0.65,
     side: THREE.DoubleSide,
     blending: THREE.AdditiveBlending,
   });
@@ -122,21 +142,34 @@ export function createPlayerCharacter(heroId?: HeroId): PlayerCharacter {
   energyStreamMesh.position.set(0, -0.04, -1.6);
   boardGroup.add(energyStreamMesh);
 
-  // Underglow light disc & point light (Soft glow around player)
-  const underglowGeom = new THREE.PlaneGeometry(0.65, 1.95);
+  // Underglow light disc & Ground Aura (Soft glow around player and on road)
+  const underglowGeom = new THREE.PlaneGeometry(0.7, 2.1);
   const underglowMat = new THREE.MeshBasicMaterial({
     color: 0x00d2e0,
     transparent: true,
-    opacity: 0.65,
+    opacity: 0.45,
     side: THREE.DoubleSide,
   });
   const underglowMesh = new THREE.Mesh(underglowGeom, underglowMat);
   underglowMesh.rotation.x = Math.PI / 2;
-  underglowMesh.position.set(0, -0.05, 0);
+  underglowMesh.position.set(0, -0.06, 0);
   boardGroup.add(underglowMesh);
 
-  const underglowLight = new THREE.PointLight(0x00d2e0, 1.8, 3.2);
-  underglowLight.position.set(0, -0.2, 0);
+  // Soft Ground Aura Ring projecting onto pavement
+  const auraGeom = new THREE.RingGeometry(0.4, 1.2, 24);
+  const auraMat = new THREE.MeshBasicMaterial({
+    color: 0x00d2e0,
+    transparent: true,
+    opacity: 0.25,
+    side: THREE.DoubleSide,
+  });
+  const auraMesh = new THREE.Mesh(auraGeom, auraMat);
+  auraMesh.rotation.x = Math.PI / 2;
+  auraMesh.position.set(0, -0.14, 0);
+  boardGroup.add(auraMesh);
+
+  const underglowLight = new THREE.PointLight(0x00d2e0, 1.6, 3.5);
+  underglowLight.position.set(0, -0.18, 0);
   boardGroup.add(underglowLight);
 
   rootGroup.add(boardGroup);

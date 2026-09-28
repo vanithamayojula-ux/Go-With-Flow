@@ -1,6 +1,7 @@
 import * as THREE from 'three';
 import { GLTFLoader } from 'three/examples/jsm/loaders/GLTFLoader.js';
 import { HeroId } from '../types';
+import { heroById } from './heroes';
 
 export const BONE_NAMES = {
   hips: 'hips',
@@ -145,12 +146,53 @@ export function buildHeroRig(heroId: HeroId): HeroRig | null {
     }
   });
 
-  // Skinned meshes are placed by skeleton, prevent premature frustum culling
-  for (const m of entry.skinned) {
-    m.frustumCulled = false;
-    m.castShadow = true;
-    m.receiveShadow = true;
-  }
+  const heroDef = heroById(heroId);
+  const heroColor = new THREE.Color(heroDef.color);
+  const trailColor = new THREE.Color(heroDef.trail);
+
+  // Traverse skinned meshes and apply albedo lift, specular highlight & rim emissive
+  scene.traverse((o: THREE.Object3D) => {
+    if ((o as THREE.Mesh).isMesh || (o as THREE.SkinnedMesh).isSkinnedMesh) {
+      const mesh = o as THREE.Mesh;
+      mesh.frustumCulled = false;
+      mesh.castShadow = true;
+      mesh.receiveShadow = true;
+
+      const mats = Array.isArray(mesh.material) ? mesh.material : [mesh.material];
+      for (const m of mats) {
+        if (!m) continue;
+        if ((m as THREE.MeshStandardMaterial).isMeshStandardMaterial) {
+          const stdMat = m as THREE.MeshStandardMaterial;
+          // Albedo lift for dark heroes (Shadow, Void)
+          const hsl = { h: 0, s: 0, l: 0 };
+          stdMat.color.getHSL(hsl);
+          if (hsl.l < 0.32) {
+            stdMat.color.setHSL(hsl.h, Math.min(1.0, hsl.s * 1.25), Math.max(0.36, hsl.l * 1.85));
+          }
+          // Add subtle hero rim emissive
+          if (stdMat.emissive) {
+            const currentEmissive = stdMat.emissive.getHex();
+            if (currentEmissive === 0x000000) {
+              stdMat.emissive.copy(heroColor).multiplyScalar(0.25);
+            }
+          }
+          stdMat.roughness = Math.min(stdMat.roughness, 0.45);
+          stdMat.metalness = Math.max(stdMat.metalness, 0.25);
+          stdMat.needsUpdate = true;
+        }
+      }
+    }
+  });
+
+  // Dedicated dynamic back rim light (behind and above hero, illuminating contours toward camera)
+  const rimLight = new THREE.PointLight(heroDef.trail || heroDef.color, 3.2, 6.0);
+  rimLight.position.set(0, 1.65, -0.65);
+  root.add(rimLight);
+
+  // Front fill light
+  const frontFill = new THREE.PointLight(heroDef.color, 1.8, 5.0);
+  frontFill.position.set(0, 1.4, 0.8);
+  root.add(frontFill);
 
   interface BoneDriverEntry {
     bone: THREE.Object3D;

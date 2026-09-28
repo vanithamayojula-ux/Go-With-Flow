@@ -971,8 +971,16 @@ export class PlayerManager {
     // Low eye-level vantage shows wet mirror reflections stretching out in the foreground
     // and soaring skyscraper heights reaching up into the night sky
     const camOffset = this.isUpright ? new THREE.Vector3(0, 2.35, -4.8) : new THREE.Vector3(0, 2.7, -5.6);
-    this.cameraPos.copy(this.position).add(camOffset);
-    this.cameraLookAt.copy(this.position).add(new THREE.Vector3(0, 2.1, 14.0));
+    this.cameraPos.set(
+      this.position.x * 0.58,
+      this.position.y + camOffset.y,
+      this.position.z + camOffset.z
+    );
+    this.cameraLookAt.set(
+      this.position.x * 0.58,
+      this.position.y + 2.1,
+      this.position.z + 14.0
+    );
   }
 
   private updateTrailRibbon(effectiveDt: number) {
