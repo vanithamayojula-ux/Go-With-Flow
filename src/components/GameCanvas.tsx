@@ -186,6 +186,8 @@ export const GameCanvas: React.FC<GameCanvasProps> = ({
       minFilter: THREE.LinearFilter,
       magFilter: THREE.LinearFilter,
       format: THREE.RGBAFormat,
+      samples: 4,
+      depthBuffer: true,
     });
     renderTargetRef.current = rt;
 

@@ -386,11 +386,12 @@ export const PostProcessShader = {
       // 2. Crystal-Clear Scene Texture Sampling
       vec3 sceneCol = texture2D(tDiffuse, uv).rgb;
 
-      // 3. Chromatic Aberration (RGB Channel Fringing)
-      float effCA = uChromaticAberration + uWarpIntensity * 0.012;
-      if (effCA > 0.0001) {
-        float dist = length(uv - 0.5);
-        vec2 caOffset = (uv - 0.5) * (effCA * (dist * 1.8 + 0.2));
+      // 3. Peripheral-Only Chromatic Aberration (Masked out near rider, zero center fringing)
+      float effCA = uChromaticAberration + uWarpIntensity * 0.008;
+      float distFromCenter = length(uv - 0.5);
+      if (effCA > 0.0001 && distFromCenter > 0.38) {
+        float edgeMask = smoothstep(0.38, 0.75, distFromCenter);
+        vec2 caOffset = (uv - 0.5) * (effCA * edgeMask * 1.5);
         sceneCol.r = texture2D(tDiffuse, uv - caOffset).r;
         sceneCol.b = texture2D(tDiffuse, uv + caOffset).b;
       }
@@ -401,31 +402,24 @@ export const PostProcessShader = {
         sceneCol += warpFlash * uWarpIntensity * 0.45;
       }
 
-      // 4. Targeted Highlight-Only Bloom (Strict Threshold: Only intense neon cores glow, no screen haze)
+      // 4. Targeted Highlight-Only Bloom (Strict 0.84 Threshold: Only intense neon cores glow, no screen haze)
       if (uBloom > 0.02) {
         vec3 bloomAccum = vec3(0.0);
         vec2 texel = 1.0 / max(uResolution, vec2(1.0, 1.0));
-        float bMul = uBloom * 1.8;
-        float r1 = 2.0 * bMul;
-        float r2 = 5.0 * bMul;
-        float r3 = 10.0 * bMul;
-        // High threshold ensures only true highlights (neon signs, thrusters, coins) trigger bloom
-        float threshold = 0.72;
+        float bMul = uBloom * 1.2;
+        float r1 = 1.8 * bMul;
+        float r2 = 3.8 * bMul;
+        float threshold = 0.84;
 
-        bloomAccum += max(texture2D(tDiffuse, uv + vec2(-r1, 0.0) * texel).rgb - threshold, vec3(0.0)) * 0.25;
-        bloomAccum += max(texture2D(tDiffuse, uv + vec2(r1, 0.0) * texel).rgb - threshold, vec3(0.0)) * 0.25;
-        bloomAccum += max(texture2D(tDiffuse, uv + vec2(0.0, -r1) * texel).rgb - threshold, vec3(0.0)) * 0.25;
-        bloomAccum += max(texture2D(tDiffuse, uv + vec2(0.0, r1) * texel).rgb - threshold, vec3(0.0)) * 0.25;
+        bloomAccum += max(texture2D(tDiffuse, uv + vec2(-r1, 0.0) * texel).rgb - threshold, vec3(0.0)) * 0.30;
+        bloomAccum += max(texture2D(tDiffuse, uv + vec2(r1, 0.0) * texel).rgb - threshold, vec3(0.0)) * 0.30;
+        bloomAccum += max(texture2D(tDiffuse, uv + vec2(0.0, -r1) * texel).rgb - threshold, vec3(0.0)) * 0.30;
+        bloomAccum += max(texture2D(tDiffuse, uv + vec2(0.0, r1) * texel).rgb - threshold, vec3(0.0)) * 0.30;
 
-        bloomAccum += max(texture2D(tDiffuse, uv + vec2(-r2, -r2) * texel).rgb - threshold, vec3(0.0)) * 0.18;
-        bloomAccum += max(texture2D(tDiffuse, uv + vec2(r2, r2) * texel).rgb - threshold, vec3(0.0)) * 0.18;
-        bloomAccum += max(texture2D(tDiffuse, uv + vec2(-r2, r2) * texel).rgb - threshold, vec3(0.0)) * 0.18;
-        bloomAccum += max(texture2D(tDiffuse, uv + vec2(r2, -r2) * texel).rgb - threshold, vec3(0.0)) * 0.18;
+        bloomAccum += max(texture2D(tDiffuse, uv + vec2(-r2, -r2) * texel).rgb - threshold, vec3(0.0)) * 0.20;
+        bloomAccum += max(texture2D(tDiffuse, uv + vec2(r2, r2) * texel).rgb - threshold, vec3(0.0)) * 0.20;
 
-        bloomAccum += max(texture2D(tDiffuse, uv + vec2(-r3, 0.0) * texel).rgb - threshold, vec3(0.0)) * 0.12;
-        bloomAccum += max(texture2D(tDiffuse, uv + vec2(r3, 0.0) * texel).rgb - threshold, vec3(0.0)) * 0.12;
-
-        sceneCol += bloomAccum * (1.1 * uBloom);
+        sceneCol += bloomAccum * (0.9 * uBloom);
       }
 
       // 5. Dynamic Speed Lines & Peripheral Motion Streaks
@@ -454,18 +448,24 @@ export const PostProcessShader = {
       // 7. Depth Vignette & Film Fidelity
       float screenEdge = length(uv - 0.5);
       float vignette = smoothstep(0.8, 0.35, screenEdge);
-      sceneCol *= mix(0.78, 1.0, vignette);
+      sceneCol *= mix(0.82, 1.0, vignette);
 
-      // 8. Color Lift & Crisp Contrast (Deep obsidian contrast > raw brightness)
+      // 8. Color Lift
       if (uColorLift > 0.01) {
-        sceneCol = mix(sceneCol, sceneCol + vec3(0.01, 0.02, 0.04), uColorLift * 0.3);
-      }
-      if (uScanlines > 0.05) {
-        float scanline = sin(uv.y * uResolution.y * 0.5) * 0.5 + 0.5;
-        sceneCol *= mix(1.0, 0.95 + 0.05 * scanline, uScanlines);
+        sceneCol = mix(sceneCol, sceneCol + vec3(0.01, 0.02, 0.04), uColorLift * 0.25);
       }
 
-      // 9. Cyberpunk Contrast & Clean Output
+      // 9. Crisp 5-Tap Contrast Sharpening (High Visual Clarity & Laplacian Edge Definition)
+      vec2 sTexel = 1.0 / max(uResolution, vec2(1.0, 1.0));
+      vec3 colCenter = sceneCol;
+      vec3 colUp = texture2D(tDiffuse, uv + vec2(0.0, sTexel.y)).rgb;
+      vec3 colDown = texture2D(tDiffuse, uv - vec2(0.0, sTexel.y)).rgb;
+      vec3 colLeft = texture2D(tDiffuse, uv - vec2(sTexel.x, 0.0)).rgb;
+      vec3 colRight = texture2D(tDiffuse, uv + vec2(sTexel.x, 0.0)).rgb;
+      vec3 laplacian = colCenter * 5.0 - (colUp + colDown + colLeft + colRight);
+      sceneCol = mix(sceneCol, clamp(laplacian, 0.0, 1.0), 0.30);
+
+      // 10. Cyberpunk Contrast & Clean Output
       gl_FragColor = vec4(clamp(sceneCol, 0.0, 1.0), 1.0);
     }
   `

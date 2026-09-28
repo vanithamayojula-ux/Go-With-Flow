@@ -162,7 +162,7 @@ export class PlayerManager {
   velocity = new THREE.Vector3(0, 0, 6.0);
   warpTimer = 0;
   jumpVelocity = 0;
-  hoverHeight = 0.55;
+  hoverHeight = 0.12;
   normal = new THREE.Vector3(0, 1, 0);
   targetNormal = new THREE.Vector3(0, 1, 0);
   carveAngle = 0;
@@ -853,22 +853,35 @@ export class PlayerManager {
     this.boardMesh.rotation.x = this.pitchAngle + (this.activeTrick === 'flip' ? this.flipAngle : 0);
     this.boardMesh.rotation.y = this.spinAngle;
 
-    // Underglow & Energy Stream Real-Time Breathing & Speed-Pulse Effect (Step 5)
+    // 4 Skateboard Wheels Velocity-Based Roll
+    if (this.playerCharacter.wheels && this.playerCharacter.wheels.length > 0) {
+      const wheelSpin = this.velocity.z * effectiveDt * 14.0;
+      for (const w of this.playerCharacter.wheels) {
+        w.rotation.x += wheelSpin;
+      }
+    }
+
+    // Underglow & Foot Lights Dynamic Intensities
     const speedRatio = Math.min(1.0, Math.max(0.0, this.stats.speed / 60));
     const pulseFreq = 4.0 + speedRatio * 16.0;
-    const pulseMag = 0.2 + speedRatio * 0.4;
+    const pulseMag = 0.15 + speedRatio * 0.35;
     const dynamicPulse = Math.sin(time * pulseFreq) * pulseMag + (1.0 - pulseMag * 0.5);
 
     if (this.underglowMesh) {
-      (this.underglowMesh.material as THREE.MeshBasicMaterial).opacity = 0.55 * dynamicPulse;
+      (this.underglowMesh.material as THREE.MeshBasicMaterial).opacity = 0.45 * dynamicPulse;
     }
     if (this.playerCharacter.forwardSpotLight) {
-      this.playerCharacter.forwardSpotLight.intensity = 2.4 + speedRatio * 2.2 + Math.sin(time * pulseFreq) * 0.5;
+      this.playerCharacter.forwardSpotLight.intensity = 2.0 + speedRatio * 1.8 + Math.sin(time * pulseFreq) * 0.4;
     }
-    if (this.playerCharacter.energyStreamMesh) {
-      const streamScale = 0.8 + speedRatio * 1.5;
-      this.playerCharacter.energyStreamMesh.scale.set(1.0 + speedRatio * 0.4, streamScale, 1.0 + speedRatio * 0.4);
-      (this.playerCharacter.energyStreamMesh.material as THREE.MeshBasicMaterial).opacity = 0.5 + speedRatio * 0.45;
+    if (this.playerCharacter.footLightLeft && this.playerCharacter.footLightRight) {
+      const footInt = (this.isSliding ? 2.6 : 0.9) * dynamicPulse;
+      this.playerCharacter.footLightLeft.intensity = footInt;
+      this.playerCharacter.footLightRight.intensity = footInt;
+    }
+
+    // Slide Contact Sparks
+    if (this.isSliding) {
+      this.emitSparks(this.position, 2, 0x00f0ff);
     }
 
     // Cyber Crouch / Duck under barriers pose & stumble recoil
@@ -877,9 +890,8 @@ export class PlayerManager {
       this.stats.stumbleTimer = this.stumbleTimer;
     }
     const stumbleOffset = this.stumbleTimer > 0 ? Math.sin(this.stumbleTimer * 28.0) * 0.12 : 0;
-    const visualHoverY = Math.sin(time * 3.5) * 0.06;
-    const slideCrouchY = (this.isSliding ? -0.55 : (-this.grabPoseWeight * 0.25 + stumbleOffset)) + visualHoverY;
-    const slidePitch = this.isSliding ? 0.65 : (this.flipAngle - this.grabPoseWeight * 0.5 + (this.stumbleTimer > 0 ? 0.18 : 0));
+    const slideCrouchY = this.isSliding ? -0.18 : (-this.grabPoseWeight * 0.25 + stumbleOffset);
+    const slidePitch = this.isSliding ? 0.35 : (this.flipAngle - this.grabPoseWeight * 0.5 + (this.stumbleTimer > 0 ? 0.18 : 0));
 
     this.characterMesh.rotation.z = unifiedCarveTilt;
     this.characterMesh.rotation.x = slidePitch;

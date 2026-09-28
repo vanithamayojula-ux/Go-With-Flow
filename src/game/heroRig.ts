@@ -17,7 +17,7 @@ export const BONE_NAMES = {
   rightShin: 'shinR',
 } as const;
 
-export const AXIS = { x: -1, y: 1, z: 1 };
+export const AXIS = { x: 1, y: 1, z: 1 };
 
 export interface LoadedHeroData {
   gltf: any;
@@ -135,8 +135,8 @@ export function buildHeroRig(heroId: HeroId): HeroRig | null {
 
   const scene = entry.gltf.scene;
   scene.position.set(0, 0, 0);
-  // Blender characters face along +Z, track runs toward -Z -> rotate 180 degrees
-  scene.rotation.set(0, Math.PI, 0);
+  const heroDef = heroById(heroId);
+  scene.rotation.set(0, heroDef.yawOffset || 0, 0); // Faces forward (+Z) along track
   bodyGroup.add(scene);
 
   const byName = new Map<string, THREE.Object3D>();
@@ -146,7 +146,6 @@ export function buildHeroRig(heroId: HeroId): HeroRig | null {
     }
   });
 
-  const heroDef = heroById(heroId);
   const heroColor = new THREE.Color(heroDef.color);
   const trailColor = new THREE.Color(heroDef.trail);
 

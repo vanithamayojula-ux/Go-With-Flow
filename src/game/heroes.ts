@@ -9,6 +9,7 @@ export interface HeroDef {
   blurb: string;
   modelUrl: string;
   previewUrl: string;
+  yawOffset?: number;
   ult?: {
     type: string;
     duration?: number;
