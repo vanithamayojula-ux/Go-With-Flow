@@ -237,6 +237,7 @@ export const GameCanvas: React.FC<GameCanvasProps> = ({
     const playerMgr = new PlayerManager(scene);
     playerMgr.setUpright(isUpright);
     if (upgrades) playerMgr.applyUpgrades(upgrades);
+    playerMgr.applyCosmetics(cosmeticsConfig);
     playerMgrRef.current = playerMgr;
 
     const obstacleMgr = new ObstacleManager(scene);

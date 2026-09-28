@@ -9,6 +9,7 @@ import {
   ComboTier,
   CosmeticsConfig,
   GameState,
+  HeroId,
   LaneIndex,
   OverdriveTier,
   PlayerStats,
@@ -17,6 +18,7 @@ import {
   TrickType,
 } from '../types';
 import { getLaneX } from './obstacles';
+import { heroById } from './heroes';
 
 export class PlayerManager {
   scene: THREE.Scene;
@@ -65,6 +67,7 @@ export class PlayerManager {
 
   // Cosmetics
   currentCosmetics: CosmeticsConfig = {
+    heroId: 'shadow',
     boardId: 'cyber-phantom',
     trailId: 'electric-cyan',
     capeColor: '#00f0ff',
@@ -196,8 +199,8 @@ export class PlayerManager {
     this.position.set(0, h + this.hoverHeight, 0);
     this.group.position.copy(this.position);
 
-    // Build Procedural Low-Poly 3D Cyberpunk Skater Character & Hoverboard
-    this.playerCharacter = createPlayerCharacter();
+    // Build 3D Hero / Cyberpunk Skater Character & Hoverboard
+    this.playerCharacter = createPlayerCharacter(this.currentCosmetics.heroId);
     this.characterMesh = this.playerCharacter.group;
     this.boardMesh = this.playerCharacter.board;
 
@@ -329,8 +332,25 @@ export class PlayerManager {
     }
   }
 
+  switchHero(heroId?: HeroId) {
+    if (!this.playerCharacter) return;
+    this.playerCharacter.setHero?.(heroId);
+    const hero = heroById(heroId);
+    if (hero && this.trailMaterial && this.trailMaterial.uniforms) {
+      const heroColorHex = `#${hero.trail.toString(16).padStart(6, '0')}`;
+      this.trailMaterial.uniforms.uColorA.value.set(heroColorHex);
+    }
+  }
+
   applyCosmetics(config: CosmeticsConfig) {
-    this.currentCosmetics = { ...config };
+    const prevHeroId = this.currentCosmetics.heroId;
+    const nextHeroId = config.heroId || 'shadow';
+    this.currentCosmetics = { ...config, heroId: nextHeroId };
+
+    if (prevHeroId !== nextHeroId || this.playerCharacter.activeHeroId !== nextHeroId) {
+      this.switchHero(nextHeroId);
+    }
+
     const pc = this.playerCharacter;
     if (!pc) return;
 

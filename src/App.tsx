@@ -15,12 +15,12 @@ import {
   LightingMode,
   PlayerStats,
   PlayerUpgrades,
-  QualityPreset,
   ShaderParams,
   TrickType,
 } from './types';
 
 const DEFAULT_COSMETICS_CONFIG: CosmeticsConfig = {
+  heroId: 'shadow',
   boardId: 'cyber-phantom',
   trailId: 'electric-cyan',
   capeColor: '#00f0ff',
@@ -70,16 +70,6 @@ export default function App() {
       return DEFAULT_COSMETICS_CONFIG;
     }
   });
-  const [isCinematicCam, setIsCinematicCam] = useState(false);
-  const [isMuted, setIsMuted] = useState(false);
-  const [isPaused, setIsPaused] = useState(false);
-  const [isGraphicsDrawerOpen, setIsGraphicsDrawerOpen] = useState(false);
-  const [isDeliverablesOpen, setIsDeliverablesOpen] = useState(false);
-  const [isCosmeticsOpen, setIsCosmeticsOpen] = useState(false);
-  const [isDatasetOpen, setIsDatasetOpen] = useState(false);
-  const [activeMobileTrick, setActiveMobileTrick] = useState<TrickType | null>(null);
-  const [notification, setNotification] = useState<string | null>(null);
-  const [isUprightMode, setIsUprightMode] = useState<boolean>(true);
 
   // Persistent Currency & Cyber Bay Upgrades
   const [bankedShards, setBankedShards] = useState<number>(() => {
@@ -105,11 +95,22 @@ export default function App() {
   const [unlockedItems, setUnlockedItems] = useState<string[]>(() => {
     try {
       const saved = localStorage.getItem('skyflow_unlocked_items');
-      return saved ? JSON.parse(saved) : ['cyber-phantom', 'electric-cyan', 'carbon-fiber'];
+      return saved ? JSON.parse(saved) : ['shadow', 'cyber-phantom', 'electric-cyan', 'carbon-fiber'];
     } catch {
-      return ['cyber-phantom', 'electric-cyan', 'carbon-fiber'];
+      return ['shadow', 'cyber-phantom', 'electric-cyan', 'carbon-fiber'];
     }
   });
+
+  const [isCinematicCam, setIsCinematicCam] = useState(false);
+  const [isMuted, setIsMuted] = useState(false);
+  const [isPaused, setIsPaused] = useState(false);
+  const [isGraphicsDrawerOpen, setIsGraphicsDrawerOpen] = useState(false);
+  const [isDeliverablesOpen, setIsDeliverablesOpen] = useState(false);
+  const [isCosmeticsOpen, setIsCosmeticsOpen] = useState(false);
+  const [isDatasetOpen, setIsDatasetOpen] = useState(false);
+  const [activeMobileTrick, setActiveMobileTrick] = useState<TrickType | null>(null);
+  const [notification, setNotification] = useState<string | null>(null);
+  const [isUprightMode, setIsUprightMode] = useState<boolean>(true);
 
   // Cyber Navigation State
   const [isGameOver, setIsGameOver] = useState(false);
@@ -274,28 +275,39 @@ export default function App() {
     triggerNotification('⚡ Tech Upgrade Installed! Power Augmented!');
   }, [bankedShards, triggerNotification]);
 
-  // Unlock Hoverboard or Trail Handler
-  const handleUnlockItem = useCallback((itemId: string, cost: number) => {
-    if (bankedShards < cost) {
-      triggerNotification('⚠️ Insufficient Data Shards to unlock item');
-      return;
-    }
-    const newBank = bankedShards - cost;
-    setBankedShards(newBank);
-    try {
-      localStorage.setItem('skyflow_banked_shards', String(newBank));
-    } catch {}
-
-    setUnlockedItems(prev => {
-      if (prev.includes(itemId)) return prev;
-      const updated = [...prev, itemId];
+  // Unlock Item Handler (Heroes, Boards, Trails)
+  const handleUnlockItem = useCallback(
+    (itemId: string, cost: number): boolean => {
+      let currentBanked = bankedShards;
       try {
-        localStorage.setItem('skyflow_unlocked_items', JSON.stringify(updated));
+        const saved = localStorage.getItem('skyflow_banked_shards');
+        if (saved !== null) currentBanked = parseInt(saved, 10) || 0;
       } catch {}
-      return updated;
-    });
-    triggerNotification('✨ Equipment Unlocked! Ready to equip in bay!');
-  }, [bankedShards, triggerNotification]);
+
+      if (currentBanked >= cost) {
+        const nextBanked = currentBanked - cost;
+        setBankedShards(nextBanked);
+        try {
+          localStorage.setItem('skyflow_banked_shards', String(nextBanked));
+        } catch {}
+
+        setUnlockedItems((prev) => {
+          const next = prev.includes(itemId) ? prev : [...prev, itemId];
+          try {
+            localStorage.setItem('skyflow_unlocked_items', JSON.stringify(next));
+          } catch {}
+          return next;
+        });
+
+        triggerNotification(`✨ Unlocked ${itemId.toUpperCase()}!`);
+        return true;
+      } else {
+        triggerNotification(`⚠️ Need ${cost - currentBanked} more shards!`);
+        return false;
+      }
+    },
+    [bankedShards, triggerNotification]
+  );
 
   // System Crash / Game Over Handler: Bank run harvest into persistent wallet
   const handleGameOver = useCallback(() => {

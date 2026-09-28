@@ -1,5 +1,6 @@
 import * as THREE from 'three';
-import { CosmeticsConfig, TrickType } from '../types';
+import { CosmeticsConfig, HeroId, TrickType } from '../types';
+import { buildHeroRig, loadHeroModel, HeroRig } from './heroRig';
 
 export interface PlayerCharacter {
   group: THREE.Group;
@@ -14,17 +15,24 @@ export interface PlayerCharacter {
   forwardSpotLight?: THREE.SpotLight;
   energyStreamMesh?: THREE.Mesh;
   capeMesh?: THREE.Mesh;
-  applyGltfCosmetics?: (config: CosmeticsConfig) => void;
   headGroup?: THREE.Group;
   spineGroup?: THREE.Group;
   leftArmGroup?: THREE.Group;
   rightArmGroup?: THREE.Group;
   leftLegGroup?: THREE.Group;
   rightLegGroup?: THREE.Group;
+  applyGltfCosmetics?: (config: CosmeticsConfig) => void;
+
+  // Hero Rig Integration
+  activeHeroId?: HeroId;
+  heroRig?: HeroRig;
+  syncBones?: () => void;
+  setHero?: (heroId?: HeroId) => Promise<boolean>;
 }
 
-export function createPlayerCharacter(): PlayerCharacter {
+export function createPlayerCharacter(heroId?: HeroId): PlayerCharacter {
   const rootGroup = new THREE.Group();
+  rootGroup.name = 'PlayerCharacterRoot';
 
   // Materials
   const suitMat = new THREE.MeshStandardMaterial({
@@ -52,7 +60,7 @@ export function createPlayerCharacter(): PlayerCharacter {
     thickness: 0.5,
   });
 
-  // Step 2 & 5: Foreground Player Crisp Cyber Outline Material (Back-face scaled inverted hull)
+  // Crisp Cyber Outline Material (Back-face scaled inverted hull)
   const outlineMat = new THREE.MeshBasicMaterial({
     color: 0x00f0ff,
     side: THREE.BackSide,
@@ -62,6 +70,7 @@ export function createPlayerCharacter(): PlayerCharacter {
 
   // 1. Hoverboard Group
   const boardGroup = new THREE.Group();
+  boardGroup.name = 'HoverboardGroup';
   boardGroup.position.set(0, 0.15, 0);
 
   // Main board deck
@@ -92,7 +101,6 @@ export function createPlayerCharacter(): PlayerCharacter {
   rightThruster.position.set(0.2, -0.04, -0.85);
   boardGroup.add(leftThruster, rightThruster);
 
-  // Step 5: Replace glow blob with Directional Forward Glow & Trailing Energy Stream
   // 1. Directional forward-facing headlight / thruster spot illuminating road ahead
   const forwardSpotLight = new THREE.SpotLight(0x00d2e0, 2.8, 26, Math.PI / 6, 0.4, 1.1);
   forwardSpotLight.position.set(0, 0.1, 0.6);
@@ -133,8 +141,9 @@ export function createPlayerCharacter(): PlayerCharacter {
 
   rootGroup.add(boardGroup);
 
-  // 2. Character Body Hierarchy
+  // 2. Procedural Character Body Hierarchy
   const spineGroup = new THREE.Group();
+  spineGroup.name = 'ProceduralSpineGroup';
   spineGroup.position.set(0, 0.3, 0); // Positioned above the hoverboard
   rootGroup.add(spineGroup);
 
@@ -243,7 +252,7 @@ export function createPlayerCharacter(): PlayerCharacter {
 
   const companions: Record<string, THREE.Object3D> = {};
 
-  return {
+  const playerChar: PlayerCharacter = {
     group: rootGroup,
     board: boardGroup,
     boards,
@@ -263,8 +272,52 @@ export function createPlayerCharacter(): PlayerCharacter {
     leftLegGroup,
     rightLegGroup,
   };
+
+  // Hero GLTF Dynamic Rig Swapping
+  playerChar.setHero = async (targetHeroId?: HeroId): Promise<boolean> => {
+    if (targetHeroId) {
+      const loaded = await loadHeroModel(targetHeroId);
+      if (loaded) {
+        const rig = buildHeroRig(targetHeroId);
+        if (rig) {
+          if (playerChar.heroRig?.root) {
+            rootGroup.remove(playerChar.heroRig.root);
+          }
+          rootGroup.add(rig.root);
+          spineGroup.visible = false;
+          playerChar.syncBones = rig.syncBones;
+          playerChar.heroRig = rig;
+          playerChar.activeHeroId = targetHeroId;
+          return true;
+        }
+      }
+    }
+
+    // Fallback to procedural character
+    if (playerChar.heroRig?.root) {
+      rootGroup.remove(playerChar.heroRig.root);
+    }
+    spineGroup.visible = true;
+    playerChar.syncBones = undefined;
+    playerChar.heroRig = undefined;
+    playerChar.activeHeroId = undefined;
+    return false;
+  };
+
+  if (heroId) {
+    playerChar.setHero(heroId);
+  }
+
+  return playerChar;
 }
 
+export function createProceduralCharacter(): PlayerCharacter {
+  return createPlayerCharacter();
+}
+
+/**
+ * Skeletal Animation & Procedural Motion Engine
+ */
 export function animatePlayerCharacter(
   pc: PlayerCharacter,
   time: number,
@@ -283,9 +336,117 @@ export function animatePlayerCharacter(
 ): void {
   const { isSliding, isGrinding, isBoosting, stumbleTimer, activeTrick, turnVelocity } = state;
 
-  // 1. Natural Skater Stance & Carve Lean
-  const idleBob = Math.sin(time * 5.0) * 0.03;
-  if (pc.spineGroup) {
+  // A. Hero Rig Animation (Skinned GLTF Mesh)
+  if (pc.heroRig) {
+    const b = pc.heroRig.drivers;
+
+    // Reset default bone rotations
+    b.hips.rotation.set(0, 0, 0);
+    b.spine.rotation.set(0, 0, 0);
+    b.chest.rotation.set(0, 0, 0);
+    b.neck.rotation.set(0, 0, 0);
+    b.head.rotation.set(0, 0, 0);
+
+    b.leftThigh.rotation.set(0, 0, 0);
+    b.leftShin.rotation.set(0, 0, 0);
+    b.leftFoot.rotation.set(0, 0, 0);
+    b.rightThigh.rotation.set(0, 0, 0);
+    b.rightShin.rotation.set(0, 0, 0);
+    b.rightFoot.rotation.set(0, 0, 0);
+
+    b.leftArm.rotation.set(0, 0, 0);
+    b.leftForearm.rotation.set(0, 0, 0);
+    b.rightArm.rotation.set(0, 0, 0);
+    b.rightForearm.rotation.set(0, 0, 0);
+
+    // 1. Dynamic Athletic Surfer Stance
+    const bob = Math.sin(time * 6 * speedFactor) * 0.02 * speedFactor;
+    b.hips.position.y = 0.72 + bob;
+
+    b.spine.rotation.x = 0.14;
+    const runCycle = Math.sin(time * 6 * speedFactor);
+    b.leftThigh.rotation.x = 0.15 + runCycle * 0.25;
+    b.leftShin.rotation.x = -0.35;
+    b.rightThigh.rotation.x = -0.15 - runCycle * 0.25;
+    b.rightShin.rotation.x = -0.25;
+
+    const armSwing = Math.sin(time * 6 * speedFactor) * 0.35;
+    b.leftArm.rotation.set(-0.25 + armSwing, 0, 0);
+    b.rightArm.rotation.set(0.25 - armSwing, 0, 0);
+    b.leftForearm.rotation.set(-0.65, 0, 0);
+    b.rightForearm.rotation.set(-0.65, 0, 0);
+
+    // 2. Movement States
+    if (isSliding) {
+      // Deep aerodynamic duck
+      b.hips.position.y = 0.45;
+      b.spine.rotation.x = -0.25;
+      b.leftThigh.rotation.x = 0.8;
+      b.leftShin.rotation.x = -0.7;
+      b.rightThigh.rotation.x = 0.8;
+      b.rightShin.rotation.x = -0.7;
+      b.leftArm.rotation.x = 0.4;
+      b.rightArm.rotation.x = 0.4;
+      b.leftForearm.rotation.x = -0.3;
+      b.rightForearm.rotation.x = -0.3;
+    } else if (isGrinding) {
+      // Grind Balance Stance (Arms Outward)
+      b.leftArm.rotation.z = 1.2;
+      b.rightArm.rotation.z = -1.2;
+      b.spine.rotation.z = Math.sin(time * 12) * 0.08;
+    } else if (!state.isGrounded) {
+      // Jump Rise / Fall
+      b.hips.position.y = 0.95;
+      b.leftThigh.rotation.x = 0.45;
+      b.leftShin.rotation.x = -0.65;
+      b.rightThigh.rotation.x = -0.35;
+      b.rightShin.rotation.x = -0.45;
+      b.leftArm.rotation.x = -0.6;
+      b.rightArm.rotation.x = -0.6;
+      b.leftForearm.rotation.x = -0.4;
+      b.rightForearm.rotation.x = -0.4;
+    }
+
+    // 3. Trick Animations
+    if (activeTrick === 'spin' || state.activeTrickName?.includes('Corkscrew')) {
+      b.spine.rotation.y = time * 24;
+    } else if (activeTrick === 'flip' || state.activeTrickName?.includes('Backflip')) {
+      b.hips.rotation.x = time * 20;
+    } else if (activeTrick === 'grab' || state.activeTrickName?.includes('Grab')) {
+      b.leftArm.rotation.x = 1.4;
+      b.spine.rotation.x = 0.45;
+    } else if (activeTrick === 'pose' || state.activeTrickName?.includes('Glide')) {
+      b.leftArm.rotation.z = 1.57;
+      b.rightArm.rotation.z = -1.57;
+      b.chest.rotation.x = -0.3;
+    }
+
+    // 4. Stumble / Recoil
+    if (stumbleTimer > 0) {
+      const recoil = Math.sin(stumbleTimer * 25) * 0.3;
+      b.spine.rotation.x = -recoil;
+      b.leftArm.rotation.x = recoil * 2;
+      b.rightArm.rotation.x = recoil * 2;
+    }
+
+    // 5. Head Look-Ahead
+    if (state.nearestObstacleDist < 35) {
+      const lookIntensity = (1.0 - state.nearestObstacleDist / 35) * 0.35;
+      b.head.rotation.y = Math.sin(time * 8) * lookIntensity;
+      b.neck.rotation.x = 0.15 * lookIntensity;
+    }
+
+    // Turn Lean
+    b.spine.rotation.z = -turnVelocity * 0.08;
+
+    // Synchronize GLTF Hero Skeleton Bones
+    pc.syncBones?.();
+    return;
+  }
+
+  // B. Procedural Skater Model Animation
+  if (pc.spineGroup && pc.spineGroup.visible) {
+    const idleBob = Math.sin(time * 5.0) * 0.03;
     if (isSliding) {
       // Deep aerodynamic duck
       pc.spineGroup.position.y = 0.05 + idleBob * 0.5;
@@ -307,48 +468,48 @@ export function animatePlayerCharacter(
       pc.spineGroup.rotation.x = 0.12;
       pc.spineGroup.rotation.z = -turnVelocity * 0.08;
     }
-  }
 
-  // 2. Head Look-Ahead
-  if (pc.headGroup) {
-    pc.headGroup.rotation.y = -turnVelocity * 0.06;
-    pc.headGroup.rotation.x = isSliding ? -0.4 : -0.05;
-  }
-
-  // 3. Arms Balance
-  if (pc.leftArmGroup && pc.rightArmGroup) {
-    if (isSliding) {
-      pc.leftArmGroup.rotation.x = -0.9;
-      pc.leftArmGroup.rotation.z = -0.2;
-      pc.rightArmGroup.rotation.x = -0.9;
-      pc.rightArmGroup.rotation.z = 0.2;
-    } else if (isGrinding) {
-      // Wide rail balance
-      pc.leftArmGroup.rotation.z = 0.8 + Math.sin(time * 8.0) * 0.1;
-      pc.rightArmGroup.rotation.z = -0.8 - Math.sin(time * 8.0) * 0.1;
-      pc.leftArmGroup.rotation.x = 0;
-      pc.rightArmGroup.rotation.x = 0;
-    } else if (activeTrick === 'grab') {
-      // Grabbing board rail
-      pc.leftArmGroup.rotation.x = 1.2;
-      pc.leftArmGroup.rotation.z = -0.4;
-      pc.rightArmGroup.rotation.x = -0.5;
-      pc.rightArmGroup.rotation.z = 0.5;
-    } else {
-      // Natural carving arms counter-swing
-      const armSway = Math.sin(time * 6.0) * 0.15;
-      pc.leftArmGroup.rotation.x = armSway + 0.2;
-      pc.leftArmGroup.rotation.z = 0.25 - turnVelocity * 0.05;
-      pc.rightArmGroup.rotation.x = -armSway - 0.2;
-      pc.rightArmGroup.rotation.z = -0.25 - turnVelocity * 0.05;
+    // Head Look-Ahead
+    if (pc.headGroup) {
+      pc.headGroup.rotation.y = -turnVelocity * 0.06;
+      pc.headGroup.rotation.x = isSliding ? -0.4 : -0.05;
     }
-  }
 
-  // 4. Flowing Cyber Cape Flutter
-  if (pc.capeMesh) {
-    const flutterSpeed = (12.0 + speedFactor * 14.0);
-    const flutter = Math.sin(time * flutterSpeed) * 0.25 + 0.35 + (isBoosting ? 0.3 : 0);
-    pc.capeMesh.rotation.x = flutter;
-    pc.capeMesh.rotation.z = Math.cos(time * flutterSpeed * 0.7) * 0.12 - turnVelocity * 0.05;
+    // Arms Balance
+    if (pc.leftArmGroup && pc.rightArmGroup) {
+      if (isSliding) {
+        pc.leftArmGroup.rotation.x = -0.9;
+        pc.leftArmGroup.rotation.z = -0.2;
+        pc.rightArmGroup.rotation.x = -0.9;
+        pc.rightArmGroup.rotation.z = 0.2;
+      } else if (isGrinding) {
+        // Wide rail balance
+        pc.leftArmGroup.rotation.z = 0.8 + Math.sin(time * 8.0) * 0.1;
+        pc.rightArmGroup.rotation.z = -0.8 - Math.sin(time * 8.0) * 0.1;
+        pc.leftArmGroup.rotation.x = 0;
+        pc.rightArmGroup.rotation.x = 0;
+      } else if (activeTrick === 'grab') {
+        // Grabbing board rail
+        pc.leftArmGroup.rotation.x = 1.2;
+        pc.leftArmGroup.rotation.z = -0.4;
+        pc.rightArmGroup.rotation.x = -0.5;
+        pc.rightArmGroup.rotation.z = 0.5;
+      } else {
+        // Natural carving arms counter-swing
+        const armSway = Math.sin(time * 6.0) * 0.15;
+        pc.leftArmGroup.rotation.x = armSway + 0.2;
+        pc.leftArmGroup.rotation.z = 0.25 - turnVelocity * 0.05;
+        pc.rightArmGroup.rotation.x = -armSway - 0.2;
+        pc.rightArmGroup.rotation.z = -0.25 - turnVelocity * 0.05;
+      }
+    }
+
+    // Flowing Cyber Cape Flutter
+    if (pc.capeMesh) {
+      const flutterSpeed = 12.0 + speedFactor * 14.0;
+      const flutter = Math.sin(time * flutterSpeed) * 0.25 + 0.35 + (isBoosting ? 0.3 : 0);
+      pc.capeMesh.rotation.x = flutter;
+      pc.capeMesh.rotation.z = Math.cos(time * flutterSpeed * 0.7) * 0.12 - turnVelocity * 0.05;
+    }
   }
 }

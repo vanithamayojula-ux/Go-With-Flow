@@ -1,0 +1,80 @@
+import { HeroId } from '../types';
+
+export interface HeroDef {
+  id: HeroId;
+  name: string;
+  color: number;
+  trail: number;
+  cost: number;
+  blurb: string;
+  modelUrl: string;
+  previewUrl: string;
+  ult?: {
+    type: string;
+    duration?: number;
+    speedMul?: number;
+    radius?: number;
+    timeMul?: number;
+  };
+}
+
+export const HEROES: HeroDef[] = [
+  {
+    id: 'shadow',
+    name: 'Shadow Blade',
+    color: 0x9aa6c4,
+    trail: 0xe8eeff,
+    cost: 0,
+    blurb: 'Teleport dash — phases forward through anything in the way.',
+    modelUrl: '/models/shadow.glb',
+    previewUrl: '/hero-previews/shadow.jpg',
+    ult: { type: 'dash', duration: 2.2, speedMul: 2.0 },
+  },
+  {
+    id: 'flame',
+    name: 'Flame Emperor',
+    color: 0xda752a,
+    trail: 0xffc24a,
+    cost: 150,
+    blurb: 'Immolation — burns a path clean and ignores explosions.',
+    modelUrl: '/models/flame.glb',
+    previewUrl: '/hero-previews/flame.jpg',
+    ult: { type: 'burn', duration: 4.5, radius: 26 },
+  },
+  {
+    id: 'thunder',
+    name: 'Thunder Rider',
+    color: 0x4663c2,
+    trail: 0xdfe9ff,
+    cost: 320,
+    blurb: 'Overcharge — massive speed burst and chain lightning.',
+    modelUrl: '/models/thunder.glb',
+    previewUrl: '/hero-previews/thunder.jpg',
+    ult: { type: 'overcharge', duration: 5, speedMul: 1.7 },
+  },
+  {
+    id: 'frost',
+    name: 'Frost Guardian',
+    color: 0x4f86b8,
+    trail: 0xdff2ff,
+    cost: 500,
+    blurb: 'Glacial halt — freezes the void, slowing everything but you.',
+    modelUrl: '/models/frost.glb',
+    previewUrl: '/hero-previews/frost.jpg',
+    ult: { type: 'freeze', duration: 5, timeMul: 0.5 },
+  },
+  {
+    id: 'void',
+    name: 'Void Walker',
+    color: 0x6b5a9c,
+    trail: 0xb98bff,
+    cost: 800,
+    blurb: 'Phase shift — becomes untouchable and drinks the abyss.',
+    modelUrl: '/models/void.glb',
+    previewUrl: '/hero-previews/void.jpg',
+    ult: { type: 'phase', duration: 6 },
+  },
+];
+
+export const heroById = (id?: string): HeroDef =>
+  HEROES.find((h) => h.id === id) || HEROES[0];

@@ -37,7 +37,10 @@ export type BiomeType =
 
 export type TrickType = 'spin' | 'flip' | 'grab' | 'pose';
 
+export type HeroId = 'shadow' | 'flame' | 'thunder' | 'frost' | 'void';
+
 export interface CosmeticsConfig {
+  heroId?: HeroId;
   boardId:
     | 'cyber-phantom'
     | 'laser-edge'

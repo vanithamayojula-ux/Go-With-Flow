@@ -1,6 +1,23 @@
 import React, { useState } from 'react';
-import { X, Zap, Cpu, Palette, Shield, Sparkles, Activity, Lock, Check, ArrowUpRight, BatteryCharging, Magnet, Rocket, Gauge } from 'lucide-react';
+import {
+  X,
+  Zap,
+  Cpu,
+  Palette,
+  Shield,
+  Sparkles,
+  Activity,
+  Lock,
+  Check,
+  BatteryCharging,
+  Magnet,
+  Rocket,
+  Gauge,
+  Unlock,
+  User,
+} from 'lucide-react';
 import { CosmeticsConfig, PlayerUpgrades } from '../types';
+import { HEROES } from '../game/heroes';
 
 interface CosmeticsModalProps {
   isOpen: boolean;
@@ -11,7 +28,7 @@ interface CosmeticsModalProps {
   upgrades?: PlayerUpgrades;
   onUpgrade?: (upgradeKey: keyof PlayerUpgrades, cost: number) => void;
   unlockedItems?: string[];
-  onUnlockItem?: (itemId: string, cost: number) => void;
+  onUnlockItem?: (itemId: string, cost: number) => boolean | void;
 }
 
 export const CosmeticsModal: React.FC<CosmeticsModalProps> = ({
@@ -22,7 +39,7 @@ export const CosmeticsModal: React.FC<CosmeticsModalProps> = ({
   bankedShards = 0,
   upgrades = { magnetLevel: 1, jetpackLevel: 1, overdriveLevel: 1, shieldCapacitorLevel: 0 },
   onUpgrade,
-  unlockedItems = ['cyber-phantom', 'electric-cyan', 'carbon-fiber'],
+  unlockedItems = ['shadow', 'cyber-phantom', 'electric-cyan', 'carbon-fiber'],
   onUnlockItem,
 }) => {
   const [activeTab, setActiveTab] = useState<'upgrades' | 'loadout'>('upgrades');
@@ -208,7 +225,7 @@ export const CosmeticsModal: React.FC<CosmeticsModalProps> = ({
             </div>
             <div>
               <h2 className="text-base sm:text-lg font-black tracking-wider text-cyan-300 uppercase">CYBER BAY & TECH STATION</h2>
-              <p className="text-[11px] text-white/60">Upgrade power-up augments and customize hoverboards</p>
+              <p className="text-[11px] text-white/60">Upgrade power-up augments and customize heroes & loadout</p>
             </div>
           </div>
 
@@ -346,6 +363,118 @@ export const CosmeticsModal: React.FC<CosmeticsModalProps> = ({
           ) : (
             /* Tab 2: Boards & Loadout */
             <div className="space-y-6">
+              {/* Section 0: Hero Characters */}
+              <div>
+                <div className="flex items-center justify-between mb-3">
+                  <div className="flex items-center space-x-2">
+                    <User className="w-4 h-4 text-cyan-400" />
+                    <h3 className="text-xs font-black tracking-widest uppercase text-cyan-300">HERO CHARACTERS</h3>
+                  </div>
+                  <div className="flex items-center space-x-1.5 px-2.5 py-0.5 rounded bg-cyan-950/60 border border-cyan-500/40 text-[11px] font-bold text-cyan-300">
+                    <span>💎</span>
+                    <span>{bankedShards} SHARDS</span>
+                  </div>
+                </div>
+
+                <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
+                  {HEROES.map((hero) => {
+                    const isSelected = (cosmetics.heroId || 'shadow') === hero.id;
+                    const isUnlocked = hero.cost === 0 || unlockedItems.includes(hero.id);
+                    const heroColorHex = `#${hero.color.toString(16).padStart(6, '0')}`;
+                    const heroTrailHex = `#${hero.trail.toString(16).padStart(6, '0')}`;
+
+                    return (
+                      <div
+                        key={hero.id}
+                        className={`p-3 rounded-xl border transition-all relative flex flex-col justify-between overflow-hidden ${
+                          isSelected
+                            ? 'bg-cyan-950/50 border-cyan-400 shadow-[0_0_15px_rgba(0,240,255,0.3)]'
+                            : 'bg-white/5 border-white/10 hover:bg-white/10 hover:border-cyan-500/30'
+                        }`}
+                      >
+                        <div>
+                          {/* Image Thumbnail */}
+                          <div className="relative w-full h-36 rounded-lg overflow-hidden mb-2.5 bg-slate-950 border border-white/10 flex items-center justify-center">
+                            <img
+                              src={hero.previewUrl}
+                              alt={hero.name}
+                              className="w-full h-full object-cover object-center transition-transform hover:scale-105 duration-300"
+                              loading="lazy"
+                            />
+                            {!isUnlocked && (
+                              <div className="absolute inset-0 bg-black/70 backdrop-blur-[2px] flex flex-col items-center justify-center text-center p-2">
+                                <Lock className="w-6 h-6 text-amber-400 mb-1" />
+                                <span className="text-[10px] font-black tracking-wider text-amber-300 uppercase">
+                                  LOCKED // {hero.cost} 💎
+                                </span>
+                              </div>
+                            )}
+                            <div
+                              className="absolute bottom-1.5 left-1.5 px-1.5 py-0.5 rounded text-[9px] font-bold border border-white/20 backdrop-blur-md"
+                              style={{ backgroundColor: `${heroColorHex}40`, color: heroTrailHex }}
+                            >
+                              {hero.id.toUpperCase()}
+                            </div>
+                          </div>
+
+                          {/* Header Info */}
+                          <div className="flex items-center justify-between">
+                            <span className="font-bold text-sm text-white">{hero.name}</span>
+                            <div className="flex items-center space-x-1">
+                              <span
+                                className="w-3 h-3 rounded-full border border-black/40"
+                                style={{ backgroundColor: heroColorHex }}
+                                title="Primary Accent"
+                              />
+                              <span
+                                className="w-3 h-3 rounded-full border border-black/40 shadow-sm"
+                                style={{ backgroundColor: heroTrailHex }}
+                                title="Trail Aura"
+                              />
+                            </div>
+                          </div>
+                          <p className="text-[11px] text-white/60 mt-1 leading-relaxed line-clamp-2">{hero.blurb}</p>
+                        </div>
+
+                        {/* Action Button */}
+                        <div className="mt-3">
+                          {isSelected ? (
+                            <div className="w-full py-1.5 px-3 rounded-lg bg-cyan-500/20 border border-cyan-400 text-cyan-300 text-[10px] font-black uppercase tracking-widest flex items-center justify-center gap-1.5 shadow-[0_0_10px_rgba(0,240,255,0.3)]">
+                              <Activity className="w-3 h-3 text-cyan-400 animate-pulse" />
+                              EQUIPPED
+                            </div>
+                          ) : isUnlocked ? (
+                            <button
+                              type="button"
+                              onClick={() => onUpdateCosmetics({ ...cosmetics, heroId: hero.id })}
+                              className="w-full py-1.5 px-3 rounded-lg bg-white/10 hover:bg-cyan-500/30 border border-white/20 hover:border-cyan-400 text-white hover:text-cyan-200 text-[10px] font-black uppercase tracking-wider transition-all active:scale-95 flex items-center justify-center gap-1"
+                            >
+                              EQUIP
+                            </button>
+                          ) : (
+                            <button
+                              type="button"
+                              onClick={() => {
+                                if (onUnlockItem) {
+                                  const success = onUnlockItem(hero.id, hero.cost);
+                                  if (success !== false) {
+                                    onUpdateCosmetics({ ...cosmetics, heroId: hero.id });
+                                  }
+                                }
+                              }}
+                              className="w-full py-1.5 px-3 rounded-lg bg-gradient-to-r from-amber-500/80 to-amber-600/80 hover:brightness-110 text-black font-black text-[10px] uppercase tracking-wider shadow-[0_0_10px_rgba(245,158,11,0.3)] transition-all active:scale-95 flex items-center justify-center gap-1"
+                            >
+                              <Unlock className="w-3 h-3" />
+                              UNLOCK ({hero.cost} 💎)
+                            </button>
+                          )}
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+              </div>
+
               {/* Section 1: Hoverboards */}
               <div>
                 <div className="flex items-center space-x-2 mb-3">
