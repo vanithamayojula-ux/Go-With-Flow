@@ -137,13 +137,26 @@ export class TerrainManager {
   updraftsList: UpdraftGeyser[] = [];
   floatingIslandsList: { x: number; y: number; z: number; radius: number }[] = [];
 
-  // Hybrid Space System Materials (Clean, Non-Cluttered, Pure Cyan/Magenta/Obsidian)
+  // Procedural 4K Cyberpunk Skyscraper Window Grid Texture & Theme Backdrops
+  public readonly buildingTex: THREE.CanvasTexture;
+  public readonly buildingMat: THREE.MeshBasicMaterial;
+  public readonly rooftopMat: THREE.MeshLambertMaterial;
+  public readonly spireMat: THREE.MeshBasicMaterial;
+  public readonly beaconMat: THREE.MeshBasicMaterial;
   public readonly neonCyanMat: THREE.MeshBasicMaterial;
   public readonly neonMagentaMat: THREE.MeshBasicMaterial;
+  public readonly neonAmberMat: THREE.MeshBasicMaterial;
+
   public readonly spaceObsidianMat: THREE.MeshStandardMaterial;
   public readonly glowingPillarMat: THREE.MeshBasicMaterial;
   public readonly floatingFragmentMat: THREE.MeshBasicMaterial;
   public readonly curbRailMat: THREE.MeshBasicMaterial;
+  public readonly wireframeMat = new THREE.MeshBasicMaterial({ color: 0x00f0ff, wireframe: true });
+
+  private themeBackdropMats: Record<string, THREE.MeshBasicMaterial> = {};
+  private billboardMats: THREE.MeshBasicMaterial[] = [];
+  private wireframeBoxGeom = new THREE.BoxGeometry(6, 6, 6);
+  private wireframeOctaGeom = new THREE.OctahedronGeometry(5);
 
   private curbRailGeom = new THREE.BoxGeometry(0.35, 0.45, CHUNK_SIZE);
   private pillarGeom = new THREE.CylinderGeometry(0.16, 0.22, 16, 8);
@@ -155,12 +168,15 @@ export class TerrainManager {
   constructor(scene: THREE.Scene) {
     this.scene = scene;
 
-    // Strict Color Palette:
-    // Cyan = Player, Highway Guide Rails, Speed Anchors
-    // Magenta = Secondary hazard accents
-    // Space Obsidian = Architectural dark matter
+    // Materials
+    this.buildingTex = createCyberBuildingTexture();
+    this.buildingMat = new THREE.MeshBasicMaterial({ map: this.buildingTex });
+    this.rooftopMat = new THREE.MeshLambertMaterial({ color: 0x070b15 });
+    this.spireMat = new THREE.MeshBasicMaterial({ color: 0x38bdf8 });
+    this.beaconMat = new THREE.MeshBasicMaterial({ color: 0xff0033 });
     this.neonCyanMat = new THREE.MeshBasicMaterial({ color: 0x00d2e0 });
     this.neonMagentaMat = new THREE.MeshBasicMaterial({ color: 0xe00070 });
+    this.neonAmberMat = new THREE.MeshBasicMaterial({ color: 0xffaa00 });
     this.curbRailMat = new THREE.MeshBasicMaterial({ color: 0x00d2e0 });
     this.glowingPillarMat = new THREE.MeshBasicMaterial({ color: 0x00d2e0 });
     this.floatingFragmentMat = new THREE.MeshBasicMaterial({
@@ -174,6 +190,42 @@ export class TerrainManager {
       metalness: 0.95,
       roughness: 0.15,
     });
+
+    const duneTex = createDuneBackdropTexture();
+    const glacierTex = createGlacierBackdropTexture();
+    const jungleTex = createJungleBackdropTexture();
+    const emberTex = createEmberBackdropTexture();
+    const nebulaTex = createNebulaBackdropTexture();
+    const skyRealmTex = createSkyRealmBackdropTexture();
+
+    this.themeBackdropMats = {
+      'neon-undercity': this.buildingMat,
+      'dune-nomad': new THREE.MeshBasicMaterial({ map: duneTex, side: THREE.DoubleSide }),
+      'aurora-frost': new THREE.MeshBasicMaterial({ map: glacierTex, side: THREE.DoubleSide }),
+      'bioluminescent-jungle': new THREE.MeshBasicMaterial({ map: jungleTex, side: THREE.DoubleSide }),
+      'ember-core': new THREE.MeshBasicMaterial({ map: emberTex, side: THREE.DoubleSide }),
+      'nebula-drift': new THREE.MeshBasicMaterial({ map: nebulaTex, side: THREE.DoubleSide }),
+      'sky-realm': new THREE.MeshBasicMaterial({ map: skyRealmTex, side: THREE.DoubleSide }),
+      'quantum-desert': new THREE.MeshBasicMaterial({ map: duneTex, side: THREE.DoubleSide }),
+      'cyber-forest': new THREE.MeshBasicMaterial({ map: jungleTex, side: THREE.DoubleSide }),
+      'orbital-ring': new THREE.MeshBasicMaterial({ map: nebulaTex, side: THREE.DoubleSide }),
+      'the-grid': this.wireframeMat,
+      'volcanic-forge': new THREE.MeshBasicMaterial({ map: emberTex, side: THREE.DoubleSide }),
+      'crystal-glacier': new THREE.MeshBasicMaterial({ map: glacierTex, side: THREE.DoubleSide }),
+      'derelict-station': new THREE.MeshBasicMaterial({ map: nebulaTex, side: THREE.DoubleSide }),
+    };
+
+    // Holographic Billboards
+    const bTex1 = createCyberBillboardTexture('NEON DRIFT', '高速レーサー // 2077', '#00f0ff', '#ff007f');
+    const bTex2 = createCyberBillboardTexture('NIGHT CITY', 'メガシティ // SECTOR 07', '#ff007f', '#00f0ff');
+    const bTex3 = createCyberBillboardTexture('ARASAKA', 'サイバネティクス // CORP NET', '#ff0044', '#ffaa00');
+    const bTex4 = createCyberBillboardTexture('OVERDRIVE', '超加速 // MAXIMUM SPEED', '#00ffcc', '#ff007f');
+    this.billboardMats = [
+      new THREE.MeshBasicMaterial({ map: bTex1, side: THREE.DoubleSide }),
+      new THREE.MeshBasicMaterial({ map: bTex2, side: THREE.DoubleSide }),
+      new THREE.MeshBasicMaterial({ map: bTex3, side: THREE.DoubleSide }),
+      new THREE.MeshBasicMaterial({ map: bTex4, side: THREE.DoubleSide }),
+    ];
 
     // Space Highway Road Material
     this.terrainMaterial = new THREE.ShaderMaterial({
@@ -192,25 +244,95 @@ export class TerrainManager {
     });
   }
 
-  /**
-   * Helper: Builds a sleek, futuristic geometric space archway over the highway
-   */
+  private createBackdropPanel(
+    x: number,
+    baseY: number,
+    z: number,
+    width: number,
+    height: number,
+    depth: number,
+    side: 'left' | 'right',
+    biome: BiomeType,
+    billboardIdx?: number
+  ): THREE.Group {
+    const group = new THREE.Group();
+
+    if (biome === 'neon-undercity' || biome === 'the-grid' || biome === 'derelict-station') {
+      // 3D Cyberpunk Skyscraper
+      const bGeom = new THREE.BoxGeometry(width, height, depth);
+      const mat = this.themeBackdropMats[biome] || this.buildingMat;
+      const building = new THREE.Mesh(bGeom, mat);
+      building.position.set(x, baseY + height / 2, z);
+      group.add(building);
+
+      // Rooftop trim & glowing spires
+      const roof = new THREE.Mesh(new THREE.BoxGeometry(width * 1.02, 1.5, depth * 1.02), this.rooftopMat);
+      roof.position.set(x, baseY + height + 0.75, z);
+      group.add(roof);
+
+      const spireGeom = new THREE.CylinderGeometry(0.1, 0.6, 12, 6);
+      const spire = new THREE.Mesh(spireGeom, this.spireMat);
+      spire.position.set(x, baseY + height + 6.5, z);
+      group.add(spire);
+
+      const beacon = new THREE.Mesh(new THREE.SphereGeometry(0.5, 8, 8), this.beaconMat);
+      beacon.position.set(x, baseY + height + 12.5, z);
+      group.add(beacon);
+
+      // Optional Hologram Billboard on Building Facade
+      if (billboardIdx !== undefined && this.billboardMats[billboardIdx]) {
+        const signW = Math.min(width * 0.9, 14);
+        const signH = signW * 0.5;
+        const signGeom = new THREE.PlaneGeometry(signW, signH);
+        const signMesh = new THREE.Mesh(signGeom, this.billboardMats[billboardIdx]);
+        const signX = side === 'left' ? x + width / 2 + 0.1 : x - width / 2 - 0.1;
+        signMesh.position.set(signX, baseY + height * 0.65, z);
+        signMesh.rotation.y = side === 'left' ? Math.PI / 2 : -Math.PI / 2;
+        group.add(signMesh);
+      }
+    } else {
+      // Biome-Themed Backdrop Card (Dunes, Glaciers, Jungle, Ember, Nebula, Sky Islands)
+      const mat = this.themeBackdropMats[biome] || this.buildingMat;
+      const cardGeom = new THREE.PlaneGeometry(width * 1.4, height);
+      const card = new THREE.Mesh(cardGeom, mat);
+      card.position.set(x, baseY + height / 2, z);
+      card.rotation.y = side === 'left' ? Math.PI / 2 : -Math.PI / 2;
+      group.add(card);
+    }
+
+    return group;
+  }
+
+  private createSkybridge(z: number, roadY: number): THREE.Group {
+    const group = new THREE.Group();
+
+    // Horizontal bridge span
+    const bridgeGeom = new THREE.BoxGeometry(32, 2.5, 4.5);
+    const bridge = new THREE.Mesh(bridgeGeom, this.spaceObsidianMat);
+    bridge.position.set(0, roadY + 11.5, z);
+    group.add(bridge);
+
+    // Glowing cyan/magenta LED sign strip on front
+    const signStrip = new THREE.Mesh(new THREE.BoxGeometry(22, 1.2, 0.2), this.neonCyanMat);
+    signStrip.position.set(0, roadY + 11.5, z - 2.3);
+    group.add(signStrip);
+
+    return group;
+  }
+
   private createGeometricSpaceFrame(z: number, roadY: number): THREE.Group {
     const group = new THREE.Group();
 
-    // Horizontal glowing overhead beam spanning road
     const topBeam = new THREE.Mesh(this.frameSpanGeom, this.neonCyanMat);
     topBeam.position.set(0, roadY + 8.5, z);
     group.add(topBeam);
 
-    // Left and Right support posts
     const leftPost = new THREE.Mesh(this.framePostGeom, this.spaceObsidianMat);
     leftPost.position.set(-8.8, roadY + 4.5, z);
     const rightPost = new THREE.Mesh(this.framePostGeom, this.spaceObsidianMat);
     rightPost.position.set(8.8, roadY + 4.5, z);
     group.add(leftPost, rightPost);
 
-    // Subtle cyan edge strips on posts
     const stripGeom = new THREE.BoxGeometry(0.06, 11, 0.4);
     const leftStrip = new THREE.Mesh(stripGeom, this.neonCyanMat);
     leftStrip.position.set(-8.6, roadY + 4.5, z);
@@ -237,7 +359,7 @@ export class TerrainManager {
       this.terrainMaterial.uniforms.uSpeed.value = playerSpeed;
     }
 
-    // Step 8: Dynamic light pulse along guided neon rails and pillar beacons
+    // Dynamic light pulse along guided neon rails and pillar beacons
     const pulseRate = 8.0 + playerSpeed * 0.2;
     const railPulse = Math.sin(time * pulseRate) * 0.15 + 0.85;
     this.neonCyanMat.color.setRGB(0.0, 0.82 * railPulse, 0.95 * railPulse);
@@ -259,7 +381,7 @@ export class TerrainManager {
       }
     }
 
-    // Step 3 & 8: 3D Depth Parallax & Rotation on Floating Space Fragments
+    // 3D Depth Parallax & Rotation on Floating Space Fragments
     for (const chunk of this.chunks.values()) {
       chunk.decorations.forEach(deco => {
         const baseZ = (deco as any).userData?.baseZ;
@@ -316,7 +438,7 @@ export class TerrainManager {
 
     const decorations: THREE.Object3D[] = [];
 
-    // 2. Minimal Neon Side Guide Rails along the road edges (Speed Anchors)
+    // 2. Neon Highway Guardrail Curbs along Road Edges
     const leftCurb = new THREE.Mesh(this.curbRailGeom, this.curbRailMat);
     leftCurb.position.set(-7.25, getTerrainHeight(-7.25, zCenter) + 0.25, zCenter);
     this.scene.add(leftCurb);
@@ -327,8 +449,32 @@ export class TerrainManager {
     this.scene.add(rightCurb);
     decorations.push(rightCurb);
 
-    // 3. Thin Glowing Vertical Pillars at rhythmic intervals (Speed Reference & Parallax Anchors)
+    // 3. Side Scenery & Skyscraper Backdrop Panels flanking BOTH sides of the highway
     const baseRoadY = getTerrainHeight(0, zCenter);
+
+    // Left Flank
+    const hL1 = 65 + Math.abs(cz * 17) % 35;
+    const bL1 = this.createBackdropPanel(-20, baseRoadY, zCenter - 20, 16, hL1, 22, 'left', biome, Math.abs(cz) % 4);
+    this.scene.add(bL1);
+    decorations.push(bL1);
+
+    const hL2 = 95 + Math.abs(cz * 23) % 45;
+    const bL2 = this.createBackdropPanel(-38, baseRoadY - 4, zCenter + 14, 22, hL2, 28, 'left', biome);
+    this.scene.add(bL2);
+    decorations.push(bL2);
+
+    // Right Flank
+    const hR1 = 70 + Math.abs(cz * 19) % 35;
+    const bR1 = this.createBackdropPanel(20, baseRoadY, zCenter + 18, 16, hR1, 22, 'right', biome, (Math.abs(cz) + 2) % 4);
+    this.scene.add(bR1);
+    decorations.push(bR1);
+
+    const hR2 = 90 + Math.abs(cz * 29) % 50;
+    const bR2 = this.createBackdropPanel(38, baseRoadY - 4, zCenter - 16, 22, hR2, 28, 'right', biome);
+    this.scene.add(bR2);
+    decorations.push(bR2);
+
+    // 4. Glowing Vertical Pillars at rhythmic intervals (Speed Reference & Parallax Anchors)
     for (let pStep = -CHUNK_SIZE / 2 + 10; pStep < CHUNK_SIZE / 2; pStep += 20) {
       const pZ = zCenter + pStep;
       const roadHLeft = getTerrainHeight(-9.5, pZ);
@@ -341,7 +487,6 @@ export class TerrainManager {
       this.scene.add(leftPillar);
       decorations.push(leftPillar);
 
-      // Cyan glowing light emitter crown
       const leftCrown = new THREE.Mesh(this.pillarCrownGeom, this.glowingPillarMat);
       leftCrown.rotation.x = Math.PI / 2;
       leftCrown.position.set(-9.5, roadHLeft + 16.0, pZ);
@@ -364,15 +509,19 @@ export class TerrainManager {
       decorations.push(rightCrown);
     }
 
-    // 4. Occasional Geometric Space Frames spanning overhead (every 2 chunks)
-    if (Math.abs(cz) % 2 === 0) {
+    // 5. Overhead Skybridge & Space Frame Archways
+    if ((biome === 'neon-undercity' || biome === 'the-grid' || biome === 'derelict-station') && Math.abs(cz) % 3 === 0) {
+      const skybridge = this.createSkybridge(zCenter, baseRoadY);
+      this.scene.add(skybridge);
+      decorations.push(skybridge);
+    } else if (Math.abs(cz) % 2 === 0) {
       const frameGroup = this.createGeometricSpaceFrame(zCenter, baseRoadY);
       frameGroup.userData = { baseZ: zCenter, layer: 1 };
       this.scene.add(frameGroup);
       decorations.push(frameGroup);
     }
 
-    // 5. Floating Neon Space Fragments / Light Prisms (Mid-Layer Details & Parallax)
+    // 6. Floating Neon Space Fragments
     for (let f = 0; f < 3; f++) {
       const side = f % 2 === 0 ? -1 : 1;
       const fragDistX = side * (16 + (f * 7) % 22);
@@ -386,6 +535,38 @@ export class TerrainManager {
       decorations.push(fragMesh);
     }
 
+    // 7. Foliage Instances (Lush neon grass and crystal trees for nature and futuristic biomes)
+    const grassList: { x: number; y: number; z: number; scale: number; rot: number }[] = [];
+    const treeList: { x: number; y: number; z: number; scale: number }[] = [];
+
+    // Place grass and crystal trees along highway verges
+    for (let i = 0; i < 35; i++) {
+      const side = i % 2 === 0 ? 1 : -1;
+      const gx = side * (8.5 + (i % 7) * 0.8);
+      const gz = zCenter - CHUNK_SIZE / 2 + (i / 35) * CHUNK_SIZE;
+      const gy = getTerrainHeight(gx, gz);
+      grassList.push({
+        x: gx,
+        y: gy,
+        z: gz,
+        scale: 0.85 + (i % 5) * 0.1,
+        rot: ((i * 37) % 100) / 100 * Math.PI * 2,
+      });
+    }
+
+    for (let i = 0; i < 10; i++) {
+      const side = i % 2 === 0 ? 1 : -1;
+      const tx = side * (13.5 + (i % 4) * 2.0);
+      const tz = zCenter - CHUNK_SIZE / 2 + (i / 10) * CHUNK_SIZE;
+      const ty = getTerrainHeight(tx, tz);
+      treeList.push({
+        x: tx,
+        y: ty,
+        z: tz,
+        scale: 0.9 + (i % 3) * 0.25,
+      });
+    }
+
     this.chunks.set(key, {
       key,
       cx: 0,
@@ -396,8 +577,8 @@ export class TerrainManager {
         orbs: [],
         floatingIslands: [],
         updrafts: [],
-        grass: [],
-        trees: [],
+        grass: grassList,
+        trees: treeList,
       },
     });
   }
@@ -419,7 +600,17 @@ export class TerrainManager {
     this.fragmentGeom.dispose();
     this.neonCyanMat.dispose();
     this.neonMagentaMat.dispose();
+    this.neonAmberMat.dispose();
     this.glowingPillarMat.dispose();
     this.floatingFragmentMat.dispose();
+    this.buildingTex.dispose();
+    this.buildingMat.dispose();
+    this.rooftopMat.dispose();
+    this.spireMat.dispose();
+    this.beaconMat.dispose();
+    this.billboardMats.forEach(m => m.dispose());
+    this.wireframeBoxGeom.dispose();
+    this.wireframeOctaGeom.dispose();
+    this.wireframeMat.dispose();
   }
 }

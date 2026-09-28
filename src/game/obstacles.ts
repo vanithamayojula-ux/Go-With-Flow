@@ -1,5 +1,6 @@
 import * as THREE from 'three';
 import { BiomeType, LaneIndex, PowerUpType } from '../types';
+import { getTerrainHeight, getBiomeAt } from './terrain';
 
 export function getLaneX(lane: LaneIndex): number {
   if (lane === -1) return -2.0; // Left lane
@@ -7,7 +8,7 @@ export function getLaneX(lane: LaneIndex): number {
   return 0.0;                 // Center lane
 }
 
-export type ObstacleCategory = 'wave' | 'laser-gate' | 'split-path' | 'boost-gate' | 'grind-rail';
+export type ObstacleCategory = 'wave' | 'laser-gate' | 'split-path' | 'boost-gate' | 'grind-rail' | 'portal';
 
 export interface ObstacleItem {
   id: string;
@@ -147,6 +148,7 @@ export class ObstacleManager {
   constructor(scene: THREE.Scene) {
     this.scene = scene;
     this.group = new THREE.Group();
+    this.group.name = 'ObstaclesRootGroup';
     this.scene.add(this.group);
 
     this.spawnInitialObstacles();
@@ -165,6 +167,14 @@ export class ObstacleManager {
    * Ensures high readability (0.5 - 1.0s preview) and rhythm.
    */
   private spawnNextPatternAtZ(z: number, playerSpeed = 22): void {
+    // Check for biome portal transition (every 450m)
+    const biomeAtZ = getBiomeAt(z);
+    const biomeBeforeZ = getBiomeAt(z - this.spawnInterval);
+    if (biomeAtZ !== biomeBeforeZ) {
+      this.createPortalArch(z, biomeAtZ);
+      return;
+    }
+
     const patternType = this.patternSequences[this.patternSequenceIndex % this.patternSequences.length];
     this.patternSequenceIndex++;
 
@@ -240,10 +250,47 @@ export class ObstacleManager {
     this.spawnCoin(getLaneX(1), 2.2, z + 30);
   }
 
+  private createLowHurdle(lane: LaneIndex, z: number): void {
+    const x = getLaneX(lane);
+    const groundH = getTerrainHeight(x, z);
+    const hurdleGroup = new THREE.Group();
+    hurdleGroup.position.set(x, groundH, z);
+
+    // Hazard beam raised slightly off pavement
+    const beam = new THREE.Mesh(new THREE.BoxGeometry(2.1, 0.28, 0.35), this.laserHazardMat);
+    beam.position.set(0, 0.45, 0);
+    hurdleGroup.add(beam);
+
+    // Left and right base anchors
+    const postL = new THREE.Mesh(new THREE.BoxGeometry(0.18, 0.6, 0.35), this.barrierMat);
+    postL.position.set(-1.0, 0.3, 0);
+    const postR = new THREE.Mesh(new THREE.BoxGeometry(0.18, 0.6, 0.35), this.barrierMat);
+    postR.position.set(1.0, 0.3, 0);
+    hurdleGroup.add(postL, postR);
+
+    this.group.add(hurdleGroup);
+    this.obstacles.push({
+      id: `hurdle-${z}-${lane}`,
+      type: 'low-hurdle',
+      category: 'wave',
+      lane,
+      x,
+      y: groundH + 0.45,
+      z,
+      width: 2.1,
+      height: 0.9,
+      depth: 0.8,
+      mesh: hurdleGroup,
+      canJump: true,
+      canDuck: false,
+    });
+  }
+
   private createHighLaserBarrier(lane: LaneIndex, z: number): void {
     const x = getLaneX(lane);
+    const groundH = getTerrainHeight(x, z);
     const barrierGroup = new THREE.Group();
-    barrierGroup.position.set(x, 0, z);
+    barrierGroup.position.set(x, groundH, z);
 
     // Tall support posts
     const postGeom = new THREE.BoxGeometry(0.2, 3.2, 0.2);
@@ -253,7 +300,7 @@ export class ObstacleManager {
     rightPost.position.set(1.1, 1.6, 0);
     barrierGroup.add(leftPost, rightPost);
 
-    // High horizontal laser beam requiring crouch/slide
+    // High horizontal laser beam requiring crouch/slide (clearance underneath)
     const beamGeom = new THREE.BoxGeometry(2.1, 0.4, 0.2);
     const beamMesh = new THREE.Mesh(beamGeom, this.laserHazardMat);
     beamMesh.position.set(0, 1.8, 0); // High position - slide clears!
@@ -267,7 +314,7 @@ export class ObstacleManager {
       category: 'laser-gate',
       lane,
       x,
-      y: 1.8,
+      y: groundH + 1.8,
       z,
       width: 2.1,
       height: 1.4,
@@ -315,8 +362,9 @@ export class ObstacleManager {
     const waveAmp = isDual ? 1.6 : 2.4; // Max sweep: spans from -2.4 to +2.4
     const waveFreq = (1.2 + difficulty * 0.8) * tempoMultiplier;
     const wavePhase = (z * 0.05) % (Math.PI * 2);
+    const groundH = getTerrainHeight(baseLane, z);
 
-    waveGroup.position.set(baseLane, 1.4, z);
+    waveGroup.position.set(baseLane, groundH + 1.4, z);
     this.group.add(waveGroup);
 
     this.obstacles.push({
@@ -325,7 +373,7 @@ export class ObstacleManager {
       category: 'wave',
       lane: 0,
       x: baseLane,
-      y: 1.4,
+      y: groundH + 1.4,
       z,
       width: 1.8,
       height: 1.8,
@@ -336,6 +384,8 @@ export class ObstacleManager {
       waveAmplitude: waveAmp,
       waveFrequency: waveFreq,
       wavePhase,
+      canDuck: false,
+      canJump: false,
     });
 
     // Dual offset wave creates alternating weave pattern (lane 1 open, then lane -1 open)
@@ -349,7 +399,8 @@ export class ObstacleManager {
 
       const baseLane2 = 0.8;
       const wavePhase2 = wavePhase + Math.PI; // Inverted phase guarantees passable corridor
-      waveGroup2.position.set(baseLane2, 1.4, z + 8);
+      const groundH2 = getTerrainHeight(baseLane2, z + 8);
+      waveGroup2.position.set(baseLane2, groundH2 + 1.4, z + 8);
       this.group.add(waveGroup2);
 
       this.obstacles.push({
@@ -358,7 +409,7 @@ export class ObstacleManager {
         category: 'wave',
         lane: 0,
         x: baseLane2,
-        y: 1.4,
+        y: groundH2 + 1.4,
         z: z + 8,
         width: 1.8,
         height: 1.8,
@@ -369,6 +420,8 @@ export class ObstacleManager {
         waveAmplitude: waveAmp,
         waveFrequency: waveFreq,
         wavePhase: wavePhase2,
+        canDuck: false,
+        canJump: false,
       });
     }
 
@@ -418,8 +471,9 @@ export class ObstacleManager {
     difficulty: number
   ): void {
     const x = getLaneX(lane);
+    const groundH = getTerrainHeight(x, z);
     const gateGroup = new THREE.Group();
-    gateGroup.position.set(x, 0, z);
+    gateGroup.position.set(x, groundH, z);
 
     // Emitter pillars (Left & Right posts)
     const pillarGeom = new THREE.BoxGeometry(0.24, 2.8, 0.35);
@@ -456,7 +510,7 @@ export class ObstacleManager {
       category: 'laser-gate',
       lane,
       x,
-      y: 1.4,
+      y: groundH + 1.4,
       z,
       width: 2.2,
       height: 2.2,
@@ -486,10 +540,11 @@ export class ObstacleManager {
     const splitLength = 36;
     const safeLane: LaneIndex = -1;
     const riskyLane: LaneIndex = 1;
+    const groundH = getTerrainHeight(0, z);
 
     // Decision Arch at entry to split (Z = z)
     const archGroup = new THREE.Group();
-    archGroup.position.set(0, 0, z);
+    archGroup.position.set(0, groundH, z);
 
     // Safe route holographic archway (Left Lane -1)
     const safeSignGeom = new THREE.RingGeometry(0.8, 1.0, 16);
@@ -558,35 +613,11 @@ export class ObstacleManager {
     }
   }
 
-  private createLowHurdle(lane: LaneIndex, z: number): void {
-    const x = getLaneX(lane);
-    const hurdleGroup = new THREE.Group();
-    hurdleGroup.position.set(x, 0.45, z);
-
-    const beam = new THREE.Mesh(new THREE.BoxGeometry(2.1, 0.22, 0.3), this.laserHazardMat);
-    hurdleGroup.add(beam);
-
-    this.group.add(hurdleGroup);
-    this.obstacles.push({
-      id: `hurdle-${z}-${lane}`,
-      type: 'low-hurdle',
-      category: 'wave',
-      lane,
-      x,
-      y: 0.45,
-      z,
-      width: 2.1,
-      height: 0.9,
-      depth: 0.8,
-      mesh: hurdleGroup,
-      canJump: true,
-    });
-  }
-
   private createGrindRail(lane: LaneIndex, z: number, length: number): void {
     const x = getLaneX(lane);
+    const groundH = getTerrainHeight(x, z);
     const railGroup = new THREE.Group();
-    railGroup.position.set(x, 1.2, z);
+    railGroup.position.set(x, groundH + 1.2, z);
 
     const railGeom = new THREE.CylinderGeometry(0.12, 0.12, length, 8);
     railGeom.rotateX(Math.PI / 2);
@@ -595,8 +626,10 @@ export class ObstacleManager {
 
     // Support posts
     for (let p = -length / 2; p <= length / 2; p += 8) {
-      const post = new THREE.Mesh(new THREE.BoxGeometry(0.15, 1.2, 0.15), this.barrierMat);
-      post.position.set(0, -0.6, p);
+      const postZ = z + p;
+      const postGroundH = getTerrainHeight(x, postZ);
+      const post = new THREE.Mesh(new THREE.BoxGeometry(0.15, 1.4, 0.15), this.barrierMat);
+      post.position.set(0, (postGroundH - (groundH + 1.2)) + 0.6, p);
       railGroup.add(post);
     }
 
@@ -607,7 +640,7 @@ export class ObstacleManager {
       category: 'grind-rail',
       lane,
       x,
-      y: 1.2,
+      y: groundH + 1.2,
       z,
       width: 1.2,
       height: 1.2,
@@ -619,8 +652,9 @@ export class ObstacleManager {
 
   private createBoostArch(lane: LaneIndex, z: number): void {
     const x = getLaneX(lane);
+    const groundH = getTerrainHeight(x, z);
     const archGroup = new THREE.Group();
-    archGroup.position.set(x, 1.8, z);
+    archGroup.position.set(x, groundH + 1.8, z);
 
     const ringGeom = new THREE.TorusGeometry(1.6, 0.12, 8, 24);
     const ringMesh = new THREE.Mesh(ringGeom, this.cyanNeonMat);
@@ -633,7 +667,7 @@ export class ObstacleManager {
       category: 'boost-gate',
       lane,
       x,
-      y: 1.8,
+      y: groundH + 1.8,
       z,
       width: 3.2,
       height: 3.2,
@@ -643,14 +677,54 @@ export class ObstacleManager {
     });
   }
 
-  private spawnCoin(x: number, y: number, z: number): void {
+  private createPortalArch(z: number, targetBiome: BiomeType): void {
+    const groundH = getTerrainHeight(0, z);
+    const portalGroup = new THREE.Group();
+    portalGroup.position.set(0, groundH + 2.4, z);
+
+    // Glowing dimensional rift ring
+    const ringGeom = new THREE.TorusGeometry(3.6, 0.22, 12, 32);
+    const ringMesh = new THREE.Mesh(ringGeom, this.cyanNeonMat);
+    portalGroup.add(ringMesh);
+
+    // Inner translucent energy membrane
+    const discGeom = new THREE.CircleGeometry(3.4, 32);
+    const discMat = new THREE.MeshBasicMaterial({
+      color: 0x00f0ff,
+      transparent: true,
+      opacity: 0.45,
+      side: THREE.DoubleSide,
+    });
+    const discMesh = new THREE.Mesh(discGeom, discMat);
+    portalGroup.add(discMesh);
+
+    this.group.add(portalGroup);
+    this.obstacles.push({
+      id: `portal-${z}`,
+      type: 'portal-arch',
+      category: 'portal',
+      lane: 0,
+      x: 0,
+      y: groundH + 2.4,
+      z,
+      width: 6.8,
+      height: 6.8,
+      depth: 2.0,
+      mesh: portalGroup,
+      isPortal: true,
+      targetBiome,
+    });
+  }
+
+  private spawnCoin(x: number, yRel: number, z: number): void {
+    const groundH = getTerrainHeight(x, z);
     const coinMesh = new THREE.Mesh(new THREE.OctahedronGeometry(0.24), this.goldMat);
-    coinMesh.position.set(x, y, z);
+    coinMesh.position.set(x, groundH + yRel, z);
     this.group.add(coinMesh);
     this.coins.push({
       id: `coin-${z}-${x}`,
       x,
-      y,
+      y: groundH + yRel,
       z,
       mesh: coinMesh,
       collected: false,
@@ -660,8 +734,9 @@ export class ObstacleManager {
   private spawnPowerUp(x: number, z: number): void {
     const pTypes: PowerUpType[] = ['quantum-magnet', 'sonic-jetpack', 'holo-shield', 'overdrive-2x'];
     const pType = pTypes[Math.floor(Math.random() * pTypes.length)];
+    const groundH = getTerrainHeight(x, z);
     const pGroup = new THREE.Group();
-    pGroup.position.set(x, 1.2, z);
+    pGroup.position.set(x, groundH + 1.2, z);
     const pCore = new THREE.Mesh(new THREE.DodecahedronGeometry(0.35), this.cyanNeonMat);
     pGroup.add(pCore);
     const pGlow = new THREE.PointLight(0x00d2e0, 1.5, 4.0);
@@ -672,7 +747,7 @@ export class ObstacleManager {
       id: `pu-${z}`,
       type: pType,
       x,
-      y: 1.2,
+      y: groundH + 1.2,
       z,
       mesh: pGroup,
       collected: false,
@@ -693,8 +768,10 @@ export class ObstacleManager {
 
         // X = base + amp * sin(time * freq + phase)
         const targetX = base + Math.sin(timeSeconds * freq + phase) * amp;
+        const groundY = getTerrainHeight(targetX, obs.z);
         obs.x = targetX;
-        obs.mesh.position.x = targetX;
+        obs.y = groundY + 1.4;
+        obs.mesh.position.set(targetX, groundY + 1.4, obs.z);
 
         // Subtle banking roll into the curve
         const bankAngle = -Math.cos(timeSeconds * freq + phase) * 0.25;
@@ -744,7 +821,9 @@ export class ObstacleManager {
     for (const p of this.powerUps) {
       if (!p.collected) {
         p.mesh.rotation.y = timeSeconds * 3.0;
-        p.mesh.position.y = 1.2 + Math.sin(timeSeconds * 4.0) * 0.15;
+        const gH = getTerrainHeight(p.x, p.z);
+        p.y = gH + 1.2 + Math.sin(timeSeconds * 4.0) * 0.15;
+        p.mesh.position.y = p.y;
       }
     }
 
@@ -806,11 +885,14 @@ export class ObstacleManager {
     const px = playerPos.x;
     const py = playerPos.y;
     const pz = playerPos.z;
+    const playerGroundH = getTerrainHeight(px, pz);
+    const playerRelY = py - playerGroundH; // Height above track surface (0.55 grounded, ~2.2 jumping apex, ~0.2 sliding)
 
     // 1. Coins Check (Generous pickup radius for smooth reward flow)
     for (const c of this.coins) {
       if (c.collected) continue;
-      if (Math.abs(c.z - pz) < 1.5 && Math.abs(c.x - px) < 1.25 && Math.abs(c.y - py) < 2.2) {
+      const coinGroundH = getTerrainHeight(c.x, c.z);
+      if (Math.abs(c.z - pz) < 1.8 && Math.abs(c.x - px) < 1.35 && Math.abs((c.y - coinGroundH) - playerRelY) < 2.2) {
         c.collected = true;
         c.mesh.visible = false;
         result.collectedCoins += 1;
@@ -820,7 +902,8 @@ export class ObstacleManager {
     // 2. PowerUps Check
     for (const p of this.powerUps) {
       if (p.collected) continue;
-      if (Math.abs(p.z - pz) < 1.7 && Math.abs(p.x - px) < 1.35 && Math.abs(p.y - py) < 2.4) {
+      const puGroundH = getTerrainHeight(p.x, p.z);
+      if (Math.abs(p.z - pz) < 2.0 && Math.abs(p.x - px) < 1.4 && Math.abs((p.y - puGroundH) - playerRelY) < 2.4) {
         p.collected = true;
         p.mesh.visible = false;
         result.collectedPowerUp = p.type;
@@ -836,7 +919,7 @@ export class ObstacleManager {
 
       // Boost Arch pass-through
       if (obs.isBoostGate) {
-        if (Math.abs(dz) < 1.6 && dx < 1.8) {
+        if (Math.abs(dz) < 1.8 && dx < 2.0) {
           obs.cleared = true;
           result.hitBoostGate = true;
         }
@@ -846,8 +929,17 @@ export class ObstacleManager {
       // Grind Rail
       if (obs.isGrindRail) {
         const halfDepth = obs.depth / 2;
-        if (pz >= obs.z - halfDepth && pz <= obs.z + halfDepth && dx < 0.85) {
+        if (pz >= obs.z - halfDepth && pz <= obs.z + halfDepth && dx < 1.0) {
           result.isGrinding = true;
+        }
+        continue;
+      }
+
+      // Portal Arch
+      if (obs.isPortal) {
+        if (Math.abs(dz) < 2.5 && dx < 3.0) {
+          obs.cleared = true;
+          result.hitPortal = { targetBiome: obs.targetBiome || 'dune-nomad' };
         }
         continue;
       }
@@ -861,21 +953,21 @@ export class ObstacleManager {
       const obsHalfWidth = (obs.width ?? 2.0) * 0.38;
       const obsHalfDepth = Math.max(0.45, (obs.depth ?? 1.0) * 0.38);
 
-      // Near-Miss detection (Skillful grazing: within 0.35m-1.15m of obstacle boundary)
-      if (!obs.nearMissed && Math.abs(dz) < 1.4 && dx >= (obsHalfWidth + 0.22) && dx <= (obsHalfWidth + 1.15)) {
+      // Near-Miss detection (Skillful grazing: within 0.35m-1.25m of obstacle boundary)
+      if (!obs.nearMissed && Math.abs(dz) < 1.6 && dx >= (obsHalfWidth + 0.22) && dx <= (obsHalfWidth + 1.25)) {
         obs.nearMissed = true;
         result.nearMiss = true;
         result.nearMissPos = new THREE.Vector3(obs.x, obs.y, obs.z);
       }
 
       // Physical Collision
-      if (Math.abs(dz) < (obsHalfDepth + 0.45) && dx < (obsHalfWidth + 0.24)) {
+      if (Math.abs(dz) < (obsHalfDepth + 0.45) && dx < (obsHalfWidth + 0.25)) {
         // High barrier / laser duck clearance
         if (obs.canDuck && isSliding) {
           continue;
         }
-        // Low hurdle jump clearance
-        if (obs.canJump && py > 1.25) {
+        // Low hurdle jump clearance (player must be airborne, playerRelY > 1.1)
+        if (obs.canJump && playerRelY > 1.1) {
           continue;
         }
 
@@ -934,4 +1026,3 @@ export class ObstacleManager {
     this.scene.remove(this.group);
   }
 }
-
