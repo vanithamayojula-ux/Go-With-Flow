@@ -1,0 +1,42 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Hero Lab</title>
+  <style>
+    body {
+      margin: 0;
+      overflow: hidden;
+      background: #111622;
+      font-family: monospace;
+      color: #00d2e0;
+    }
+    #canvas-container {
+      width: 100vw;
+      height: 100vh;
+      display: block;
+    }
+    #info-overlay {
+      position: absolute;
+      top: 10px;
+      left: 10px;
+      background: rgba(0, 0, 0, 0.75);
+      padding: 10px 14px;
+      border-radius: 6px;
+      border: 1px solid #00d2e0;
+      font-size: 13px;
+      line-height: 1.4;
+      pointer-events: none;
+    }
+  </style>
+</head>
+<body>
+  <div id="info-overlay">
+    <div id="hero-title">Hero Lab</div>
+    <div id="pose-title">Loading...</div>
+  </div>
+  <div id="canvas-container"></div>
+  <script type="module" src="/src/heroLab.ts"></script>
+</body>
+</html>

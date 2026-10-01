@@ -435,8 +435,9 @@ export function animatePlayerCharacter(
   // A. Hero Rig Animation (Skinned GLTF Mesh)
   if (pc.heroRig) {
     const b = pc.heroRig.drivers;
+    const hipsBaseY = pc.heroRig.hipsRestY ?? 0.885;
 
-    // Reset default bone rotations
+    // Reset default driver rotations
     b.hips.rotation.set(0, 0, 0);
     b.spine.rotation.set(0, 0, 0);
     b.chest.rotation.set(0, 0, 0);
@@ -455,98 +456,81 @@ export function animatePlayerCharacter(
     b.rightArm.rotation.set(0, 0, 0);
     b.rightForearm.rotation.set(0, 0, 0);
 
-    // 1. Natural Athletic 3/4 Skater Stance (Facing down the track, feet planted on deck)
-    const bob = Math.sin(time * 6 * speedFactor) * 0.015 * speedFactor;
-    b.hips.position.y = 0.60 + bob;
+    // 1. Natural Athletic Forward Stance
+    const bob = Math.sin(time * 5 * speedFactor) * 0.012 * speedFactor;
+    b.hips.position.y = hipsBaseY + bob;
 
-    // Skater stance: hips angled ~22 deg sideways, spine rotated slightly back, head looking forward
-    b.hips.rotation.y = -0.38;
-    b.spine.rotation.set(0.08, 0.18, -turnVelocity * 0.08);
-    b.chest.rotation.set(0.04, 0.12, 0);
-    b.head.rotation.set(-0.05, 0.08 - turnVelocity * 0.06, 0);
+    // Organic breathing & riding sway
+    b.spine.rotation.set(0.04 + Math.sin(time * 3) * 0.015, 0, -turnVelocity * 0.12);
+    b.chest.rotation.set(0.02, 0, -turnVelocity * 0.04);
+    b.head.rotation.set(-0.02, -turnVelocity * 0.08, 0);
 
-    const runCycle = Math.sin(time * 6 * speedFactor);
+    // Subtle dynamic limb sway
+    const armSway = Math.sin(time * 5 * speedFactor) * 0.04;
+    b.leftArm.rotation.set(armSway, 0, -0.04);
+    b.rightArm.rotation.set(-armSway, 0, 0.04);
 
-    // Front Leg (Left foot forward on deck at z = +0.22)
-    b.leftThigh.rotation.set(0.35 + runCycle * 0.08, -0.22, 0.12);
-    b.leftShin.rotation.set(-0.55, 0, 0);
-    b.leftFoot.rotation.set(0.20, 0.10, 0);
-
-    // Rear Leg (Right foot back on tail kick at z = -0.22)
-    b.rightThigh.rotation.set(-0.20 - runCycle * 0.08, 0.22, -0.10);
-    b.rightShin.rotation.set(-0.48, 0, 0);
-    b.rightFoot.rotation.set(0.18, -0.10, 0);
-
-    // Dynamic arm balance for skating
-    const armSwing = Math.sin(time * 6 * speedFactor) * 0.15;
-    b.leftArm.rotation.set(-0.35 + armSwing, 0.25, -0.45);
-    b.rightArm.rotation.set(0.30 - armSwing, -0.25, 0.45);
-    b.leftForearm.rotation.set(-0.45, 0, 0);
-    b.rightForearm.rotation.set(-0.50, 0, 0);
+    const legFlex = Math.sin(time * 5 * speedFactor) * 0.025;
+    b.leftThigh.rotation.set(legFlex, 0, 0);
+    b.rightThigh.rotation.set(-legFlex, 0, 0);
 
     // 2. Movement States
     if (isSliding) {
-      // Deep aerodynamic crouch / duck under barrier
-      b.hips.position.y = 0.32;
-      b.spine.rotation.x = 0.45;
-      b.leftThigh.rotation.set(1.10, -0.15, 0.20);
-      b.leftShin.rotation.set(-1.25, 0, 0);
-      b.rightThigh.rotation.set(1.05, 0.15, -0.20);
-      b.rightShin.rotation.set(-1.20, 0, 0);
-      b.leftArm.rotation.set(0.55, 0.20, -0.30);
-      b.rightArm.rotation.set(0.55, -0.20, 0.30);
-      b.leftForearm.rotation.set(-0.35, 0, 0);
-      b.rightForearm.rotation.set(-0.35, 0, 0);
-      b.head.rotation.set(-0.30, 0.08, 0);
+      // Clean aerodynamic crouch
+      b.hips.position.y = hipsBaseY - 0.28;
+      b.spine.rotation.set(0.35, 0, -turnVelocity * 0.08);
+      b.head.rotation.set(-0.25, 0, 0);
+      b.leftThigh.rotation.set(-0.25, 0, 0);
+      b.rightThigh.rotation.set(-0.25, 0, 0);
+      b.leftShin.rotation.set(0.28, 0, 0);
+      b.rightShin.rotation.set(0.28, 0, 0);
+      b.leftArm.rotation.set(0.18, 0, -0.15);
+      b.rightArm.rotation.set(0.18, 0, 0.15);
     } else if (isGrinding) {
-      // Grind rail balance with wide outstretched arms
-      b.leftArm.rotation.set(0, 0, 1.35);
-      b.rightArm.rotation.set(0, 0, -1.35);
-      b.leftForearm.rotation.set(0, 0, 0.2);
-      b.rightForearm.rotation.set(0, 0, -0.2);
-      b.spine.rotation.z = Math.sin(time * 12) * 0.08 - turnVelocity * 0.08;
+      // Balanced arms along rail
+      b.leftArm.rotation.set(0, 0, 0.65);
+      b.rightArm.rotation.set(0, 0, -0.65);
+      b.spine.rotation.z = Math.sin(time * 10) * 0.06 - turnVelocity * 0.08;
     } else if (!state.isGrounded) {
-      // Jump Rise / Fall (Air tuck)
-      b.hips.position.y = 0.85;
-      b.leftThigh.rotation.set(0.70, -0.15, 0.15);
-      b.leftShin.rotation.set(-0.95, 0, 0);
-      b.rightThigh.rotation.set(0.60, 0.15, -0.15);
-      b.rightShin.rotation.set(-0.85, 0, 0);
-      b.leftArm.rotation.set(-0.65, 0.30, -0.50);
-      b.rightArm.rotation.set(-0.65, -0.30, 0.50);
+      // Air tuck during jump
+      b.hips.position.y = hipsBaseY + 0.16;
+      b.spine.rotation.set(0.10, 0, -turnVelocity * 0.08);
+      b.leftThigh.rotation.set(-0.18, 0, 0);
+      b.rightThigh.rotation.set(-0.18, 0, 0);
+      b.leftShin.rotation.set(0.22, 0, 0);
+      b.rightShin.rotation.set(0.22, 0, 0);
+      b.leftArm.rotation.set(-0.20, 0, -0.20);
+      b.rightArm.rotation.set(-0.20, 0, 0.20);
     }
 
     // 3. Trick Animations
     if (activeTrick === 'spin' || state.activeTrickName?.includes('Corkscrew')) {
-      b.spine.rotation.y = time * 24;
+      b.spine.rotation.y = time * 20;
     } else if (activeTrick === 'flip' || state.activeTrickName?.includes('Backflip')) {
-      b.hips.rotation.x = time * 20;
+      b.hips.rotation.x = time * 18;
     } else if (activeTrick === 'grab' || state.activeTrickName?.includes('Grab')) {
-      b.leftArm.rotation.set(1.4, 0, -0.3);
-      b.spine.rotation.x = 0.45;
+      b.leftArm.rotation.set(0.5, 0, -0.25);
+      b.spine.rotation.x = 0.30;
     } else if (activeTrick === 'pose' || state.activeTrickName?.includes('Glide')) {
-      b.leftArm.rotation.z = 1.57;
-      b.rightArm.rotation.z = -1.57;
-      b.chest.rotation.x = -0.3;
+      b.leftArm.rotation.z = 1.2;
+      b.rightArm.rotation.z = -1.2;
+      b.chest.rotation.x = -0.2;
     }
 
     // 4. Stumble / Recoil
     if (stumbleTimer > 0) {
-      const recoil = Math.sin(stumbleTimer * 25) * 0.3;
+      const recoil = Math.sin(stumbleTimer * 25) * 0.2;
       b.spine.rotation.x = -recoil;
-      b.leftArm.rotation.x = recoil * 2;
-      b.rightArm.rotation.x = recoil * 2;
+      b.leftArm.rotation.x = recoil * 1.2;
+      b.rightArm.rotation.x = recoil * 1.2;
     }
 
     // 5. Head Look-Ahead
     if (state.nearestObstacleDist < 35) {
-      const lookIntensity = (1.0 - state.nearestObstacleDist / 35) * 0.35;
+      const lookIntensity = (1.0 - state.nearestObstacleDist / 35) * 0.25;
       b.head.rotation.y += Math.sin(time * 8) * lookIntensity;
-      b.neck.rotation.x = 0.15 * lookIntensity;
+      b.neck.rotation.x = 0.1 * lookIntensity;
     }
-
-    // Turn Lean
-    b.spine.rotation.z = -turnVelocity * 0.08;
 
     // Synchronize GLTF Hero Skeleton Bones
     pc.syncBones?.();

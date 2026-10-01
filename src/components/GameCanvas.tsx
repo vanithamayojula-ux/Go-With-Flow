@@ -100,6 +100,23 @@ export const GameCanvas: React.FC<GameCanvasProps> = ({
     }
   }, [cosmeticsConfig]);
 
+  // Support URL biome param & dynamic biome switching
+  useEffect(() => {
+    try {
+      const params = typeof window !== 'undefined' ? new URLSearchParams(window.location.search) : null;
+      const urlBiome = params?.get('biome') as BiomeType | null;
+      if (urlBiome) {
+        setActiveBiome(urlBiome);
+      }
+      (window as any).__setActiveBiome = (b: BiomeType | null) => {
+        setActiveBiome(b);
+        if (terrainMgrRef.current && playerMgrRef.current) {
+          terrainMgrRef.current.rebuildAroundPlayer(playerMgrRef.current.stats.distance, 0, 4);
+        }
+      };
+    } catch {}
+  }, []);
+
   // Apply player cyber upgrades dynamically
   useEffect(() => {
     if (playerMgrRef.current && upgrades) {

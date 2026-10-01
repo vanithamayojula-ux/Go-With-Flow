@@ -195,7 +195,7 @@ export class PlayerManager {
     this.group.position.copy(this.position);
 
     // Build 3D Hero / Cyberpunk Skater Character & Hoverboard
-    this.playerCharacter = createPlayerCharacter(this.currentCosmetics.heroId);
+    this.playerCharacter = createPlayerCharacter();
     this.characterMesh = this.playerCharacter.group;
     this.boardMesh = this.playerCharacter.board;
 
@@ -307,9 +307,9 @@ export class PlayerManager {
     }
   }
 
-  switchHero(heroId?: HeroId) {
+  async switchHero(heroId?: HeroId) {
     if (!this.playerCharacter) return;
-    this.playerCharacter.setHero?.(heroId);
+    await this.playerCharacter.setHero?.(heroId);
     const hero = heroById(heroId);
     if (hero && this.trailMaterial && this.trailMaterial.uniforms) {
       const heroColorHex = `#${hero.trail.toString(16).padStart(6, '0')}`;
@@ -322,9 +322,7 @@ export class PlayerManager {
     const nextHeroId = config.heroId || 'shadow';
     this.currentCosmetics = { ...config, heroId: nextHeroId };
 
-    if (prevHeroId !== nextHeroId || this.playerCharacter.activeHeroId !== nextHeroId) {
-      this.switchHero(nextHeroId);
-    }
+    this.switchHero(nextHeroId);
 
     const pc = this.playerCharacter;
     if (!pc) return;

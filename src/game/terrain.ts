@@ -158,7 +158,18 @@ export class TerrainManager {
   public readonly curbRailMat: THREE.MeshBasicMaterial;
   public readonly wireframeMat = new THREE.MeshBasicMaterial({ color: 0x00f0ff, wireframe: true });
 
-  private themeBackdropMats: Record<string, THREE.MeshBasicMaterial> = {};
+  // Dedicated Themed Biome Materials
+  public readonly sandstoneMat: THREE.MeshStandardMaterial;
+  public readonly iceCrystalMat: THREE.MeshStandardMaterial;
+  public readonly jungleWoodMat: THREE.MeshStandardMaterial;
+  public readonly jungleCanopyMat: THREE.MeshStandardMaterial;
+  public readonly volcanicMat: THREE.MeshStandardMaterial;
+  public readonly magmaVeinMat: THREE.MeshBasicMaterial;
+  public readonly celestialMat: THREE.MeshStandardMaterial;
+  public readonly skyMarbleMat: THREE.MeshStandardMaterial;
+  public readonly beaconGoldMat: THREE.MeshBasicMaterial;
+
+  private themeBackdropMats: Record<string, THREE.Material> = {};
   private billboardMats: THREE.MeshBasicMaterial[] = [];
 
   private curbRailGeom = new THREE.BoxGeometry(0.30, 0.40, CHUNK_SIZE);
@@ -201,21 +212,73 @@ export class TerrainManager {
     const nebulaTex = createNebulaBackdropTexture();
     const skyRealmTex = createSkyRealmBackdropTexture();
 
+    this.sandstoneMat = new THREE.MeshStandardMaterial({
+      color: 0xd48b46,
+      roughness: 0.85,
+      metalness: 0.15,
+      map: duneTex,
+    });
+    this.iceCrystalMat = new THREE.MeshStandardMaterial({
+      color: 0x9be5ff,
+      roughness: 0.25,
+      metalness: 0.45,
+      emissive: new THREE.Color(0x00e5ff),
+      emissiveIntensity: 0.25,
+      map: glacierTex,
+    });
+    this.jungleWoodMat = new THREE.MeshStandardMaterial({
+      color: 0x16382b,
+      roughness: 0.85,
+      metalness: 0.10,
+      map: jungleTex,
+    });
+    this.jungleCanopyMat = new THREE.MeshStandardMaterial({
+      color: 0x059669,
+      roughness: 0.55,
+      metalness: 0.20,
+      emissive: new THREE.Color(0x10b981),
+      emissiveIntensity: 0.35,
+    });
+    this.volcanicMat = new THREE.MeshStandardMaterial({
+      color: 0x181416,
+      roughness: 0.85,
+      metalness: 0.30,
+      emissive: new THREE.Color(0xd946ef),
+      emissiveIntensity: 0.15,
+      map: emberTex,
+    });
+    this.magmaVeinMat = new THREE.MeshBasicMaterial({ color: 0xff5500 });
+    this.celestialMat = new THREE.MeshStandardMaterial({
+      color: 0x1e1b4b,
+      roughness: 0.45,
+      metalness: 0.65,
+      emissive: new THREE.Color(0x8b5cf6),
+      emissiveIntensity: 0.25,
+      map: nebulaTex,
+    });
+    this.skyMarbleMat = new THREE.MeshStandardMaterial({
+      color: 0xe0f2fe,
+      roughness: 0.35,
+      metalness: 0.25,
+      map: skyRealmTex,
+    });
+    this.beaconGoldMat = new THREE.MeshBasicMaterial({ color: 0xfbbf24 });
+
     this.themeBackdropMats = {
       'neon-undercity': this.buildingMat,
-      'dune-nomad': new THREE.MeshBasicMaterial({ map: duneTex, side: THREE.DoubleSide }),
-      'aurora-frost': new THREE.MeshBasicMaterial({ map: glacierTex, side: THREE.DoubleSide }),
-      'bioluminescent-jungle': new THREE.MeshBasicMaterial({ map: jungleTex, side: THREE.DoubleSide }),
-      'ember-core': new THREE.MeshBasicMaterial({ map: emberTex, side: THREE.DoubleSide }),
-      'nebula-drift': new THREE.MeshBasicMaterial({ map: nebulaTex, side: THREE.DoubleSide }),
-      'sky-realm': new THREE.MeshBasicMaterial({ map: skyRealmTex, side: THREE.DoubleSide }),
-      'quantum-desert': new THREE.MeshBasicMaterial({ map: duneTex, side: THREE.DoubleSide }),
-      'cyber-forest': new THREE.MeshBasicMaterial({ map: jungleTex, side: THREE.DoubleSide }),
-      'orbital-ring': new THREE.MeshBasicMaterial({ map: nebulaTex, side: THREE.DoubleSide }),
+      'dune-nomad': this.sandstoneMat,
+      'aurora-frost': this.iceCrystalMat,
+      'bioluminescent-jungle': this.jungleCanopyMat,
+      'ember-core': this.volcanicMat,
+      'nebula-drift': this.celestialMat,
+      'sky-realm': this.skyMarbleMat,
+      'quantum-desert': this.sandstoneMat,
+      'cyber-forest': this.jungleCanopyMat,
+      'orbital-ring': this.celestialMat,
       'the-grid': this.wireframeMat,
-      'volcanic-forge': new THREE.MeshBasicMaterial({ map: emberTex, side: THREE.DoubleSide }),
-      'crystal-glacier': new THREE.MeshBasicMaterial({ map: glacierTex, side: THREE.DoubleSide }),
-      'derelict-station': new THREE.MeshBasicMaterial({ map: nebulaTex, side: THREE.DoubleSide }),
+      'volcanic-forge': this.volcanicMat,
+      'crystal-glacier': this.iceCrystalMat,
+      'derelict-station': this.celestialMat,
     };
 
     // Holographic Billboards
@@ -250,7 +313,7 @@ export class TerrainManager {
     });
   }
 
-  private createGroundedSkyscraper(
+  private createGroundedStructure(
     x: number,
     baseY: number,
     z: number,
@@ -263,12 +326,13 @@ export class TerrainManager {
   ): THREE.Group {
     const group = new THREE.Group();
 
-    // Grounded base: Extend 6 units BELOW ground level so no gaps ever show
-    const totalHeight = height + 6.0;
-    const centerPosY = (baseY - 6.0) + totalHeight / 2;
+    // Grounded base: Extend 8 units BELOW ground level so no gaps ever show
+    const totalHeight = height + 8.0;
+    const centerPosY = (baseY - 8.0) + totalHeight / 2;
+    const roofTopY = baseY + height;
 
     if (biome === 'neon-undercity' || biome === 'the-grid' || biome === 'derelict-station') {
-      // 3D Cyberpunk Skyscraper
+      // 1. 3D Cyberpunk Skyscraper
       const bGeom = new THREE.BoxGeometry(width, totalHeight, depth);
       const mat = this.themeBackdropMats[biome] || this.buildingMat;
       const building = new THREE.Mesh(bGeom, mat);
@@ -281,8 +345,11 @@ export class TerrainManager {
       podium.position.set(x, baseY + 1.25, z);
       group.add(podium);
 
+      const podiumGlow = new THREE.Mesh(new THREE.BoxGeometry(width * 1.06, 0.4, depth * 1.06), this.neonCyanMat);
+      podiumGlow.position.set(x, baseY + 0.2, z);
+      group.add(podiumGlow);
+
       // Rooftop trim & glowing spires
-      const roofTopY = baseY + height;
       const roof = new THREE.Mesh(new THREE.BoxGeometry(width * 1.02, 1.5, depth * 1.02), this.rooftopMat);
       roof.position.set(x, roofTopY + 0.75, z);
       group.add(roof);
@@ -307,14 +374,268 @@ export class TerrainManager {
         signMesh.rotation.y = side === 'left' ? Math.PI / 2 : -Math.PI / 2;
         group.add(signMesh);
       }
+    } else if (biome === 'dune-nomad' || biome === 'quantum-desert' || biome === 'dunes') {
+      // 2. 3D Stepped Sandstone Mesa & Nomad Monolith
+      const lowerHeight = totalHeight * 0.65;
+      const lowerY = (baseY - 8.0) + lowerHeight / 2;
+      const lowerMesa = new THREE.Mesh(
+        new THREE.BoxGeometry(width * 1.15, lowerHeight, depth * 1.15),
+        this.sandstoneMat
+      );
+      lowerMesa.position.set(x, lowerY, z);
+      group.add(lowerMesa);
+
+      const upperHeight = totalHeight * 0.45;
+      const upperY = (baseY - 8.0) + lowerHeight + upperHeight / 2 - 1.0;
+      const upperMesa = new THREE.Mesh(
+        new THREE.BoxGeometry(width * 0.85, upperHeight, depth * 0.85),
+        this.sandstoneMat
+      );
+      upperMesa.position.set(x, upperY, z);
+      group.add(upperMesa);
+
+      // Grounded stone podium base
+      const podium = new THREE.Mesh(
+        new THREE.BoxGeometry(width * 1.22, 2.5, depth * 1.22),
+        this.spaceObsidianMat
+      );
+      podium.position.set(x, baseY + 1.25, z);
+      group.add(podium);
+
+      const baseGlow = new THREE.Mesh(
+        new THREE.BoxGeometry(width * 1.24, 0.4, depth * 1.24),
+        this.neonAmberMat
+      );
+      baseGlow.position.set(x, baseY + 0.2, z);
+      group.add(baseGlow);
+
+      // Nomad Antenna Mast & Solar Collector Fins
+      const mastGeom = new THREE.CylinderGeometry(0.15, 0.5, 14, 6);
+      const mast = new THREE.Mesh(mastGeom, this.spaceObsidianMat);
+      mast.position.set(x, roofTopY + 7.0, z);
+      group.add(mast);
+
+      const finX = new THREE.Mesh(new THREE.BoxGeometry(width * 0.35, 0.35, 0.35), this.neonAmberMat);
+      finX.position.set(x, roofTopY + 6.0, z);
+      const finZ = new THREE.Mesh(new THREE.BoxGeometry(0.35, 0.35, width * 0.35), this.neonAmberMat);
+      finZ.position.set(x, roofTopY + 6.0, z);
+      group.add(finX, finZ);
+
+      const beacon = new THREE.Mesh(new THREE.SphereGeometry(0.55, 8, 8), this.neonAmberMat);
+      beacon.position.set(x, roofTopY + 14.0, z);
+      group.add(beacon);
+
+      // Flush nomad solar rune banner if billboardIdx
+      if (billboardIdx !== undefined && this.billboardMats[billboardIdx]) {
+        const signW = Math.min(width * 0.75, 12);
+        const signH = signW * 0.55;
+        const signMesh = new THREE.Mesh(new THREE.PlaneGeometry(signW, signH), this.billboardMats[billboardIdx]);
+        const signX = side === 'left' ? x + (width * 0.85) / 2 + 0.08 : x - (width * 0.85) / 2 - 0.08;
+        signMesh.position.set(signX, baseY + height * 0.65, z);
+        signMesh.rotation.y = side === 'left' ? Math.PI / 2 : -Math.PI / 2;
+        group.add(signMesh);
+      }
+    } else if (biome === 'aurora-frost' || biome === 'crystal-glacier') {
+      // 3. 3D Glacial Crystal Tower & Ice Spire
+      const crystalTower = new THREE.Mesh(
+        new THREE.CylinderGeometry(width * 0.42, width * 0.58, totalHeight, 6),
+        this.iceCrystalMat
+      );
+      crystalTower.position.set(x, centerPosY, z);
+      group.add(crystalTower);
+
+      // Sharp ice pinnacle
+      const pinnacle = new THREE.Mesh(
+        new THREE.ConeGeometry(width * 0.45, 16, 6),
+        this.iceCrystalMat
+      );
+      pinnacle.position.set(x, roofTopY + 8.0, z);
+      group.add(pinnacle);
+
+      // Flanking Ice Shards
+      const flank1 = new THREE.Mesh(new THREE.ConeGeometry(width * 0.22, 16, 5), this.iceCrystalMat);
+      flank1.position.set(x - width * 0.3, baseY + height * 0.35, z + depth * 0.2);
+      flank1.rotation.z = 0.2;
+      const flank2 = new THREE.Mesh(new THREE.ConeGeometry(width * 0.22, 16, 5), this.iceCrystalMat);
+      flank2.position.set(x + width * 0.3, baseY + height * 0.35, z - depth * 0.2);
+      flank2.rotation.z = -0.2;
+      group.add(flank1, flank2);
+
+      // Grounded ice podium
+      const podium = new THREE.Mesh(
+        new THREE.CylinderGeometry(width * 0.64, width * 0.68, 2.5, 6),
+        this.spaceObsidianMat
+      );
+      podium.position.set(x, baseY + 1.25, z);
+      group.add(podium);
+
+      const baseGlow = new THREE.Mesh(
+        new THREE.CylinderGeometry(width * 0.66, width * 0.70, 0.4, 6),
+        this.neonCyanMat
+      );
+      baseGlow.position.set(x, baseY + 0.2, z);
+      group.add(baseGlow);
+
+      // Crystal Octahedron Beacon at summit
+      const beacon = new THREE.Mesh(new THREE.OctahedronGeometry(0.75, 0), this.spireMat);
+      beacon.position.set(x, roofTopY + 16.5, z);
+      group.add(beacon);
+    } else if (biome === 'bioluminescent-jungle' || biome === 'cyber-forest' || biome === 'forest') {
+      // 4. 3D Giant Bio-Tree Column & Volumetric Canopy Domes
+      const trunk = new THREE.Mesh(
+        new THREE.CylinderGeometry(width * 0.35, width * 0.52, totalHeight, 8),
+        this.jungleWoodMat
+      );
+      trunk.position.set(x, centerPosY, z);
+      group.add(trunk);
+
+      // Multi-tiered glowing canopy spheres / dodecahedrons
+      const lowerCanopy = new THREE.Mesh(new THREE.DodecahedronGeometry(width * 0.65, 0), this.jungleCanopyMat);
+      lowerCanopy.position.set(x, roofTopY - 2.0, z);
+      const upperCanopy = new THREE.Mesh(new THREE.DodecahedronGeometry(width * 0.8, 0), this.jungleCanopyMat);
+      upperCanopy.position.set(x, roofTopY + 8.0, z);
+      const topCanopy = new THREE.Mesh(new THREE.DodecahedronGeometry(width * 0.5, 0), this.jungleCanopyMat);
+      topCanopy.position.set(x, roofTopY + 16.0, z);
+      group.add(lowerCanopy, upperCanopy, topCanopy);
+
+      // Hanging bio-spore light beads
+      const spore1 = new THREE.Mesh(new THREE.SphereGeometry(0.55, 8, 8), this.neonCyanMat);
+      spore1.position.set(x + width * 0.4, roofTopY + 4.0, z + depth * 0.2);
+      const spore2 = new THREE.Mesh(new THREE.SphereGeometry(0.55, 8, 8), this.neonCyanMat);
+      spore2.position.set(x - width * 0.4, roofTopY + 4.0, z - depth * 0.2);
+      group.add(spore1, spore2);
+
+      // Grounded root base
+      const podium = new THREE.Mesh(
+        new THREE.CylinderGeometry(width * 0.58, width * 0.65, 2.5, 8),
+        this.spaceObsidianMat
+      );
+      podium.position.set(x, baseY + 1.25, z);
+      group.add(podium);
+
+      const baseGlow = new THREE.Mesh(
+        new THREE.CylinderGeometry(width * 0.60, width * 0.67, 0.4, 8),
+        this.neonCyanMat
+      );
+      baseGlow.position.set(x, baseY + 0.2, z);
+      group.add(baseGlow);
+    } else if (biome === 'ember-core' || biome === 'volcanic-forge') {
+      // 5. 3D Basalt Obsidian Column with Glowing Magma Fissure
+      const basaltCol = new THREE.Mesh(
+        new THREE.CylinderGeometry(width * 0.42, width * 0.55, totalHeight, 6),
+        this.volcanicMat
+      );
+      basaltCol.position.set(x, centerPosY, z);
+      group.add(basaltCol);
+
+      // Magma fissure vein
+      const magmaVein = new THREE.Mesh(
+        new THREE.BoxGeometry(width * 0.16, totalHeight * 0.85, depth * 1.02),
+        this.magmaVeinMat
+      );
+      magmaVein.position.set(x, centerPosY, z);
+      group.add(magmaVein);
+
+      // Furnace crown & beacon
+      const crown = new THREE.Mesh(
+        new THREE.CylinderGeometry(width * 0.5, width * 0.38, 4.0, 6),
+        this.spaceObsidianMat
+      );
+      crown.position.set(x, roofTopY + 2.0, z);
+      group.add(crown);
+
+      const beacon = new THREE.Mesh(new THREE.SphereGeometry(0.65, 8, 8), this.neonAmberMat);
+      beacon.position.set(x, roofTopY + 5.0, z);
+      group.add(beacon);
+
+      // Grounded obsidian podium base
+      const podium = new THREE.Mesh(
+        new THREE.CylinderGeometry(width * 0.6, width * 0.65, 2.5, 6),
+        this.spaceObsidianMat
+      );
+      podium.position.set(x, baseY + 1.25, z);
+      group.add(podium);
+
+      const baseGlow = new THREE.Mesh(
+        new THREE.CylinderGeometry(width * 0.62, width * 0.67, 0.4, 6),
+        this.neonAmberMat
+      );
+      baseGlow.position.set(x, baseY + 0.2, z);
+      group.add(baseGlow);
+    } else if (biome === 'nebula-drift' || biome === 'orbital-ring') {
+      // 6. 3D Orbital Relay Megastructure & Gyro Rings
+      const pylon = new THREE.Mesh(
+        new THREE.CylinderGeometry(width * 0.36, width * 0.50, totalHeight, 6),
+        this.celestialMat
+      );
+      pylon.position.set(x, centerPosY, z);
+      group.add(pylon);
+
+      // Floating gyro energy ring
+      const ring = new THREE.Mesh(new THREE.TorusGeometry(width * 0.55, 0.4, 6, 16), this.neonCyanMat);
+      ring.position.set(x, roofTopY + 1.0, z);
+      ring.rotation.x = Math.PI / 2;
+      group.add(ring);
+
+      const spire = new THREE.Mesh(new THREE.CylinderGeometry(0.12, 0.45, 14, 6), this.spireMat);
+      spire.position.set(x, roofTopY + 8.0, z);
+      group.add(spire);
+
+      const beacon = new THREE.Mesh(new THREE.SphereGeometry(0.55, 8, 8), this.neonMagentaMat);
+      beacon.position.set(x, roofTopY + 15.5, z);
+      group.add(beacon);
+
+      // Grounded base
+      const podium = new THREE.Mesh(
+        new THREE.CylinderGeometry(width * 0.55, width * 0.60, 2.5, 6),
+        this.spaceObsidianMat
+      );
+      podium.position.set(x, baseY + 1.25, z);
+      group.add(podium);
+
+      const baseGlow = new THREE.Mesh(
+        new THREE.CylinderGeometry(width * 0.57, width * 0.62, 0.4, 6),
+        this.neonMagentaMat
+      );
+      baseGlow.position.set(x, baseY + 0.2, z);
+      group.add(baseGlow);
     } else {
-      // Biome-Themed Backdrop Card (Dunes, Glaciers, Jungle, Ember, Nebula, Sky Islands)
-      const mat = this.themeBackdropMats[biome] || this.buildingMat;
-      const cardGeom = new THREE.PlaneGeometry(width * 1.4, totalHeight);
-      const card = new THREE.Mesh(cardGeom, mat);
-      card.position.set(x, centerPosY, z);
-      card.rotation.y = side === 'left' ? Math.PI / 2 : -Math.PI / 2;
-      group.add(card);
+      // 7. Sky Realm / Meadow / General 3D Celestial Pillar
+      const col = new THREE.Mesh(
+        new THREE.CylinderGeometry(width * 0.4, width * 0.52, totalHeight, 8),
+        this.skyMarbleMat
+      );
+      col.position.set(x, centerPosY, z);
+      group.add(col);
+
+      const capital = new THREE.Mesh(
+        new THREE.CylinderGeometry(width * 0.55, width * 0.42, 3.0, 8),
+        this.spaceObsidianMat
+      );
+      capital.position.set(x, roofTopY + 1.5, z);
+      group.add(capital);
+
+      const spire = new THREE.Mesh(new THREE.ConeGeometry(width * 0.28, 12, 6), this.beaconGoldMat);
+      spire.position.set(x, roofTopY + 8.0, z);
+      group.add(spire);
+
+      const beacon = new THREE.Mesh(new THREE.SphereGeometry(0.5, 8, 8), this.neonCyanMat);
+      beacon.position.set(x, roofTopY + 14.5, z);
+      group.add(beacon);
+
+      const podium = new THREE.Mesh(
+        new THREE.CylinderGeometry(width * 0.58, width * 0.62, 2.5, 8),
+        this.spaceObsidianMat
+      );
+      podium.position.set(x, baseY + 1.25, z);
+      group.add(podium);
+
+      const baseGlow = new THREE.Mesh(
+        new THREE.CylinderGeometry(width * 0.60, width * 0.64, 0.4, 8),
+        this.neonCyanMat
+      );
+      baseGlow.position.set(x, baseY + 0.2, z);
+      group.add(baseGlow);
     }
 
     return group;
@@ -478,39 +799,39 @@ export class TerrainManager {
     this.scene.add(rightCurb);
     decorations.push(rightCurb);
 
-    // 4. Grounded City Canyon Skyscraper Depth Bands
+    // 4. Grounded Canyon Structure Depth Bands (Volumetric across all biomes)
     const baseRoadY = getTerrainHeight(0, zCenter);
 
     // Near Band (x = +-11..16, height 45..75) - clear 6+ unit gap from rail (4.5)
     const hL_near = 48 + Math.abs(cz * 13) % 28;
-    const bL_near = this.createGroundedSkyscraper(-12.5, baseRoadY, zCenter - 18, 14, hL_near, 20, 'left', biome, Math.abs(cz) % 4);
+    const bL_near = this.createGroundedStructure(-12.5, baseRoadY, zCenter - 18, 14, hL_near, 20, 'left', biome, Math.abs(cz) % 4);
     this.scene.add(bL_near);
     decorations.push(bL_near);
 
     const hR_near = 52 + Math.abs(cz * 17) % 26;
-    const bR_near = this.createGroundedSkyscraper(12.5, baseRoadY, zCenter + 16, 14, hR_near, 20, 'right', biome, (Math.abs(cz) + 2) % 4);
+    const bR_near = this.createGroundedStructure(12.5, baseRoadY, zCenter + 16, 14, hR_near, 20, 'right', biome, (Math.abs(cz) + 2) % 4);
     this.scene.add(bR_near);
     decorations.push(bR_near);
 
     // Mid Band (x = +-28..38, height 75..120)
     const hL_mid = 82 + Math.abs(cz * 23) % 38;
-    const bL_mid = this.createGroundedSkyscraper(-30, baseRoadY, zCenter + 14, 20, hL_mid, 26, 'left', biome);
+    const bL_mid = this.createGroundedStructure(-30, baseRoadY, zCenter + 14, 20, hL_mid, 26, 'left', biome);
     this.scene.add(bL_mid);
     decorations.push(bL_mid);
 
     const hR_mid = 86 + Math.abs(cz * 29) % 36;
-    const bR_mid = this.createGroundedSkyscraper(30, baseRoadY, zCenter - 14, 20, hR_mid, 26, 'right', biome);
+    const bR_mid = this.createGroundedStructure(30, baseRoadY, zCenter - 14, 20, hR_mid, 26, 'right', biome);
     this.scene.add(bR_mid);
     decorations.push(bR_mid);
 
     // Far Band (x = +-60..85, height 120..190)
     const hL_far = 135 + Math.abs(cz * 37) % 55;
-    const bL_far = this.createGroundedSkyscraper(-65, baseRoadY, zCenter - 4, 32, hL_far, 40, 'left', biome);
+    const bL_far = this.createGroundedStructure(-65, baseRoadY, zCenter - 4, 32, hL_far, 40, 'left', biome);
     this.scene.add(bL_far);
     decorations.push(bL_far);
 
     const hR_far = 140 + Math.abs(cz * 41) % 50;
-    const bR_far = this.createGroundedSkyscraper(65, baseRoadY, zCenter + 6, 32, hR_far, 40, 'right', biome);
+    const bR_far = this.createGroundedStructure(65, baseRoadY, zCenter + 6, 32, hR_far, 40, 'right', biome);
     this.scene.add(bR_far);
     decorations.push(bR_far);
 
@@ -620,5 +941,16 @@ export class TerrainManager {
     this.pillarCrownGeom.dispose();
     this.frameSpanGeom.dispose();
     this.framePostGeom.dispose();
+
+    // Dispose themed materials
+    this.sandstoneMat.dispose();
+    this.iceCrystalMat.dispose();
+    this.jungleWoodMat.dispose();
+    this.jungleCanopyMat.dispose();
+    this.volcanicMat.dispose();
+    this.magmaVeinMat.dispose();
+    this.celestialMat.dispose();
+    this.skyMarbleMat.dispose();
+    this.beaconGoldMat.dispose();
   }
 }

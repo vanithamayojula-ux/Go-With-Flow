@@ -55,6 +55,7 @@ export interface HeroRig {
   };
   syncBones: () => void;
   skinned: boolean;
+  hipsRestY?: number;
 }
 
 const cache = new Map<HeroId, Promise<LoadedHeroData | null> | LoadedHeroData>();
@@ -264,6 +265,9 @@ export function buildHeroRig(heroId: HeroId): HeroRig | null {
   }
 
   const hipsEntry = driverEntries.find((d) => d.driver === hipsDriver);
+  if (hipsEntry) {
+    hipsDriver.position.copy(hipsEntry.restPos);
+  }
 
   const e = new THREE.Euler();
   const q = new THREE.Quaternion();
@@ -273,12 +277,13 @@ export function buildHeroRig(heroId: HeroId): HeroRig | null {
       const r = d.driver.rotation;
       e.set(r.x * AXIS.x, r.y * AXIS.y, r.z * AXIS.z, 'XYZ');
       q.setFromEuler(e);
-      d.bone.quaternion.copy(d.restQuat).multiply(q);
+      // Character-frame rotation applied to bone bind pose
+      d.bone.quaternion.copy(q).multiply(d.restQuat);
     }
 
-    // Dynamic hips elevation (bobbing, sliding crouch, jumping rise)
+    // Dynamic hips elevation relative to baseline rest pose
     if (hipsEntry) {
-      const dy = hipsDriver.position.y - 0.72;
+      const dy = hipsDriver.position.y - hipsEntry.restPos.y;
       hipsEntry.bone.position.y = hipsEntry.restPos.y + dy;
     }
   };
@@ -314,6 +319,7 @@ export function buildHeroRig(heroId: HeroId): HeroRig | null {
     },
     syncBones,
     skinned: true,
+    hipsRestY: hipsEntry?.restPos.y || 0.885,
   };
 }
 

@@ -51,6 +51,7 @@ export const HEROES: HeroDef[] = [
     blurb: 'Overcharge — massive speed burst and chain lightning.',
     modelUrl: '/models/thunder.glb',
     previewUrl: '/hero-previews/thunder.jpg',
+    yawOffset: Math.PI,
     ult: { type: 'overcharge', duration: 5, speedMul: 1.7 },
   },
   {
@@ -62,6 +63,7 @@ export const HEROES: HeroDef[] = [
     blurb: 'Glacial halt — freezes the void, slowing everything but you.',
     modelUrl: '/models/frost.glb',
     previewUrl: '/hero-previews/frost.jpg',
+    yawOffset: Math.PI,
     ult: { type: 'freeze', duration: 5, timeMul: 0.5 },
   },
   {

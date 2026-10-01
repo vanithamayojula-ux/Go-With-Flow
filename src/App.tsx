@@ -64,8 +64,14 @@ export default function App() {
   const [shaderParams, setShaderParams] = useState<ShaderParams>(DEFAULT_SHADER_PARAMS);
   const [cosmeticsConfig, setCosmeticsConfig] = useState<CosmeticsConfig>(() => {
     try {
+      const params = typeof window !== 'undefined' ? new URLSearchParams(window.location.search) : null;
+      const urlHero = params?.get('hero') as any;
       const saved = localStorage.getItem('skyflow_cosmetics');
-      return saved ? { ...DEFAULT_COSMETICS_CONFIG, ...JSON.parse(saved) } : DEFAULT_COSMETICS_CONFIG;
+      const base = saved ? { ...DEFAULT_COSMETICS_CONFIG, ...JSON.parse(saved) } : DEFAULT_COSMETICS_CONFIG;
+      if (urlHero) {
+        return { ...base, heroId: urlHero };
+      }
+      return base;
     } catch {
       return DEFAULT_COSMETICS_CONFIG;
     }
