@@ -211,17 +211,79 @@ export class PlayerManager {
     playerGlowLight.position.set(0, 0.8, 0);
     this.group.add(playerGlowLight);
 
-    // 3. Holo-Shield Bubble
-    const shieldGeom = new THREE.SphereGeometry(1.55, 16, 16);
-    const shieldMat = new THREE.MeshBasicMaterial({
-      color: 0x00ffaa,
+    // 3. Thin Fresnel-Rim Holo-Shield Bubble (Crystal clear sightline, zero forward occlusion)
+    const shieldGeom = new THREE.SphereGeometry(1.65, 32, 24);
+    const shieldMat = new THREE.ShaderMaterial({
+      uniforms: {
+        uTime: { value: 0 },
+        uColor: { value: new THREE.Color(0x00ffaa) },
+        uRimColor: { value: new THREE.Color(0x50ffc8) },
+      },
+      vertexShader: `
+        varying vec3 vNormal;
+        varying vec3 vWorldPosition;
+        varying vec3 vViewDirection;
+
+        void main() {
+          vNormal = normalize(normalMatrix * normal);
+          vec4 worldPos = modelMatrix * vec4(position, 1.0);
+          vWorldPosition = worldPos.xyz;
+          vViewDirection = normalize(cameraPosition - worldPos.xyz);
+          gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0);
+        }
+      `,
+      fragmentShader: `
+        uniform float uTime;
+        uniform vec3 uColor;
+        uniform vec3 uRimColor;
+        varying vec3 vNormal;
+        varying vec3 vWorldPosition;
+        varying vec3 vViewDirection;
+
+        void main() {
+          // View-dependent Fresnel rim: 0 looking straight on, 1 at glancing silhouette edges
+          float NdotV = max(0.0, dot(vNormal, vViewDirection));
+          float fresnel = pow(1.0 - NdotV, 2.6);
+
+          // Subtle harmonic energy wave across shell
+          float pulse = 0.85 + 0.15 * sin(uTime * 4.0 + vWorldPosition.y * 3.0);
+
+          // Center opacity is near-transparent (0.025), rim peaks smoothly at ~0.42
+          float alpha = (0.025 + fresnel * 0.42) * pulse;
+
+          // Forward-wedge clearance: suppress center faces pointing directly toward camera
+          // so the road ahead and oncoming obstacles are 100% visible and uncluttered
+          float forwardClearance = smoothstep(0.85, 0.25, NdotV);
+          alpha *= (0.12 + 0.88 * forwardClearance);
+
+          vec3 col = mix(uColor, uRimColor, fresnel);
+          gl_FragColor = vec4(col, alpha);
+        }
+      `,
       transparent: true,
-      opacity: 0.42,
-      wireframe: true,
+      depthWrite: false,
+      blending: THREE.AdditiveBlending,
+      side: THREE.DoubleSide,
     });
     this.shieldMesh = new THREE.Mesh(shieldGeom, shieldMat);
-    this.shieldMesh.position.set(0, 0.9, 0);
+    this.shieldMesh.position.set(0, 0.85, 0);
     this.shieldMesh.visible = false;
+
+    // Protective energy ground ring at board level
+    const shieldRingGeom = new THREE.RingGeometry(0.75, 0.88, 32);
+    shieldRingGeom.rotateX(-Math.PI / 2);
+    const shieldRingMat = new THREE.MeshBasicMaterial({
+      color: 0x00ffaa,
+      transparent: true,
+      opacity: 0.5,
+      side: THREE.DoubleSide,
+      depthWrite: false,
+      blending: THREE.AdditiveBlending,
+    });
+    const shieldRing = new THREE.Mesh(shieldRingGeom, shieldRingMat);
+    shieldRing.position.set(0, -0.78, 0);
+    this.shieldMesh.add(shieldRing);
+
     this.group.add(this.shieldMesh);
 
     // 5. High-Voltage Laser Trail Ribbon
@@ -845,18 +907,27 @@ export class PlayerManager {
       nearestObstacleDist: nearestObsDist,
     });
 
-    // Unified lean angle so character feet and board lean together without clipping
-    const unifiedCarveTilt = -this.carveAngle * 1.1;
+    // Continuous Carve Roll & Unified Bank Tilt (Syncing surfboard and character roll)
+    const carveFreq = 2.0 + speedFactor * 0.8;
+    const carvePhase = time * carveFreq;
+    const isSpecialAction = this.isSliding || this.isGrinding || !this.isGrounded;
+    const carveBlend = isSpecialAction ? 0.20 : 1.0;
+
+    const continuousCarveRoll = Math.sin(carvePhase) * 0.065 * carveBlend;
+    const laneCarveTilt = -this.carveAngle * 1.1;
+    const unifiedCarveTilt = continuousCarveRoll + laneCarveTilt;
+
     this.boardMesh.rotation.z = unifiedCarveTilt;
-    this.boardMesh.rotation.x = this.pitchAngle + (this.activeTrick === 'flip' ? this.flipAngle : 0);
+    this.boardMesh.rotation.x = this.pitchAngle + Math.sin(carvePhase * 2.0) * 0.015 * carveBlend + (this.activeTrick === 'flip' ? this.flipAngle : 0);
     this.boardMesh.rotation.y = this.spinAngle;
 
-    // 4 Skateboard Wheels Velocity-Based Roll
-    if (this.playerCharacter.wheels && this.playerCharacter.wheels.length > 0) {
-      const wheelSpin = this.velocity.z * effectiveDt * 14.0;
-      for (const w of this.playerCharacter.wheels) {
-        w.rotation.x += wheelSpin;
+    // Animate Holo-Shield Shell
+    if (this.shieldMesh && this.shieldMesh.visible) {
+      const shieldMat = this.shieldMesh.material as THREE.ShaderMaterial;
+      if (shieldMat.uniforms && shieldMat.uniforms.uTime) {
+        shieldMat.uniforms.uTime.value = time;
       }
+      this.shieldMesh.rotation.y = time * 0.4;
     }
 
     // Underglow & Foot Lights Dynamic Intensities
@@ -1108,6 +1179,14 @@ export class PlayerManager {
   dispose() {
     this.scene.remove(this.group);
     this.scene.remove(this.trailMesh);
+    if (this.shieldMesh) {
+      this.shieldMesh.geometry.dispose();
+      if (Array.isArray(this.shieldMesh.material)) {
+        this.shieldMesh.material.forEach(m => m.dispose());
+      } else {
+        this.shieldMesh.material.dispose();
+      }
+    }
     this.dustParticles.forEach(p => this.scene.remove(p.mesh));
     this.petalParticles.forEach(p => this.scene.remove(p.mesh));
     this.trailGeometry.dispose();

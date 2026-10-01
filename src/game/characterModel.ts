@@ -38,28 +38,25 @@ export function createPlayerCharacter(heroId?: HeroId): PlayerCharacter {
 
   // Materials
   const carbonDeckMat = new THREE.MeshStandardMaterial({
-    color: 0x0a0f18, // Matte carbon composite (non-glaring, non-overexposed)
-    roughness: 0.55,
-    metalness: 0.35,
+    color: 0x090f18, // High-gloss/matte dark carbon composite
+    roughness: 0.30,
+    metalness: 0.65,
   });
 
-  const truckMat = new THREE.MeshStandardMaterial({
-    color: 0x1c2333, // Dark titanium alloy skateboard trucks
-    roughness: 0.35,
-    metalness: 0.8,
+  const tractionMat = new THREE.MeshStandardMaterial({
+    color: 0x05080e, // Textured high-traction stomp pad
+    roughness: 0.94,
+    metalness: 0.05,
   });
 
-  const axleMat = new THREE.MeshStandardMaterial({
-    color: 0x8899aa, // Polished steel axle
-    roughness: 0.25,
-    metalness: 0.9,
+  const finMat = new THREE.MeshStandardMaterial({
+    color: 0x141e2e, // Deep titanium hydrodynamic fins
+    roughness: 0.30,
+    metalness: 0.85,
   });
 
-  const wheelMat = new THREE.MeshStandardMaterial({
-    color: 0x161e2c, // High-rebound dark urethane wheels
-    roughness: 0.65,
-    metalness: 0.2,
-  });
+  const stringerMat = new THREE.MeshBasicMaterial({ color: 0x00f0ff });
+  const thrusterGlowMat = new THREE.MeshBasicMaterial({ color: 0x00d2e0 });
 
   const suitMat = new THREE.MeshStandardMaterial({
     color: 0x1a2233,
@@ -93,122 +90,114 @@ export function createPlayerCharacter(heroId?: HeroId): PlayerCharacter {
     thickness: 0.5,
   });
 
-  // 1. Realistic Skateboard Group (0.92m length x 0.26m width)
+  // 1. Sleek Cyber-Surfboard Group (1.48m length x 0.38m width, rocker, fins, glowing rails & stringer)
   const boardGroup = new THREE.Group();
-  boardGroup.name = 'SkateboardGroup';
+  boardGroup.name = 'SurfboardGroup';
   boardGroup.position.set(0, 0.08, 0);
 
-  // Main board center deck (0.58m x 0.26m x 0.022m)
-  const deckGeom = new THREE.BoxGeometry(0.26, 0.022, 0.58);
-  const deckMesh = new THREE.Mesh(deckGeom, carbonDeckMat);
-  boardGroup.add(deckMesh);
+  // Center Deck (0.38m width x 0.024m thick x 0.64m length)
+  const centerDeck = new THREE.Mesh(new THREE.BoxGeometry(0.38, 0.024, 0.64), carbonDeckMat);
+  boardGroup.add(centerDeck);
 
-  // High-friction Grip Tape Top Surface
-  const gripGeom = new THREE.BoxGeometry(0.24, 0.006, 0.56);
-  const gripMat = new THREE.MeshStandardMaterial({ color: 0x070a10, roughness: 0.96, metalness: 0.05 });
-  const gripMesh = new THREE.Mesh(gripGeom, gripMat);
-  gripMesh.position.set(0, 0.012, 0);
-  boardGroup.add(gripMesh);
+  // Nose Section (tapers 0.38m -> 0.14m, with +0.035m upward nose rocker)
+  const noseDeck = new THREE.Mesh(new THREE.BoxGeometry(0.34, 0.022, 0.44), carbonDeckMat);
+  noseDeck.position.set(0, 0.014, 0.46);
+  noseDeck.rotation.x = -0.06;
+  boardGroup.add(noseDeck);
 
-  // Tapered Upturned Nose Kicktail (0.24m x 0.022m x 0.17m, angled ~18 deg)
-  const noseKickGeom = new THREE.BoxGeometry(0.24, 0.022, 0.17);
-  const noseKick = new THREE.Mesh(noseKickGeom, carbonDeckMat);
-  noseKick.position.set(0, 0.026, 0.36);
-  noseKick.rotation.x = -0.30; // Upward nose kick angle
-  boardGroup.add(noseKick);
+  const noseTip = new THREE.Mesh(new THREE.CylinderGeometry(0.06, 0.16, 0.020, 12), carbonDeckMat);
+  noseTip.position.set(0, 0.028, 0.69);
+  noseTip.rotation.x = -0.06;
+  boardGroup.add(noseTip);
 
-  const noseGrip = new THREE.Mesh(new THREE.BoxGeometry(0.22, 0.006, 0.16), gripMat);
-  noseGrip.position.set(0, 0.012, 0);
-  noseKick.add(noseGrip);
+  // Tail Section (tapers 0.38m -> 0.22m)
+  const tailDeck = new THREE.Mesh(new THREE.BoxGeometry(0.32, 0.022, 0.42), carbonDeckMat);
+  tailDeck.position.set(0, 0.002, -0.44);
+  boardGroup.add(tailDeck);
 
-  // Tapered Upturned Tail Kicktail (0.24m x 0.022m x 0.17m, angled ~18 deg)
-  const tailKickGeom = new THREE.BoxGeometry(0.24, 0.022, 0.17);
-  const tailKick = new THREE.Mesh(tailKickGeom, carbonDeckMat);
-  tailKick.position.set(0, 0.026, -0.36);
-  tailKick.rotation.x = 0.30; // Upward tail kick angle
-  boardGroup.add(tailKick);
+  // Glowing Center Stringer Spine (Full length 1.48m)
+  const stringerGeom = new THREE.BoxGeometry(0.014, 0.028, 1.46);
+  const stringerMesh = new THREE.Mesh(stringerGeom, stringerMat);
+  stringerMesh.position.set(0, 0.005, 0.04);
+  boardGroup.add(stringerMesh);
 
-  const tailGrip = new THREE.Mesh(new THREE.BoxGeometry(0.22, 0.006, 0.16), gripMat);
-  tailGrip.position.set(0, 0.012, 0);
-  tailKick.add(tailGrip);
-
-  // Deck Side Rails with Cyber Accent Trim
-  const railGeom = new THREE.BoxGeometry(0.016, 0.020, 0.58);
+  // Perimeter Neon Edge Rails
+  const railGeom = new THREE.BoxGeometry(0.012, 0.020, 1.40);
   const leftRail = new THREE.Mesh(railGeom, neonCyanMat);
-  leftRail.position.set(-0.13, 0.002, 0);
+  leftRail.position.set(-0.185, 0.002, 0.04);
   const rightRail = new THREE.Mesh(railGeom, neonCyanMat);
-  rightRail.position.set(0.13, 0.002, 0);
+  rightRail.position.set(0.185, 0.002, 0.04);
   boardGroup.add(leftRail, rightRail);
 
-  // Skateboard Trucks (Baseplate + Hanger / Axle)
-  // Front Truck
-  const frontBaseplate = new THREE.Mesh(new THREE.BoxGeometry(0.08, 0.018, 0.07), truckMat);
-  frontBaseplate.position.set(0, -0.015, 0.24);
-  boardGroup.add(frontBaseplate);
+  // Rear Traction Stomp Pad (Rear foot anchor)
+  const rearStomp = new THREE.Mesh(new THREE.BoxGeometry(0.28, 0.006, 0.36), tractionMat);
+  rearStomp.position.set(0, 0.014, -0.32);
+  boardGroup.add(rearStomp);
 
-  const frontAxleGeom = new THREE.CylinderGeometry(0.009, 0.009, 0.22, 10);
-  frontAxleGeom.rotateZ(Math.PI / 2);
-  const frontAxle = new THREE.Mesh(frontAxleGeom, axleMat);
-  frontAxle.position.set(0, -0.035, 0.24);
-  boardGroup.add(frontAxle);
+  const rearKickTail = new THREE.Mesh(new THREE.BoxGeometry(0.26, 0.012, 0.08), tractionMat);
+  rearKickTail.position.set(0, 0.019, -0.51);
+  boardGroup.add(rearKickTail);
 
-  // Rear Truck
-  const rearBaseplate = new THREE.Mesh(new THREE.BoxGeometry(0.08, 0.018, 0.07), truckMat);
-  rearBaseplate.position.set(0, -0.015, -0.24);
-  boardGroup.add(rearBaseplate);
+  // Front Stance Pad (Front foot anchor, angled 25 deg for regular surf stance)
+  const frontPad = new THREE.Mesh(new THREE.BoxGeometry(0.24, 0.006, 0.28), tractionMat);
+  frontPad.position.set(-0.02, 0.014, 0.28);
+  frontPad.rotation.y = 0.44;
+  boardGroup.add(frontPad);
 
-  const rearAxleGeom = new THREE.CylinderGeometry(0.009, 0.009, 0.22, 10);
-  rearAxleGeom.rotateZ(Math.PI / 2);
-  const rearAxle = new THREE.Mesh(rearAxleGeom, axleMat);
-  rearAxle.position.set(0, -0.035, -0.24);
-  boardGroup.add(rearAxle);
+  // Underbody Hover Thruster Fins (Fins under the tail)
+  // Center fin
+  const centerFin = new THREE.Mesh(new THREE.BoxGeometry(0.008, 0.065, 0.13), finMat);
+  centerFin.position.set(0, -0.040, -0.46);
+  centerFin.rotation.x = 0.35;
+  boardGroup.add(centerFin);
 
-  // 4 Skateboard Wheels with Glowing Hub Rings (Rotated around Z so rotating X rolls forward along Z)
-  const wheelGeom = new THREE.CylinderGeometry(0.045, 0.045, 0.036, 16);
-  wheelGeom.rotateZ(Math.PI / 2);
+  // Left & Right Stabilizer Thruster Fins (canted outward 12 deg)
+  const leftFin = new THREE.Mesh(new THREE.BoxGeometry(0.006, 0.048, 0.10), finMat);
+  leftFin.position.set(-0.11, -0.032, -0.34);
+  leftFin.rotation.set(0.28, 0, -0.22);
+  boardGroup.add(leftFin);
 
-  const hubGeom = new THREE.RingGeometry(0.012, 0.032, 12);
-  hubGeom.rotateY(Math.PI / 2);
+  const rightFin = new THREE.Mesh(new THREE.BoxGeometry(0.006, 0.048, 0.10), finMat);
+  rightFin.position.set(0.11, -0.032, -0.34);
+  rightFin.rotation.set(0.28, 0, 0.22);
+  boardGroup.add(rightFin);
 
-  const wheels: THREE.Mesh[] = [];
+  // Dual Recessed Plasma Ion Thrusters
+  const thrusterNozzleGeom = new THREE.CylinderGeometry(0.025, 0.035, 0.07, 8);
+  thrusterNozzleGeom.rotateX(Math.PI / 2);
 
-  const createWheel = (x: number, y: number, z: number, isLeft: boolean) => {
-    const w = new THREE.Mesh(wheelGeom, wheelMat);
-    w.position.set(x, y, z);
+  const leftNozzle = new THREE.Mesh(thrusterNozzleGeom, finMat);
+  leftNozzle.position.set(-0.08, -0.018, -0.56);
+  const leftPlume = new THREE.Mesh(new THREE.CircleGeometry(0.022, 8), thrusterGlowMat);
+  leftPlume.position.set(0, 0, -0.036);
+  leftNozzle.add(leftPlume);
+  boardGroup.add(leftNozzle);
 
-    const hub = new THREE.Mesh(hubGeom, neonCyanMat);
-    hub.position.set(isLeft ? -0.019 : 0.019, 0, 0);
-    if (!isLeft) hub.rotation.y = Math.PI;
-    w.add(hub);
-
-    boardGroup.add(w);
-    wheels.push(w);
-    return w;
-  };
-
-  createWheel(-0.125, -0.035, 0.24, true);   // Front-Left
-  createWheel(0.125, -0.035, 0.24, false);   // Front-Right
-  createWheel(-0.125, -0.035, -0.24, true);  // Rear-Left
-  createWheel(0.125, -0.035, -0.24, false);  // Rear-Right
+  const rightNozzle = new THREE.Mesh(thrusterNozzleGeom, finMat);
+  rightNozzle.position.set(0.08, -0.018, -0.56);
+  const rightPlume = new THREE.Mesh(new THREE.CircleGeometry(0.022, 8), thrusterGlowMat);
+  rightPlume.position.set(0, 0, -0.036);
+  rightNozzle.add(rightPlume);
+  boardGroup.add(rightNozzle);
 
   // Foot Lights (Placed at front and rear foot sole anchors)
   const footLightLeft = new THREE.PointLight(0x00d2e0, 0.9, 2.0);
-  footLightLeft.position.set(-0.06, 0.06, 0.18);
+  footLightLeft.position.set(-0.05, 0.06, 0.28);
   boardGroup.add(footLightLeft);
 
   const footLightRight = new THREE.PointLight(0x00d2e0, 0.9, 2.0);
-  footLightRight.position.set(0.06, 0.06, -0.18);
+  footLightRight.position.set(0.05, 0.06, -0.28);
   boardGroup.add(footLightRight);
 
   // Forward-facing LED Headlight illuminating track ahead
-  const forwardSpotLight = new THREE.SpotLight(0x00d2e0, 2.0, 24, Math.PI / 6, 0.35, 1.1);
-  forwardSpotLight.position.set(0, 0.05, 0.40);
+  const forwardSpotLight = new THREE.SpotLight(0x00d2e0, 2.0, 26, Math.PI / 6, 0.35, 1.1);
+  forwardSpotLight.position.set(0, 0.05, 0.65);
   forwardSpotLight.target.position.set(0, -0.2, 10.0);
   boardGroup.add(forwardSpotLight);
   boardGroup.add(forwardSpotLight.target);
 
-  // Underglow Ground Contact Aura & Soft Shadow beneath skateboard
-  const underglowGeom = new THREE.PlaneGeometry(0.38, 1.05);
+  // Underglow Ground Contact Aura & Soft Shadow beneath surfboard
+  const underglowGeom = new THREE.PlaneGeometry(0.48, 1.55);
   const underglowMat = new THREE.MeshBasicMaterial({
     color: 0x00d2e0,
     transparent: true,
@@ -217,7 +206,7 @@ export function createPlayerCharacter(heroId?: HeroId): PlayerCharacter {
   });
   const underglowMesh = new THREE.Mesh(underglowGeom, underglowMat);
   underglowMesh.rotation.x = Math.PI / 2;
-  underglowMesh.position.set(0, -0.075, 0);
+  underglowMesh.position.set(0, -0.075, 0.04);
   boardGroup.add(underglowMesh);
 
   // Soft Ground Contact Shadow Blob
@@ -227,12 +216,12 @@ export function createPlayerCharacter(heroId?: HeroId): PlayerCharacter {
     opacity: 0.55,
     side: THREE.DoubleSide,
   });
-  const shadowBlob = new THREE.Mesh(new THREE.PlaneGeometry(0.40, 1.08), shadowBlobMat);
+  const shadowBlob = new THREE.Mesh(new THREE.PlaneGeometry(0.50, 1.58), shadowBlobMat);
   shadowBlob.rotation.x = Math.PI / 2;
-  shadowBlob.position.set(0, -0.078, 0);
+  shadowBlob.position.set(0, -0.078, 0.04);
   boardGroup.add(shadowBlob);
 
-  const underglowLight = new THREE.PointLight(0x00d2e0, 1.2, 2.5);
+  const underglowLight = new THREE.PointLight(0x00d2e0, 1.2, 2.8);
   underglowLight.position.set(0, -0.06, 0);
   boardGroup.add(underglowLight);
 
@@ -359,7 +348,7 @@ export function createPlayerCharacter(heroId?: HeroId): PlayerCharacter {
     forwardSpotLight,
     footLightLeft,
     footLightRight,
-    wheels,
+    wheels: [],
     capeMesh,
     headGroup,
     spineGroup,
@@ -456,30 +445,59 @@ export function animatePlayerCharacter(
     b.rightArm.rotation.set(0, 0, 0);
     b.rightForearm.rotation.set(0, 0, 0);
 
-    // 1. Natural Athletic Forward Stance
+    // 1. Continuous Rhythmic Carving & Surfing Weight-Shift Cycle
+    // Scales with velocity for an authentic, dynamic surfing pump
+    const carveFreq = 2.0 + speedFactor * 0.8;
+    const carvePhase = time * carveFreq;
+    const isSpecialAction = isSliding || isGrinding || !state.isGrounded;
+    const carveBlend = isSpecialAction ? 0.20 : 1.0;
+
+    // Hips vertical riding bob and lateral weight shift
     const bob = Math.sin(time * 5 * speedFactor) * 0.012 * speedFactor;
     b.hips.position.y = hipsBaseY + bob;
+    b.hips.rotation.z = Math.sin(carvePhase) * 0.05 * carveBlend + turnVelocity * 0.04;
 
-    // Organic breathing & riding sway
-    b.spine.rotation.set(0.04 + Math.sin(time * 3) * 0.015, 0, -turnVelocity * 0.12);
+    // Spine whip-lag and rhythmic surfing compression
+    b.spine.rotation.set(
+      0.04 + Math.sin(carvePhase * 2.0) * 0.02 * carveBlend,
+      0,
+      Math.sin(carvePhase + 0.35) * 0.07 * carveBlend - turnVelocity * 0.12
+    );
     b.chest.rotation.set(0.02, 0, -turnVelocity * 0.04);
-    b.head.rotation.set(-0.02, -turnVelocity * 0.08, 0);
 
-    // Subtle dynamic limb sway
-    const armSway = Math.sin(time * 5 * speedFactor) * 0.04;
-    b.leftArm.rotation.set(armSway, 0, -0.04);
-    b.rightArm.rotation.set(-armSway, 0, 0.04);
+    // Head gaze: stably oriented forward down track, counter-acting body yaw stance & dampening roll
+    b.head.rotation.set(
+      -0.02,
+      -0.55 - turnVelocity * 0.08,
+      -Math.sin(carvePhase) * 0.02 * carveBlend
+    );
 
-    const legFlex = Math.sin(time * 5 * speedFactor) * 0.025;
-    b.leftThigh.rotation.set(legFlex, 0, 0);
-    b.rightThigh.rotation.set(-legFlex, 0, 0);
+    // Active Counter-Phase Arm Balance Swing (Natural Surfer balance)
+    // Left (leading) arm balances slightly forward-outward
+    const armRollL = -Math.sin(carvePhase) * 0.12 * carveBlend - 0.12 - turnVelocity * 0.05;
+    const armPitchL = 0.14 + Math.cos(carvePhase) * 0.06 * carveBlend;
+    b.leftArm.rotation.set(armPitchL, 0, armRollL);
+    b.leftForearm.rotation.set(-0.15 + Math.sin(carvePhase) * 0.04 * carveBlend, 0, 0);
+
+    // Right (trailing) arm balances outward and upward
+    const armRollR = Math.sin(carvePhase) * 0.12 * carveBlend + 0.18 + turnVelocity * 0.05;
+    const armPitchR = -0.10 - Math.cos(carvePhase) * 0.06 * carveBlend;
+    b.rightArm.rotation.set(armPitchR, 0, armRollR);
+    b.rightForearm.rotation.set(-0.20 - Math.sin(carvePhase) * 0.04 * carveBlend, 0, 0);
+
+    // Rhythmic Knee Flex & Weight Shift
+    const legShift = Math.sin(carvePhase) * 0.04 * carveBlend;
+    b.leftThigh.rotation.set(legShift, 0, 0.02);
+    b.rightThigh.rotation.set(-legShift, 0, -0.02);
+    b.leftShin.rotation.set(-legShift * 0.6, 0, 0);
+    b.rightShin.rotation.set(legShift * 0.6, 0, 0);
 
     // 2. Movement States
     if (isSliding) {
       // Clean aerodynamic crouch
       b.hips.position.y = hipsBaseY - 0.28;
       b.spine.rotation.set(0.35, 0, -turnVelocity * 0.08);
-      b.head.rotation.set(-0.25, 0, 0);
+      b.head.rotation.set(-0.25, -0.55, 0);
       b.leftThigh.rotation.set(-0.25, 0, 0);
       b.rightThigh.rotation.set(-0.25, 0, 0);
       b.leftShin.rotation.set(0.28, 0, 0);
@@ -539,7 +557,13 @@ export function animatePlayerCharacter(
 
   // B. Procedural Skater Model Animation
   if (pc.spineGroup && pc.spineGroup.visible) {
+    const carveFreq = 2.0 + speedFactor * 0.8;
+    const carvePhase = time * carveFreq;
     const idleBob = Math.sin(time * 5.0) * 0.03;
+
+    // Body in 38 deg regular surf stance
+    pc.spineGroup.rotation.y = 0.66;
+
     if (isSliding) {
       // Deep aerodynamic duck
       pc.spineGroup.position.y = 0.05 + idleBob * 0.5;
@@ -553,19 +577,20 @@ export function animatePlayerCharacter(
     } else if (isBoosting) {
       // Low forward tuck
       pc.spineGroup.position.y = 0.22 + idleBob;
-      pc.spineGroup.rotation.x = 0.4;
-      pc.spineGroup.rotation.z = -turnVelocity * 0.08;
+      pc.spineGroup.rotation.x = 0.35;
+      pc.spineGroup.rotation.z = Math.sin(carvePhase) * 0.06 - turnVelocity * 0.08;
     } else {
-      // Standard dynamic athletic carve
+      // Continuous dynamic athletic carving
       pc.spineGroup.position.y = 0.3 + idleBob;
-      pc.spineGroup.rotation.x = 0.12;
-      pc.spineGroup.rotation.z = -turnVelocity * 0.08;
+      pc.spineGroup.rotation.x = 0.10 + Math.sin(carvePhase * 2.0) * 0.02;
+      pc.spineGroup.rotation.z = Math.sin(carvePhase) * 0.07 - turnVelocity * 0.08;
     }
 
-    // Head Look-Ahead
+    // Head Look-Ahead (Stable forward gaze)
     if (pc.headGroup) {
-      pc.headGroup.rotation.y = -turnVelocity * 0.06;
+      pc.headGroup.rotation.y = -0.55 - turnVelocity * 0.06;
       pc.headGroup.rotation.x = isSliding ? -0.4 : -0.05;
+      pc.headGroup.rotation.z = -Math.sin(carvePhase) * 0.02;
     }
 
     // Arms Balance
@@ -589,11 +614,11 @@ export function animatePlayerCharacter(
         pc.rightArmGroup.rotation.z = 0.5;
       } else {
         // Natural carving arms counter-swing
-        const armSway = Math.sin(time * 6.0) * 0.15;
-        pc.leftArmGroup.rotation.x = armSway + 0.2;
-        pc.leftArmGroup.rotation.z = 0.25 - turnVelocity * 0.05;
-        pc.rightArmGroup.rotation.x = -armSway - 0.2;
-        pc.rightArmGroup.rotation.z = -0.25 - turnVelocity * 0.05;
+        const armSway = Math.sin(carvePhase) * 0.15;
+        pc.leftArmGroup.rotation.x = 0.2 + Math.cos(carvePhase) * 0.08;
+        pc.leftArmGroup.rotation.z = -0.15 - armSway - turnVelocity * 0.05;
+        pc.rightArmGroup.rotation.x = -0.15 - Math.cos(carvePhase) * 0.08;
+        pc.rightArmGroup.rotation.z = 0.25 + armSway - turnVelocity * 0.05;
       }
     }
 
