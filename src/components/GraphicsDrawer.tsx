@@ -1,5 +1,5 @@
 import React from 'react';
-import { X, Sliders, Sun, Wind, Sparkles, Monitor, RotateCcw } from 'lucide-react';
+import { X, Sliders, Sun, Wind, Sparkles, Monitor, RotateCcw, Shield } from 'lucide-react';
 import { GraphicsConfig, LightingMode, QualityPreset, ShaderParams } from '../types';
 
 interface GraphicsDrawerProps {
@@ -289,6 +289,84 @@ export const GraphicsDrawer: React.FC<GraphicsDrawerProps> = ({
                 onChange={e => onUpdateShaderParams({ speedLineIntensity: parseFloat(e.target.value) })}
                 className="w-full accent-cyan-400 cursor-pointer"
               />
+            </div>
+
+            {/* CRT Scanlines */}
+            <div className="space-y-1.5">
+              <div className="flex justify-between text-xs">
+                <span className="text-white/70">CRT Scanline Intensity</span>
+                <span className="font-mono text-sky-300">{(shaderParams.scanlineIntensity ?? 0).toFixed(2)}</span>
+              </div>
+              <input
+                type="range"
+                min="0.0"
+                max="1.0"
+                step="0.05"
+                value={shaderParams.scanlineIntensity ?? 0.0}
+                onChange={e => onUpdateShaderParams({ scanlineIntensity: parseFloat(e.target.value) })}
+                className="w-full accent-sky-400 cursor-pointer"
+              />
+            </div>
+
+            {/* Chromatic Aberration */}
+            <div className="space-y-1.5">
+              <div className="flex justify-between text-xs">
+                <span className="text-white/70">Peripheral Chromatic Aberration</span>
+                <span className="font-mono text-pink-300">{(shaderParams.chromaticAberration ?? 0.0005).toFixed(4)}</span>
+              </div>
+              <input
+                type="range"
+                min="0.0"
+                max="0.015"
+                step="0.0005"
+                value={shaderParams.chromaticAberration ?? 0.0005}
+                onChange={e => onUpdateShaderParams({ chromaticAberration: parseFloat(e.target.value) })}
+                className="w-full accent-pink-400 cursor-pointer"
+              />
+            </div>
+
+            {/* Heat Shimmer */}
+            <div className="space-y-1.5">
+              <div className="flex justify-between text-xs">
+                <span className="text-white/70">Thermal Heat Shimmer</span>
+                <span className="font-mono text-amber-300">{(shaderParams.heatShimmerIntensity ?? 0).toFixed(2)}</span>
+              </div>
+              <input
+                type="range"
+                min="0.0"
+                max="1.0"
+                step="0.05"
+                value={shaderParams.heatShimmerIntensity ?? 0.0}
+                onChange={e => onUpdateShaderParams({ heatShimmerIntensity: parseFloat(e.target.value) })}
+                className="w-full accent-amber-400 cursor-pointer"
+              />
+            </div>
+          </div>
+
+          {/* Accessibility & Visual Comfort */}
+          <div className="space-y-3 pt-2 border-t border-white/10">
+            <label className="text-xs font-semibold text-white/70 uppercase tracking-wider flex items-center space-x-1.5 font-mono">
+              <Shield className="w-4 h-4 text-emerald-400" />
+              <span>Accessibility & Motion Safety</span>
+            </label>
+            <div className="flex items-center justify-between p-3 rounded-xl bg-white/5 border border-white/10">
+              <div>
+                <div className="text-xs font-semibold text-white">Reduced Flash & Glitch</div>
+                <div className="text-[10px] text-white/50">Disables intense screen shake, CA pulses, and glitch tears</div>
+              </div>
+              <button
+                type="button"
+                onClick={() => onUpdateConfig({ reducedFlash: !config.reducedFlash })}
+                className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors ${
+                  config.reducedFlash ? 'bg-emerald-500' : 'bg-white/20'
+                }`}
+              >
+                <span
+                  className={`inline-block h-4 w-4 transform rounded-full bg-white transition-transform ${
+                    config.reducedFlash ? 'translate-x-6' : 'translate-x-1'
+                  }`}
+                />
+              </button>
             </div>
           </div>
         </div>

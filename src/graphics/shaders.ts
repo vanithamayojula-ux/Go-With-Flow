@@ -150,6 +150,7 @@ export const TerrainShader = {
     uniform vec3 uSunColor;
     uniform vec3 uAmbientColor;
     uniform vec3 uCameraPos;
+    uniform vec3 uFogColor;
     uniform float uTime;
     uniform float uSpeed; // Player speed in m/s for animated streaks and pulses
     uniform float uGridMode; // 1.0 = The Grid wireframe
@@ -157,6 +158,8 @@ export const TerrainShader = {
     uniform float uLaneWidth;
     uniform float uRailX;
     uniform float uDividerX;
+    uniform float uRimLightIntensity;
+    uniform float uCelRampHardness;
 
     varying vec3 vWorldPosition;
     varying vec3 vNormal;
@@ -249,15 +252,16 @@ export const TerrainShader = {
       vec3 finalCol = wetSurface + emissiveLines;
 
       // Subtle atmospheric rim lighting
+      float rimIntensity = uRimLightIntensity > 0.0 ? uRimLightIntensity : 0.14;
       float rim = pow(1.0 - max(dot(V, N), 0.0), 4.2);
-      finalCol += neonCyan * rim * 0.14;
+      finalCol += neonCyan * rim * rimIntensity;
 
       // 5. Depth System: Foreground is Razor-Sharp & Punchy;
-      // Distance smoothly recedes into Deep Cosmic Indigo / Purple Space Void
+      // Distance smoothly recedes into Per-Biome / Cosmic Space Fog
       float dist = length(uCameraPos - vWorldPosition);
       float fogFactor = smoothstep(75.0, 320.0, dist);
-      vec3 cosmicVoidFog = vec3(0.004, 0.007, 0.022); // Deep Galaxy Indigo
-      finalCol = mix(finalCol, cosmicVoidFog, clamp(fogFactor, 0.0, 0.96));
+      vec3 finalFog = length(uFogColor) > 0.001 ? uFogColor : vec3(0.004, 0.007, 0.022);
+      finalCol = mix(finalCol, finalFog, clamp(fogFactor, 0.0, 0.96));
 
       gl_FragColor = vec4(finalCol, 1.0);
     }
@@ -393,6 +397,17 @@ export const PostProcessShader = {
 
       // 2. Crystal-Clear Scene Texture Sampling
       vec3 sceneCol = texture2D(tDiffuse, uv).rgb;
+
+      // High-speed radial motion blur (Active during boost or high km/h)
+      if (uHighSpeedBlur > 0.01) {
+        vec2 blurCenter = vec2(0.5, 0.42);
+        vec2 blurDir = (uv - blurCenter) * (uHighSpeedBlur * 0.025);
+        vec3 blurAcc = sceneCol * 0.4;
+        blurAcc += texture2D(tDiffuse, uv - blurDir * 0.5).rgb * 0.25;
+        blurAcc += texture2D(tDiffuse, uv - blurDir * 1.0).rgb * 0.20;
+        blurAcc += texture2D(tDiffuse, uv - blurDir * 1.5).rgb * 0.15;
+        sceneCol = blurAcc;
+      }
 
       // 3. Peripheral-Only Chromatic Aberration (Masked out near rider, zero center fringing)
       float effCA = uChromaticAberration + uWarpIntensity * 0.008;

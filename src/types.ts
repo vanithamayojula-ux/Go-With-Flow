@@ -67,6 +67,8 @@ export interface SessionGoal {
   target: number;
   current: number;
   completed: boolean;
+  claimed?: boolean;
+  rewardShards: number;
   reward: string;
 }
 
@@ -99,6 +101,7 @@ export interface GraphicsConfig {
   enablePostProcess: boolean;
   enableShadows: boolean;
   lodDistance: number;
+  reducedFlash?: boolean;
 }
 
 export type LaneIndex = -1 | 0 | 1;

@@ -15,6 +15,7 @@ import {
   LightingMode,
   PlayerStats,
   PlayerUpgrades,
+  SessionGoal,
   ShaderParams,
   TrickType,
 } from './types';
@@ -40,6 +41,7 @@ const DEFAULT_GRAPHICS_CONFIG: GraphicsConfig = {
   enablePostProcess: true,
   enableShadows: true,
   lodDistance: 180,
+  reducedFlash: false,
 };
 
 const DEFAULT_SHADER_PARAMS: ShaderParams = {
@@ -57,6 +59,42 @@ const DEFAULT_SHADER_PARAMS: ShaderParams = {
   scanlineIntensity: 0.0, // Pure 4K display fidelity
   glitchIntensity: 0.0,
 };
+
+const DEFAULT_MISSIONS: SessionGoal[] = [
+  {
+    id: 'near_miss_5',
+    title: 'Near-Miss Phantom',
+    desc: 'Perform 5 near-misses with cyber obstacles',
+    target: 5,
+    current: 0,
+    completed: false,
+    claimed: false,
+    rewardShards: 50,
+    reward: '50 Shards',
+  },
+  {
+    id: 'score_10k',
+    title: 'Score Synchronizer',
+    desc: 'Reach 10,000 score in a single cyber run',
+    target: 10000,
+    current: 0,
+    completed: false,
+    claimed: false,
+    rewardShards: 100,
+    reward: '100 Shards',
+  },
+  {
+    id: 'distance_2k',
+    title: 'Sector Drifter',
+    desc: 'Travel 2,000m on the neon highway',
+    target: 2000,
+    current: 0,
+    completed: false,
+    claimed: false,
+    rewardShards: 150,
+    reward: '150 Shards',
+  },
+];
 
 export default function App() {
   const [graphicsConfig, setGraphicsConfig] = useState<GraphicsConfig>(DEFAULT_GRAPHICS_CONFIG);
@@ -84,6 +122,22 @@ export default function App() {
       return saved ? parseInt(saved, 10) || 0 : 0;
     } catch {
       return 0;
+    }
+  });
+
+  const [missions, setMissions] = useState<SessionGoal[]>(() => {
+    try {
+      const saved = localStorage.getItem('skyflow_missions');
+      if (saved) {
+        const parsed = JSON.parse(saved);
+        return DEFAULT_MISSIONS.map(def => {
+          const match = parsed.find((p: any) => p.id === def.id);
+          return match ? { ...def, ...match } : def;
+        });
+      }
+      return DEFAULT_MISSIONS;
+    } catch {
+      return DEFAULT_MISSIONS;
     }
   });
 
@@ -176,6 +230,26 @@ export default function App() {
   const audioManagerRef = useRef<AudioManager | null>(null);
   const notifTimeoutRef = useRef<number | null>(null);
 
+  const handleClaimMission = useCallback((missionId: string) => {
+    setMissions(prev => {
+      const updated = prev.map(m => {
+        if (m.id === missionId && m.completed && !m.claimed) {
+          const newBanked = bankedShards + m.rewardShards;
+          setBankedShards(newBanked);
+          try {
+            localStorage.setItem('skyflow_banked_shards', String(newBanked));
+          } catch {}
+          return { ...m, claimed: true };
+        }
+        return m;
+      });
+      try {
+        localStorage.setItem('skyflow_missions', JSON.stringify(updated));
+      } catch {}
+      return updated;
+    });
+  }, [bankedShards]);
+
   const handleStatsUpdate = useCallback((newStats: PlayerStats, currentFps: number, calls: number, instances: number) => {
     if (newStats.score > highScore) {
       setHighScore(newStats.score);
@@ -188,6 +262,33 @@ export default function App() {
     setFps(currentFps);
     setDrawCalls(calls);
     setInstanceCount(instances);
+
+    setMissions(prev => {
+      let changed = false;
+      const updated = prev.map(m => {
+        let newCurrent = m.current;
+        if (m.id === 'near_miss_5') {
+          newCurrent = Math.max(m.current, newStats.nearMissCount || 0);
+        } else if (m.id === 'score_10k') {
+          newCurrent = Math.max(m.current, newStats.score || 0);
+        } else if (m.id === 'distance_2k') {
+          newCurrent = Math.max(m.current, newStats.distance || 0);
+        }
+        const completed = newCurrent >= m.target;
+        if (newCurrent !== m.current || completed !== m.completed) {
+          changed = true;
+          return { ...m, current: newCurrent, completed };
+        }
+        return m;
+      });
+      if (changed) {
+        try {
+          localStorage.setItem('skyflow_missions', JSON.stringify(updated));
+        } catch {}
+        return updated;
+      }
+      return prev;
+    });
   }, [highScore]);
 
   const triggerNotification = useCallback((msg: string) => {
@@ -496,6 +597,8 @@ export default function App() {
           isMuted={isMuted}
           onToggleMute={handleToggleMute}
           stats={stats}
+          missions={missions}
+          onClaimMission={handleClaimMission}
         />
       )}
 
@@ -504,6 +607,8 @@ export default function App() {
         <GameOverModal
           stats={stats}
           bankedShards={bankedShards}
+          missions={missions}
+          onClaimMission={handleClaimMission}
           onRestart={() => {
             setIsGameOver(false);
             setRestartCount(c => c + 1);

@@ -543,7 +543,7 @@ export const GameCanvas: React.FC<GameCanvasProps> = ({
           screenShakeTimer = 0.16;
           screenShakeIntensity = 0.22;
           playerMgr.emitNearMissSparks(collision.nearMissPos || playerMgr.position);
-          audio.playTrickSound('Near Miss', 2);
+          audio.playNearMissSound();
           onNotification('⚡ NEAR MISS! +300 Style Bonus');
           if (typeof navigator !== 'undefined' && navigator.vibrate) {
             try { navigator.vibrate(18); } catch {}
@@ -779,6 +779,12 @@ export const GameCanvas: React.FC<GameCanvasProps> = ({
         if (playerMgr.gameState === 'game-over') {
           glitchIntensity = 0.85;
           chromaticAberration = 0.008;
+        }
+
+        if (graphicsConfig.reducedFlash) {
+          glitchIntensity = 0;
+          chromaticAberration = 0;
+          screenShakeTimer = 0;
         }
 
         if (postMaterial.uniforms.uTime) postMaterial.uniforms.uTime.value = timeSeconds;

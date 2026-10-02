@@ -310,6 +310,9 @@ export class TerrainManager {
         uLaneWidth: { value: LANE_WIDTH },
         uRailX: { value: RAIL_X },
         uDividerX: { value: DIVIDER_X },
+        uFogColor: { value: new THREE.Color('#00040e') },
+        uRimLightIntensity: { value: 0.14 },
+        uCelRampHardness: { value: 0.2 },
       },
     });
   }

@@ -482,6 +482,29 @@ export class PlayerManager {
     this.updateTrailColors();
   }
 
+  updateTrailColors() {
+    if (!this.trailMaterial || !this.trailMaterial.uniforms) return;
+    const config = this.currentCosmetics;
+    const trailColors: Record<string, { a: string; b: string }> = {
+      'electric-cyan': { a: '#00D2E0', b: '#0066FF' },
+      'hot-magenta': { a: '#FF007F', b: '#FF0033' },
+      'acid-green': { a: '#00FF66', b: '#39FF14' },
+      'plasma-rainbow': { a: '#FF00AA', b: '#00F0FF' },
+    };
+    const hero = heroById(config.heroId);
+    let colorA = '#00D2E0';
+    let colorB = '#E00070';
+    if (config.trailId && trailColors[config.trailId]) {
+      colorA = trailColors[config.trailId].a;
+      colorB = trailColors[config.trailId].b;
+    } else if (hero) {
+      colorA = `#${hero.trail.toString(16).padStart(6, '0')}`;
+      colorB = `#${hero.color.toString(16).padStart(6, '0')}`;
+    }
+    this.trailMaterial.uniforms.uColorA.value.set(colorA);
+    this.trailMaterial.uniforms.uColorB.value.set(colorB);
+  }
+
   setUpright(upright: boolean) {
     this.isUpright = upright;
   }
@@ -1131,21 +1154,6 @@ export class PlayerManager {
     posAttr.needsUpdate = true;
     uvAttr.needsUpdate = true;
     progAttr.needsUpdate = true;
-  }
-
-  private updateTrailColors() {
-    const custom = this.currentCosmetics.trailId;
-
-    if (custom === 'hot-magenta') {
-      this.trailMaterial.uniforms.uColorA.value.set('#00D2E0');
-      this.trailMaterial.uniforms.uColorB.value.set('#E00070');
-    } else if (custom === 'acid-green') {
-      this.trailMaterial.uniforms.uColorA.value.set('#00E5FF');
-      this.trailMaterial.uniforms.uColorB.value.set('#00B0FF');
-    } else {
-      this.trailMaterial.uniforms.uColorA.value.set('#00D2E0'); // Primary Balanced Cyan for Player
-      this.trailMaterial.uniforms.uColorB.value.set('#007A99');
-    }
   }
 
   private emitJumpDust(pos: THREE.Vector3, count = 4) {

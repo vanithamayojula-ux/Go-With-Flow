@@ -1,10 +1,12 @@
 import React from 'react';
 import { RotateCcw, Zap, Trophy, Cpu, ShieldAlert, Radio, ShoppingBag, Coins } from 'lucide-react';
-import { PlayerStats } from '../types';
+import { PlayerStats, SessionGoal } from '../types';
 
 interface GameOverModalProps {
   stats: PlayerStats;
   bankedShards?: number;
+  missions?: SessionGoal[];
+  onClaimMission?: (id: string) => void;
   onRestart: () => void;
   onRevive: () => void;
   onOpenShop?: () => void;
@@ -13,6 +15,8 @@ interface GameOverModalProps {
 export const GameOverModal: React.FC<GameOverModalProps> = ({
   stats,
   bankedShards = 0,
+  missions = [],
+  onClaimMission,
   onRestart,
   onRevive,
   onOpenShop,
@@ -24,7 +28,7 @@ export const GameOverModal: React.FC<GameOverModalProps> = ({
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/85 backdrop-blur-xl animate-fade-in font-mono">
-      <div className="relative w-full max-w-md p-6 sm:p-8 bg-black/95 border-2 border-cyan-500/50 rounded-2xl shadow-[0_0_50px_rgba(0,240,255,0.25)] text-center overflow-hidden">
+      <div className="relative w-full max-w-md p-6 sm:p-8 bg-black/95 border-2 border-cyan-500/50 rounded-2xl shadow-[0_0_50px_rgba(0,240,255,0.25)] text-center overflow-hidden max-h-[90vh] overflow-y-auto">
         {/* Neon Glow Accents */}
         <div className="absolute -top-20 -right-20 w-44 h-44 rounded-full bg-pink-500/20 blur-3xl pointer-events-none" />
         <div className="absolute -bottom-20 -left-20 w-44 h-44 rounded-full bg-cyan-500/20 blur-3xl pointer-events-none" />
@@ -85,8 +89,55 @@ export const GameOverModal: React.FC<GameOverModalProps> = ({
           </div>
         </div>
 
+        {/* Daily Missions Panel */}
+        {missions.length > 0 && (
+          <div className="mb-3 text-left bg-slate-950/90 border border-cyan-500/20 rounded-xl p-3 space-y-2">
+            <div className="text-[10px] font-bold uppercase tracking-wider text-cyan-400 flex items-center justify-between">
+              <span className="flex items-center space-x-1.5">
+                <Trophy className="w-3.5 h-3.5 text-amber-400" />
+                <span>DAILY PROTOCOL MISSIONS</span>
+              </span>
+              <span className="text-white/40">RESET 00:00 UTC</span>
+            </div>
+            <div className="space-y-2">
+              {missions.map((m) => {
+                const pct = Math.min(100, Math.round((m.current / m.target) * 100));
+                return (
+                  <div key={m.id} className="p-2 rounded-lg bg-white/5 border border-white/5 flex items-center justify-between">
+                    <div className="flex-1 pr-2">
+                      <div className="text-xs font-bold text-white/90">{m.title}</div>
+                      <div className="text-[10px] text-white/50">{m.desc}</div>
+                      <div className="w-full bg-black/60 rounded-full h-1.5 mt-1.5 overflow-hidden">
+                        <div
+                          className={`h-full transition-all duration-300 ${m.completed ? 'bg-emerald-400' : 'bg-cyan-400'}`}
+                          style={{ width: `${pct}%` }}
+                        />
+                      </div>
+                    </div>
+                    <div className="flex flex-col items-end">
+                      <span className="text-[10px] font-mono text-cyan-300">+{m.rewardShards} 💎</span>
+                      {m.claimed ? (
+                        <span className="text-[10px] text-emerald-400 font-bold mt-1">CLAIMED</span>
+                      ) : m.completed ? (
+                        <button
+                          onClick={() => onClaimMission?.(m.id)}
+                          className="mt-1 px-2 py-0.5 rounded bg-emerald-500 hover:bg-emerald-400 text-black text-[10px] font-black tracking-wider transition-all"
+                        >
+                          CLAIM
+                        </button>
+                      ) : (
+                        <span className="text-[10px] text-white/40 font-mono mt-1">{m.current}/{m.target}</span>
+                      )}
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          </div>
+        )}
+
         {/* Banked Shards Wallet Status Banner */}
-        <div className="flex items-center justify-between px-3.5 py-2 rounded-xl bg-cyan-950/40 border border-cyan-400/40 text-cyan-300 text-xs font-bold mb-5">
+        <div className="flex items-center justify-between px-3.5 py-2 rounded-xl bg-cyan-950/40 border border-cyan-400/40 text-cyan-300 text-xs font-bold mb-4">
           <div className="flex items-center space-x-2">
             <Coins className="w-4 h-4 text-cyan-300" />
             <span className="text-[11px] uppercase tracking-wider">TOTAL BANK WALLET:</span>
