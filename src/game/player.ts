@@ -20,6 +20,9 @@ import {
 import { getLaneX } from './obstacles';
 import { heroById } from './heroes';
 
+const CAM_OFFSET_UPRIGHT = new THREE.Vector3(0, 2.35, -4.8);
+const CAM_OFFSET_WIDE = new THREE.Vector3(0, 2.7, -5.6);
+
 export class PlayerManager {
   scene: THREE.Scene;
   group: THREE.Group;
@@ -179,6 +182,10 @@ export class PlayerManager {
   trailMesh!: THREE.Mesh;
   maxTrailPoints = 85;
   trailHistory: { left: THREE.Vector3; right: THREE.Vector3 }[] = [];
+  trailHistoryCount = 0;
+  private trailBoardWorld = new THREE.Vector3();
+  private trailRightDir = new THREE.Vector3();
+  private trailAxisZ = new THREE.Vector3(0, 0, 1);
 
   dustParticles: { mesh: THREE.Sprite; vel: THREE.Vector3; life: number; maxLife: number }[] = [];
   petalParticles: { mesh: THREE.Sprite; vel: THREE.Vector3; life: number; maxLife: number; rotSpeed: number }[] = [];
@@ -331,6 +338,12 @@ export class PlayerManager {
     this.trailMesh = new THREE.Mesh(this.trailGeometry, this.trailMaterial);
     this.trailMesh.frustumCulled = false;
     this.scene.add(this.trailMesh);
+
+    this.trailHistory = [];
+    for (let i = 0; i < this.maxTrailPoints; i++) {
+      this.trailHistory.push({ left: new THREE.Vector3(), right: new THREE.Vector3() });
+    }
+    this.trailHistoryCount = 0;
   }
 
   private initParticleSystems() {
@@ -606,6 +619,7 @@ export class PlayerManager {
     this.stats.dataShardsCollected = 0;
     this.stats.gameState = 'playing';
     this.stats.combo = 0;
+    this.trailHistoryCount = 0;
     this.group.position.copy(this.position);
   }
 
@@ -876,8 +890,7 @@ export class PlayerManager {
     }
 
     // Rotations & Locked Relative Board Positioning
-    const groundNormal = getTerrainNormal(this.position.x, this.position.z);
-    this.targetNormal.copy(groundNormal);
+    getTerrainNormal(this.position.x, this.position.z, this.targetNormal);
     this.normal.lerp(this.targetNormal, 14 * effectiveDt);
 
     this.group.position.copy(this.position);
@@ -996,7 +1009,13 @@ export class PlayerManager {
     this.stats.currentLane = this.currentLane;
     this.stats.isSliding = this.isSliding;
     this.stats.slideTimer = this.slideTimer;
-    this.stats.activePowerUps = { ...this.activePowerUps };
+    this.stats.activePowerUps.magnetTimer = this.activePowerUps.magnetTimer;
+    this.stats.activePowerUps.magnetMaxDuration = this.activePowerUps.magnetMaxDuration;
+    this.stats.activePowerUps.jetpackTimer = this.activePowerUps.jetpackTimer;
+    this.stats.activePowerUps.jetpackMaxDuration = this.activePowerUps.jetpackMaxDuration;
+    this.stats.activePowerUps.hoverboardShield = this.activePowerUps.hoverboardShield;
+    this.stats.activePowerUps.multiplierTimer = this.activePowerUps.multiplierTimer;
+    this.stats.activePowerUps.multiplierMaxDuration = this.activePowerUps.multiplierMaxDuration;
     this.stats.scoreMultiplier = this.scoreMultiplier;
     this.stats.gameState = this.gameState;
 
@@ -1006,7 +1025,7 @@ export class PlayerManager {
     // Camera follow (Immersive low-angle chase perspective matching reference images)
     // Low eye-level vantage shows wet mirror reflections stretching out in the foreground
     // and soaring skyscraper heights reaching up into the night sky
-    const camOffset = this.isUpright ? new THREE.Vector3(0, 2.35, -4.8) : new THREE.Vector3(0, 2.7, -5.6);
+    const camOffset = this.isUpright ? CAM_OFFSET_UPRIGHT : CAM_OFFSET_WIDE;
     this.cameraPos.set(
       this.position.x * 0.58,
       this.position.y + camOffset.y,
@@ -1020,30 +1039,43 @@ export class PlayerManager {
   }
 
   private updateTrailRibbon(effectiveDt: number) {
-    const boardWorld = new THREE.Vector3();
-    this.boardMesh.getWorldPosition(boardWorld);
+    this.boardMesh.getWorldPosition(this.trailBoardWorld);
 
-    const ribbonWidth = 0.6;
-    const rightDir = new THREE.Vector3(1, 0, 0)
-      .applyAxisAngle(new THREE.Vector3(0, 0, 1), -this.carveAngle)
-      .multiplyScalar(ribbonWidth * 0.5);
+    const ribbonHalfWidth = 0.3;
+    this.trailRightDir.set(1, 0, 0)
+      .applyAxisAngle(this.trailAxisZ, -this.carveAngle)
+      .multiplyScalar(ribbonHalfWidth);
 
-    const ptLeft = boardWorld.clone().sub(rightDir).add(new THREE.Vector3(0, -0.05, -0.8));
-    const ptRight = boardWorld.clone().add(rightDir).add(new THREE.Vector3(0, -0.05, -0.8));
+    // Shift preallocated history ring buffer back by 1 step
+    if (this.trailHistoryCount < this.maxTrailPoints) {
+      this.trailHistoryCount++;
+    }
+    for (let i = this.trailHistoryCount - 1; i > 0; i--) {
+      this.trailHistory[i].left.copy(this.trailHistory[i - 1].left);
+      this.trailHistory[i].right.copy(this.trailHistory[i - 1].right);
+    }
 
-    this.trailHistory.unshift({ left: ptLeft, right: ptRight });
-    if (this.trailHistory.length > this.maxTrailPoints) {
-      this.trailHistory.pop();
+    if (this.trailHistory.length > 0) {
+      this.trailHistory[0].left.set(
+        this.trailBoardWorld.x - this.trailRightDir.x,
+        this.trailBoardWorld.y - this.trailRightDir.y - 0.05,
+        this.trailBoardWorld.z - this.trailRightDir.z - 0.8
+      );
+      this.trailHistory[0].right.set(
+        this.trailBoardWorld.x + this.trailRightDir.x,
+        this.trailBoardWorld.y + this.trailRightDir.y - 0.05,
+        this.trailBoardWorld.z + this.trailRightDir.z - 0.8
+      );
     }
 
     const posAttr = this.trailGeometry.attributes.position as THREE.BufferAttribute;
     const uvAttr = this.trailGeometry.attributes.uv as THREE.BufferAttribute;
     const progAttr = this.trailGeometry.attributes.aProgress as THREE.BufferAttribute;
 
-    const count = this.trailHistory.length;
+    const count = this.trailHistoryCount || 1;
     for (let i = 0; i < this.maxTrailPoints; i++) {
       const idx = Math.min(i, count - 1);
-      const pair = this.trailHistory[idx] || { left: boardWorld, right: boardWorld };
+      const pair = this.trailHistory[idx] || this.trailHistory[0];
       const progress = 1.0 - i / this.maxTrailPoints;
 
       posAttr.setXYZ(i * 2, pair.left.x, pair.left.y, pair.left.z);

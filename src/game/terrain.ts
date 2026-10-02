@@ -99,15 +99,16 @@ export function getTerrainHeight(x: number, z: number): number {
   return Math.sin(z * 0.015) * 2.5;
 }
 
-export function getTerrainNormal(x: number, z: number): THREE.Vector3 {
+const _terrainNormalScratch = new THREE.Vector3();
+
+export function getTerrainNormal(x: number, z: number, target = _terrainNormalScratch): THREE.Vector3 {
   const eps = 0.5;
   const hL = getTerrainHeight(x - eps, z);
   const hR = getTerrainHeight(x + eps, z);
   const hD = getTerrainHeight(x, z - eps);
   const hU = getTerrainHeight(x, z + eps);
 
-  const normal = new THREE.Vector3(hL - hR, 2.0 * eps, hD - hU).normalize();
-  return normal;
+  return target.set(hL - hR, 2.0 * eps, hD - hU).normalize();
 }
 
 export interface UpdraftGeyser {
@@ -675,11 +676,34 @@ export class TerrainManager {
     return group;
   }
 
+  private isSharedGeometry(geom: THREE.BufferGeometry): boolean {
+    return (
+      geom === this.curbRailGeom ||
+      geom === this.pillarGeom ||
+      geom === this.pillarCrownGeom ||
+      geom === this.frameSpanGeom ||
+      geom === this.framePostGeom
+    );
+  }
+
+  private disposeChunk(chunk: CyberChunk) {
+    this.scene.remove(chunk.mesh);
+    chunk.mesh.geometry.dispose();
+
+    chunk.decorations.forEach(obj => {
+      this.scene.remove(obj);
+      obj.traverse(child => {
+        const mesh = child as THREE.Mesh;
+        if (mesh.isMesh && mesh.geometry && !this.isSharedGeometry(mesh.geometry)) {
+          mesh.geometry.dispose();
+        }
+      });
+    });
+  }
+
   rebuildAroundPlayer(playerZ: number, playerX: number, renderDistance = 3) {
     for (const chunk of this.chunks.values()) {
-      this.scene.remove(chunk.mesh);
-      chunk.mesh.geometry.dispose();
-      chunk.decorations.forEach(obj => this.scene.remove(obj));
+      this.disposeChunk(chunk);
     }
     this.chunks.clear();
     this.update(playerZ, playerX, renderDistance);
@@ -716,11 +740,7 @@ export class TerrainManager {
     // Prune distant chunks
     for (const [key, chunk] of this.chunks.entries()) {
       if (!neededKeys.has(key)) {
-        this.scene.remove(chunk.mesh);
-        chunk.mesh.geometry.dispose();
-        chunk.decorations.forEach(obj => {
-          this.scene.remove(obj);
-        });
+        this.disposeChunk(chunk);
         this.chunks.delete(key);
       }
     }
@@ -928,9 +948,7 @@ export class TerrainManager {
 
   dispose() {
     for (const chunk of this.chunks.values()) {
-      this.scene.remove(chunk.mesh);
-      chunk.mesh.geometry.dispose();
-      chunk.decorations.forEach(d => this.scene.remove(d));
+      this.disposeChunk(chunk);
     }
     this.chunks.clear();
     this.terrainMaterial.dispose();
@@ -942,14 +960,37 @@ export class TerrainManager {
     this.frameSpanGeom.dispose();
     this.framePostGeom.dispose();
 
+    this.buildingTex.dispose();
+    this.buildingMat.dispose();
+    this.rooftopMat.dispose();
+    this.spireMat.dispose();
+    this.beaconMat.dispose();
+    this.neonCyanMat.dispose();
+    this.neonMagentaMat.dispose();
+    this.neonAmberMat.dispose();
+    this.spaceObsidianMat.dispose();
+    this.glowingPillarMat.dispose();
+    this.wireframeMat.dispose();
+
+    for (const bm of this.billboardMats) {
+      bm.map?.dispose();
+      bm.dispose();
+    }
+
     // Dispose themed materials
+    this.sandstoneMat.map?.dispose();
     this.sandstoneMat.dispose();
+    this.iceCrystalMat.map?.dispose();
     this.iceCrystalMat.dispose();
+    this.jungleWoodMat.map?.dispose();
     this.jungleWoodMat.dispose();
     this.jungleCanopyMat.dispose();
+    this.volcanicMat.map?.dispose();
     this.volcanicMat.dispose();
     this.magmaVeinMat.dispose();
+    this.celestialMat.map?.dispose();
     this.celestialMat.dispose();
+    this.skyMarbleMat.map?.dispose();
     this.skyMarbleMat.dispose();
     this.beaconGoldMat.dispose();
   }

@@ -177,20 +177,6 @@ export default function App() {
   const notifTimeoutRef = useRef<number | null>(null);
 
   const handleStatsUpdate = useCallback((newStats: PlayerStats, currentFps: number, calls: number, instances: number) => {
-    // Dynamically modulate the speedLineIntensity property based on current player speed stats
-    // As speed exceeds 40, linearly interpolate from 0 to 0.8 to visualize high-velocity movement
-    const currentSpeed = newStats.speed;
-    const dynamicIntensity = currentSpeed > 40
-      ? Math.min(0.8, ((currentSpeed - 40) / 50.0) * 0.8)
-      : 0.0;
-
-    setShaderParams(prev => {
-      if (Math.abs((prev.speedLineIntensity ?? 0) - dynamicIntensity) > 0.015) {
-        return { ...prev, speedLineIntensity: dynamicIntensity };
-      }
-      return prev;
-    });
-
     if (newStats.score > highScore) {
       setHighScore(newStats.score);
       try {

@@ -258,15 +258,15 @@ export const GameCanvas: React.FC<GameCanvasProps> = ({
     if (upgrades) playerMgr.applyUpgrades(upgrades);
     playerMgr.applyCosmetics(cosmeticsConfig);
     playerMgrRef.current = playerMgr;
-    if (typeof window !== 'undefined') {
-      (window as any).__playerManager = playerMgr;
-    }
-
     const obstacleMgr = new ObstacleManager(scene);
     obstacleMgrRef.current = obstacleMgr;
 
     const themeMgr = new ThemeManager(scene);
     themeMgrRef.current = themeMgr;
+
+    if (typeof window !== 'undefined') {
+      (window as any).__playerManager = playerMgr;
+    }
 
     // Initial terrain & foliage population
     terrainMgr.update(playerMgr.position.z, playerMgr.position.x, 3);
@@ -451,6 +451,8 @@ export const GameCanvas: React.FC<GameCanvasProps> = ({
     let screenShakeTimer = 0;
     let screenShakeIntensity = 0;
     let nearMissSlowMoTimer = 0;
+    let statsUpdateTimer = 0;
+    let lastSentGameState = playerMgr.gameState;
 
     const animate = (now: number) => {
       animationFrameId = requestAnimationFrame(animate);
@@ -799,18 +801,38 @@ export const GameCanvas: React.FC<GameCanvasProps> = ({
 
         renderer.setRenderTarget(rt);
         renderer.render(scene, camera);
+        const sceneCalls = renderer.info.render.calls;
+        const sceneTriangles = renderer.info.render.triangles;
 
         renderer.setRenderTarget(null);
         renderer.render(postScene, postCamera);
+        const totalDrawCalls = sceneCalls + renderer.info.render.calls;
+        const totalTriangles = sceneTriangles + renderer.info.render.triangles;
+
+        const instances = (foliageMgr.grassMesh ? foliageMgr.grassMesh.count : 0) + (foliageMgr.treeMesh ? foliageMgr.treeMesh.count : 0);
+
+        statsUpdateTimer += rawDt;
+        const stateChanged = playerMgr.gameState !== lastSentGameState;
+        if (statsUpdateTimer >= 0.066 || stateChanged) {
+          statsUpdateTimer = 0;
+          lastSentGameState = playerMgr.gameState;
+          onStatsUpdate(playerMgr.stats, currentFps, totalDrawCalls, instances);
+        }
       } else {
         renderer.setRenderTarget(null);
         renderer.render(scene, camera);
-      }
+        const totalDrawCalls = renderer.info.render.calls;
+        const totalTriangles = renderer.info.render.triangles;
+        const instances = (foliageMgr.grassMesh ? foliageMgr.grassMesh.count : 0) + (foliageMgr.treeMesh ? foliageMgr.treeMesh.count : 0);
 
-      // Inform parent HUD of live stats
-      const drawCalls = renderer.info.render.calls;
-      const instances = (foliageMgr.grassMesh ? foliageMgr.grassMesh.count : 0) + (foliageMgr.treeMesh ? foliageMgr.treeMesh.count : 0);
-      onStatsUpdate(playerMgr.stats, currentFps, drawCalls, instances);
+        statsUpdateTimer += rawDt;
+        const stateChanged = playerMgr.gameState !== lastSentGameState;
+        if (statsUpdateTimer >= 0.066 || stateChanged) {
+          statsUpdateTimer = 0;
+          lastSentGameState = playerMgr.gameState;
+          onStatsUpdate(playerMgr.stats, currentFps, totalDrawCalls, instances);
+        }
+      }
     };
 
     animationFrameId = requestAnimationFrame(animate);

@@ -344,6 +344,7 @@ export class ObstacleManager {
 
   private lastSpawnZ = 35;
   private genState: ObstacleGeneratorState;
+  private _nearMissPosScratch = new THREE.Vector3();
 
   // Strict High-Contrast Materials
   private barrierMat = new THREE.MeshStandardMaterial({
@@ -365,12 +366,49 @@ export class ObstacleManager {
     opacity: 0.45,
     side: THREE.DoubleSide,
   });
+  private portalDiscMat = new THREE.MeshBasicMaterial({
+    color: 0x00f0ff,
+    transparent: true,
+    opacity: 0.45,
+    side: THREE.DoubleSide,
+  });
+
+  // Reusable Shared Geometries (Zero allocation on hot spawn path)
+  private solidMainGeom = new THREE.BoxGeometry(2.45, 2.2, 0.8);
+  private solidEdgeGeom = new THREE.BoxGeometry(2.52, 0.18, 0.85);
+  private solidTelegraphGeom: THREE.PlaneGeometry;
+
+  private hurdleBeamGeom = new THREE.BoxGeometry(2.45, 0.32, 0.35);
+  private hurdlePostGeom = new THREE.BoxGeometry(0.18, 0.55, 0.35);
+  private hurdleTelegraphGeom: THREE.PlaneGeometry;
+
+  private overheadPostGeom = new THREE.BoxGeometry(0.2, 3.2, 0.2);
+  private overheadBeamGeom = new THREE.BoxGeometry(2.45, 0.4, 0.2);
+  private overheadTelegraphGeom: THREE.PlaneGeometry;
+
+  private portalRingGeom = new THREE.TorusGeometry(3.6, 0.24, 12, 32);
+  private portalDiscGeom = new THREE.CircleGeometry(3.4, 32);
+
+  private coinGeom = new THREE.OctahedronGeometry(0.24);
+  private powerUpGeom = new THREE.DodecahedronGeometry(0.35);
 
   constructor(scene: THREE.Scene, seed = 1337) {
     this.scene = scene;
     this.group = new THREE.Group();
     this.group.name = 'ObstaclesRootGroup';
     this.scene.add(this.group);
+
+    const stGeom = new THREE.PlaneGeometry(2.35, 4.0);
+    stGeom.rotateX(-Math.PI / 2);
+    this.solidTelegraphGeom = stGeom;
+
+    const htGeom = new THREE.PlaneGeometry(2.35, 3.0);
+    htGeom.rotateX(-Math.PI / 2);
+    this.hurdleTelegraphGeom = htGeom;
+
+    const otGeom = new THREE.PlaneGeometry(2.35, 3.0);
+    otGeom.rotateX(-Math.PI / 2);
+    this.overheadTelegraphGeom = otGeom;
 
     this.genState = new ObstacleGeneratorState(seed);
     this.spawnInitialObstacles();
@@ -439,25 +477,21 @@ export class ObstacleManager {
     blockGroup.position.set(x, groundH, z);
 
     // Main solid cyber barrier (fits 2.6m lane)
-    const mainGeom = new THREE.BoxGeometry(2.45, 2.2, 0.8);
-    const mainMesh = new THREE.Mesh(mainGeom, this.barrierMat);
+    const mainMesh = new THREE.Mesh(this.solidMainGeom, this.barrierMat);
     mainMesh.position.set(0, 1.1, 0);
     blockGroup.add(mainMesh);
 
     // High-visibility neon magenta hazard perimeter & warning edge
-    const edgeGeom = new THREE.BoxGeometry(2.52, 0.18, 0.85);
-    const edgeMesh = new THREE.Mesh(edgeGeom, this.laserHazardMat);
+    const edgeMesh = new THREE.Mesh(this.solidEdgeGeom, this.laserHazardMat);
     edgeMesh.position.set(0, 2.15, 0);
     blockGroup.add(edgeMesh);
 
-    const edgeMesh2 = new THREE.Mesh(new THREE.BoxGeometry(2.52, 0.18, 0.85), this.laserHazardMat);
+    const edgeMesh2 = new THREE.Mesh(this.solidEdgeGeom, this.laserHazardMat);
     edgeMesh2.position.set(0, 0.15, 0);
     blockGroup.add(edgeMesh2);
 
     // Ground Warning Telegraph Strip (projected on road ahead)
-    const telegraphGeom = new THREE.PlaneGeometry(2.35, 4.0);
-    telegraphGeom.rotateX(-Math.PI / 2);
-    const telegraphMesh = new THREE.Mesh(telegraphGeom, this.telegraphMat);
+    const telegraphMesh = new THREE.Mesh(this.solidTelegraphGeom, this.telegraphMat);
     telegraphMesh.position.set(0, 0.05, -3.0);
     blockGroup.add(telegraphMesh);
 
@@ -489,22 +523,19 @@ export class ObstacleManager {
     hurdleGroup.position.set(x, groundH, z);
 
     // Low neon hurdle beam
-    const beamGeom = new THREE.BoxGeometry(2.45, 0.32, 0.35);
-    const beam = new THREE.Mesh(beamGeom, this.laserHazardMat);
+    const beam = new THREE.Mesh(this.hurdleBeamGeom, this.laserHazardMat);
     beam.position.set(0, 0.45, 0);
     hurdleGroup.add(beam);
 
     // Base anchors
-    const postL = new THREE.Mesh(new THREE.BoxGeometry(0.18, 0.55, 0.35), this.barrierMat);
+    const postL = new THREE.Mesh(this.hurdlePostGeom, this.barrierMat);
     postL.position.set(-1.18, 0.28, 0);
-    const postR = new THREE.Mesh(new THREE.BoxGeometry(0.18, 0.55, 0.35), this.barrierMat);
+    const postR = new THREE.Mesh(this.hurdlePostGeom, this.barrierMat);
     postR.position.set(1.18, 0.28, 0);
     hurdleGroup.add(postL, postR);
 
     // Warning strip
-    const telegraphGeom = new THREE.PlaneGeometry(2.35, 3.0);
-    telegraphGeom.rotateX(-Math.PI / 2);
-    const telegraphMesh = new THREE.Mesh(telegraphGeom, this.telegraphMat);
+    const telegraphMesh = new THREE.Mesh(this.hurdleTelegraphGeom, this.telegraphMat);
     telegraphMesh.position.set(0, 0.04, -2.5);
     hurdleGroup.add(telegraphMesh);
 
@@ -536,23 +567,19 @@ export class ObstacleManager {
     barrierGroup.position.set(x, groundH, z);
 
     // Tall support posts
-    const postGeom = new THREE.BoxGeometry(0.2, 3.2, 0.2);
-    const leftPost = new THREE.Mesh(postGeom, this.barrierMat);
+    const leftPost = new THREE.Mesh(this.overheadPostGeom, this.barrierMat);
     leftPost.position.set(-1.25, 1.6, 0);
-    const rightPost = new THREE.Mesh(postGeom, this.barrierMat);
+    const rightPost = new THREE.Mesh(this.overheadPostGeom, this.barrierMat);
     rightPost.position.set(1.25, 1.6, 0);
     barrierGroup.add(leftPost, rightPost);
 
     // High laser beam allowing slide clearance underneath
-    const beamGeom = new THREE.BoxGeometry(2.45, 0.4, 0.2);
-    const beamMesh = new THREE.Mesh(beamGeom, this.laserHazardMat);
+    const beamMesh = new THREE.Mesh(this.overheadBeamGeom, this.laserHazardMat);
     beamMesh.position.set(0, 1.85, 0);
     barrierGroup.add(beamMesh);
 
     // Amber warning decal underneath
-    const telegraphGeom = new THREE.PlaneGeometry(2.35, 3.0);
-    telegraphGeom.rotateX(-Math.PI / 2);
-    const telegraphMesh = new THREE.Mesh(telegraphGeom, this.warningAmberMat);
+    const telegraphMesh = new THREE.Mesh(this.overheadTelegraphGeom, this.warningAmberMat);
     telegraphMesh.position.set(0, 0.04, -2.5);
     barrierGroup.add(telegraphMesh);
 
@@ -583,19 +610,11 @@ export class ObstacleManager {
     portalGroup.position.set(0, groundH + 2.4, z);
 
     // Dimensional rift ring
-    const ringGeom = new THREE.TorusGeometry(3.6, 0.24, 12, 32);
-    const ringMesh = new THREE.Mesh(ringGeom, this.cyanNeonMat);
+    const ringMesh = new THREE.Mesh(this.portalRingGeom, this.cyanNeonMat);
     portalGroup.add(ringMesh);
 
     // Translucent membrane
-    const discGeom = new THREE.CircleGeometry(3.4, 32);
-    const discMat = new THREE.MeshBasicMaterial({
-      color: 0x00f0ff,
-      transparent: true,
-      opacity: 0.45,
-      side: THREE.DoubleSide,
-    });
-    const discMesh = new THREE.Mesh(discGeom, discMat);
+    const discMesh = new THREE.Mesh(this.portalDiscGeom, this.portalDiscMat);
     portalGroup.add(discMesh);
 
     portalGroup.frustumCulled = false;
@@ -620,7 +639,7 @@ export class ObstacleManager {
 
   private spawnCoin(x: number, yRel: number, z: number): void {
     const groundH = getTerrainHeight(x, z);
-    const coinMesh = new THREE.Mesh(new THREE.OctahedronGeometry(0.24), this.goldMat);
+    const coinMesh = new THREE.Mesh(this.coinGeom, this.goldMat);
     coinMesh.position.set(x, groundH + yRel, z);
     coinMesh.frustumCulled = false;
     this.group.add(coinMesh);
@@ -641,7 +660,7 @@ export class ObstacleManager {
     const groundH = getTerrainHeight(x, z);
     const pGroup = new THREE.Group();
     pGroup.position.set(x, groundH + 1.2, z);
-    const pCore = new THREE.Mesh(new THREE.DodecahedronGeometry(0.35), this.cyanNeonMat);
+    const pCore = new THREE.Mesh(this.powerUpGeom, this.cyanNeonMat);
     pGroup.add(pCore);
     const pGlow = new THREE.PointLight(0x00d2e0, 1.5, 4.0);
     pGroup.add(pGlow);
@@ -789,7 +808,7 @@ export class ObstacleManager {
       if (!obs.nearMissed && Math.abs(dz) < 1.6 && dx >= (obsHalfWidth + 0.20) && dx <= (obsHalfWidth + 1.25)) {
         obs.nearMissed = true;
         result.nearMiss = true;
-        result.nearMissPos = new THREE.Vector3(obs.x, obs.y, obs.z);
+        result.nearMissPos = this._nearMissPosScratch.set(obs.x, obs.y, obs.z);
       }
 
       // Physical Collision
@@ -856,5 +875,29 @@ export class ObstacleManager {
   dispose(): void {
     this.reset();
     this.scene.remove(this.group);
+
+    // Dispose shared geometries
+    this.solidMainGeom.dispose();
+    this.solidEdgeGeom.dispose();
+    this.solidTelegraphGeom.dispose();
+    this.hurdleBeamGeom.dispose();
+    this.hurdlePostGeom.dispose();
+    this.hurdleTelegraphGeom.dispose();
+    this.overheadPostGeom.dispose();
+    this.overheadBeamGeom.dispose();
+    this.overheadTelegraphGeom.dispose();
+    this.portalRingGeom.dispose();
+    this.portalDiscGeom.dispose();
+    this.coinGeom.dispose();
+    this.powerUpGeom.dispose();
+
+    // Dispose materials
+    this.barrierMat.dispose();
+    this.laserHazardMat.dispose();
+    this.warningAmberMat.dispose();
+    this.cyanNeonMat.dispose();
+    this.goldMat.dispose();
+    this.telegraphMat.dispose();
+    this.portalDiscMat.dispose();
   }
 }
