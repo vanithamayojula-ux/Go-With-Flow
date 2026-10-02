@@ -99,15 +99,24 @@ async function initLab() {
       // Raw bind pose - reset all bone quaternions to raw restQuat
       // Do not apply any animation
     } else {
+      let activeTrick: any = null;
+      let turnVelocity = 0;
+      if (pose === 'spin' || pose === 'trick_spin') activeTrick = 'spin';
+      else if (pose === 'flip' || pose === 'trick_flip') activeTrick = 'flip';
+      else if (pose === 'grab' || pose === 'trick_grab') activeTrick = 'grab';
+      else if (pose === 'pose' || pose === 'trick_pose') activeTrick = 'pose';
+      else if (pose === 'lane_left') turnVelocity = -1.0;
+      else if (pose === 'lane_right') turnVelocity = 1.0;
+
       const animState = {
-        isGrounded: pose !== 'jump',
+        isGrounded: pose !== 'jump' && !activeTrick,
         isSliding: pose === 'slide',
         isGrinding: pose === 'grind',
         isBoosting: false,
         stumbleTimer: 0,
-        activeTrickName: null,
-        activeTrick: null,
-        turnVelocity: 0,
+        activeTrickName: activeTrick,
+        activeTrick: activeTrick,
+        turnVelocity: turnVelocity,
         nearestObstacleDist: 999,
       };
       animatePlayerCharacter(pc, time, 1.0, animState);
@@ -152,15 +161,24 @@ async function initLab() {
     requestAnimationFrame(loop);
     if (pose !== 'bind') {
       curTime += 0.016;
+      let activeTrick: any = null;
+      let turnVelocity = 0;
+      if (pose === 'spin' || pose === 'trick_spin') activeTrick = 'spin';
+      else if (pose === 'flip' || pose === 'trick_flip') activeTrick = 'flip';
+      else if (pose === 'grab' || pose === 'trick_grab') activeTrick = 'grab';
+      else if (pose === 'pose' || pose === 'trick_pose') activeTrick = 'pose';
+      else if (pose === 'lane_left') turnVelocity = -1.0;
+      else if (pose === 'lane_right') turnVelocity = 1.0;
+
       const animState = {
-        isGrounded: pose !== 'jump',
+        isGrounded: pose !== 'jump' && !activeTrick,
         isSliding: pose === 'slide',
         isGrinding: pose === 'grind',
         isBoosting: false,
         stumbleTimer: 0,
-        activeTrickName: null,
-        activeTrick: null,
-        turnVelocity: 0,
+        activeTrickName: activeTrick,
+        activeTrick: activeTrick,
+        turnVelocity: turnVelocity,
         nearestObstacleDist: 999,
       };
       animatePlayerCharacter(pc, curTime, 1.0, animState);

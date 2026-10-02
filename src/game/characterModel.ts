@@ -505,10 +505,12 @@ export function animatePlayerCharacter(
       b.leftArm.rotation.set(0.18, 0, -0.15);
       b.rightArm.rotation.set(0.18, 0, 0.15);
     } else if (isGrinding) {
-      // Balanced arms along rail
-      b.leftArm.rotation.set(0, 0, 0.65);
-      b.rightArm.rotation.set(0, 0, -0.65);
-      b.spine.rotation.z = Math.sin(time * 10) * 0.06 - turnVelocity * 0.08;
+      // Balanced arms along rail (canted naturally outward for stability)
+      b.leftArm.rotation.set(0.12, 0, -0.28);
+      b.rightArm.rotation.set(-0.10, 0, 0.32);
+      b.leftForearm.rotation.set(-0.25, 0, 0);
+      b.rightForearm.rotation.set(-0.25, 0, 0);
+      b.spine.rotation.z = Math.sin(time * 10) * 0.04 - turnVelocity * 0.08;
     } else if (!state.isGrounded) {
       // Air tuck during jump
       b.hips.position.y = hipsBaseY + 0.16;
@@ -527,12 +529,15 @@ export function animatePlayerCharacter(
     } else if (activeTrick === 'flip' || state.activeTrickName?.includes('Backflip')) {
       b.hips.rotation.x = time * 18;
     } else if (activeTrick === 'grab' || state.activeTrickName?.includes('Grab')) {
-      b.leftArm.rotation.set(0.5, 0, -0.25);
-      b.spine.rotation.x = 0.30;
+      b.leftArm.rotation.set(0.35, 0, -0.20);
+      b.spine.rotation.x = 0.20;
     } else if (activeTrick === 'pose' || state.activeTrickName?.includes('Glide')) {
-      b.leftArm.rotation.z = 1.2;
-      b.rightArm.rotation.z = -1.2;
-      b.chest.rotation.x = -0.2;
+      // Graceful aerodynamic glide stance
+      b.leftArm.rotation.set(0.18, 0, -0.38);
+      b.rightArm.rotation.set(-0.12, 0, 0.42);
+      b.leftForearm.rotation.set(-0.15, 0, 0);
+      b.rightForearm.rotation.set(-0.15, 0, 0);
+      b.chest.rotation.x = -0.10;
     }
 
     // 4. Stumble / Recoil

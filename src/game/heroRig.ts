@@ -277,8 +277,8 @@ export function buildHeroRig(heroId: HeroId): HeroRig | null {
       const r = d.driver.rotation;
       e.set(r.x * AXIS.x, r.y * AXIS.y, r.z * AXIS.z, 'XYZ');
       q.setFromEuler(e);
-      // Character-frame rotation applied to bone bind pose
-      d.bone.quaternion.copy(q).multiply(d.restQuat);
+      // Character-frame rotation applied to bone bind pose (rest pose outer, delta inner)
+      d.bone.quaternion.copy(d.restQuat).multiply(q);
     }
 
     // Dynamic hips elevation relative to baseline rest pose
