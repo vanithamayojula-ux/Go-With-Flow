@@ -10,6 +10,7 @@ interface GameOverModalProps {
   onRestart: () => void;
   onRevive: () => void;
   onOpenShop?: () => void;
+  onMainMenu?: () => void;
 }
 
 export const GameOverModal: React.FC<GameOverModalProps> = ({
@@ -20,6 +21,7 @@ export const GameOverModal: React.FC<GameOverModalProps> = ({
   onRestart,
   onRevive,
   onOpenShop,
+  onMainMenu,
 }) => {
   const isNewHighScore = stats.score >= stats.highScore && stats.score > 0;
   const runShards = stats.dataShardsCollected || stats.windOrbsCollected || 0;
@@ -173,10 +175,20 @@ export const GameOverModal: React.FC<GameOverModalProps> = ({
           {onOpenShop && (
             <button
               onClick={onOpenShop}
-              className="w-full py-2.5 px-4 rounded-xl bg-slate-900/90 border border-cyan-500/40 text-cyan-300 hover:text-white hover:bg-cyan-950/50 font-bold text-xs uppercase tracking-wider transition-all flex items-center justify-center space-x-2"
+              className="w-full py-2.5 px-4 rounded-xl bg-slate-900/90 border border-cyan-500/40 text-cyan-300 hover:text-white hover:bg-cyan-950/50 font-bold text-xs uppercase tracking-wider transition-all flex items-center justify-center space-x-2 cursor-pointer"
             >
               <ShoppingBag className="w-4 h-4 text-cyan-400" />
               <span>UPGRADES & LOADOUT BAY</span>
+            </button>
+          )}
+
+          {/* Return to Main Menu */}
+          {onMainMenu && (
+            <button
+              onClick={onMainMenu}
+              className="w-full py-2.5 px-4 rounded-xl bg-white/5 border border-white/10 text-white/70 hover:text-white hover:bg-white/10 font-bold text-xs uppercase tracking-wider transition-all cursor-pointer"
+            >
+              RETURN TO OPENING MENU
             </button>
           )}
         </div>

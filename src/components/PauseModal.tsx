@@ -13,6 +13,7 @@ interface PauseModalProps {
   stats: PlayerStats;
   missions?: SessionGoal[];
   onClaimMission?: (id: string) => void;
+  onQuitToMenu?: () => void;
 }
 
 export const PauseModal: React.FC<PauseModalProps> = ({
@@ -26,6 +27,7 @@ export const PauseModal: React.FC<PauseModalProps> = ({
   stats,
   missions = [],
   onClaimMission,
+  onQuitToMenu,
 }) => {
   if (!isOpen) return null;
 
@@ -153,11 +155,21 @@ export const PauseModal: React.FC<PauseModalProps> = ({
           {/* Restart Run */}
           <button
             onClick={onRestart}
-            className="py-3 px-4 rounded-xl bg-red-950/40 border border-red-500/50 hover:border-red-400 text-red-300 hover:text-white font-bold text-xs uppercase tracking-wider transition-all flex items-center justify-center space-x-2 active:scale-95"
+            className="py-3 px-4 rounded-xl bg-red-950/40 border border-red-500/50 hover:border-red-400 text-red-300 hover:text-white font-bold text-xs uppercase tracking-wider transition-all flex items-center justify-center space-x-2 active:scale-95 cursor-pointer"
           >
             <RotateCcw className="w-4 h-4 text-red-400" />
             <span>RESTART RUN</span>
           </button>
+
+          {/* Quit to Main Menu */}
+          {onQuitToMenu && (
+            <button
+              onClick={onQuitToMenu}
+              className="py-3 px-4 rounded-xl bg-white/5 border border-white/10 text-white/70 hover:text-white hover:bg-white/10 font-bold text-xs uppercase tracking-wider transition-all flex items-center justify-center col-span-1 sm:col-span-2 cursor-pointer"
+            >
+              QUIT TO MAIN MENU
+            </button>
+          )}
         </div>
 
         {/* Quick Keybind Guide */}

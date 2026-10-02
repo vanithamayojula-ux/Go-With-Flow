@@ -8,7 +8,11 @@ import { CosmeticsModal } from './components/CosmeticsModal';
 import { VisualDatasetModal } from './components/VisualDatasetModal';
 import { GameOverModal } from './components/GameOverModal';
 import { PauseModal } from './components/PauseModal';
+import { OpeningScreen } from './components/OpeningScreen';
+import { HowToPlayModal } from './components/HowToPlayModal';
+import { SettingsModal } from './components/SettingsModal';
 import { AudioManager } from './game/audio';
+import { HEROES } from './game/heroes';
 import {
   CosmeticsConfig,
   GraphicsConfig,
@@ -161,12 +165,23 @@ export default function App() {
     }
   });
 
+  const [hasStarted, setHasStarted] = useState<boolean>(() => {
+    try {
+      const params = typeof window !== 'undefined' ? new URLSearchParams(window.location.search) : null;
+      return params?.get('autoplay') === 'true';
+    } catch {
+      return false;
+    }
+  });
   const [isCinematicCam, setIsCinematicCam] = useState(false);
   const [isMuted, setIsMuted] = useState(false);
   const [isPaused, setIsPaused] = useState(false);
   const [isGraphicsDrawerOpen, setIsGraphicsDrawerOpen] = useState(false);
   const [isDeliverablesOpen, setIsDeliverablesOpen] = useState(false);
   const [isCosmeticsOpen, setIsCosmeticsOpen] = useState(false);
+  const [cosmeticsInitialTab, setCosmeticsInitialTab] = useState<'upgrades' | 'loadout'>('upgrades');
+  const [isHowToOpen, setIsHowToOpen] = useState(false);
+  const [isSettingsOpen, setIsSettingsOpen] = useState(false);
   const [isDatasetOpen, setIsDatasetOpen] = useState(false);
   const [activeMobileTrick, setActiveMobileTrick] = useState<TrickType | null>(null);
   const [notification, setNotification] = useState<string | null>(null);
@@ -180,6 +195,15 @@ export default function App() {
   const [highScore, setHighScore] = useState<number>(() => {
     try {
       const saved = localStorage.getItem('skyflow_high_score');
+      return saved ? parseInt(saved, 10) || 0 : 0;
+    } catch {
+      return 0;
+    }
+  });
+
+  const [bestDistance, setBestDistance] = useState<number>(() => {
+    try {
+      const saved = localStorage.getItem('skyflow_best_distance');
       return saved ? parseInt(saved, 10) || 0 : 0;
     } catch {
       return 0;
@@ -255,6 +279,12 @@ export default function App() {
       setHighScore(newStats.score);
       try {
         localStorage.setItem('skyflow_high_score', String(newStats.score));
+      } catch {}
+    }
+    if (newStats.distance > bestDistance) {
+      setBestDistance(newStats.distance);
+      try {
+        localStorage.setItem('skyflow_best_distance', String(newStats.distance));
       } catch {}
     }
     newStats.highScore = Math.max(newStats.highScore, highScore, newStats.score);
@@ -443,14 +473,32 @@ export default function App() {
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
       if (e.code === 'Escape' || e.code === 'KeyP') {
-        if (!isGameOver) {
+        if (
+          hasStarted &&
+          !isGameOver &&
+          !isHowToOpen &&
+          !isSettingsOpen &&
+          !isCosmeticsOpen &&
+          !isGraphicsDrawerOpen &&
+          !isDeliverablesOpen &&
+          !isDatasetOpen
+        ) {
           setIsPaused(prev => !prev);
         }
       }
     };
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
-  }, [isGameOver]);
+  }, [
+    hasStarted,
+    isGameOver,
+    isHowToOpen,
+    isSettingsOpen,
+    isCosmeticsOpen,
+    isGraphicsDrawerOpen,
+    isDeliverablesOpen,
+    isDatasetOpen,
+  ]);
 
   // Bridge touch overlay buttons to synthetic keyboard events
   const handleControlAction = useCallback((action: 'left' | 'right' | 'jump' | 'forward' | 'drift' | 'slide' | 'shield', pressed: boolean) => {
@@ -473,69 +521,126 @@ export default function App() {
     }
   }, []);
 
+  const handleStartGame = useCallback(() => {
+    setHasStarted(true);
+    setIsGameOver(false);
+    setIsPaused(false);
+    setRestartCount((c) => c + 1);
+  }, []);
+
+  const handleQuitToMenu = useCallback(() => {
+    setIsPaused(false);
+    setIsGameOver(false);
+    setHasStarted(false);
+  }, []);
+
+  const handleOpenShop = useCallback((tab?: 'heroes' | 'boards' | 'tech') => {
+    if (tab === 'tech') {
+      setCosmeticsInitialTab('upgrades');
+    } else {
+      setCosmeticsInitialTab('loadout');
+    }
+    setIsCosmeticsOpen(true);
+  }, []);
+
   return (
     <div id="skyflow-app-container" className="relative w-screen h-screen overflow-hidden bg-slate-950">
-      {/* Main Game Stage */}
-      <div className="relative w-full h-full overflow-hidden">
-        {/* 3D WebGL Canvas */}
-        <GameCanvas
-          graphicsConfig={graphicsConfig}
-          lightingMode={lightingMode}
-          shaderParams={shaderParams}
-          cosmeticsConfig={cosmeticsConfig}
-          upgrades={playerUpgrades}
-          activeMobileTrick={activeMobileTrick}
-          onClearMobileTrick={() => setActiveMobileTrick(null)}
-          onStatsUpdate={handleStatsUpdate}
-          audioManagerRef={audioManagerRef}
-          isCinematicCam={isCinematicCam}
-          isUpright={isUprightMode}
-          isPaused={isPaused}
-          onNotification={triggerNotification}
-          onGameOver={handleGameOver}
-          restartTrigger={restartCount}
-          reviveTrigger={reviveCount}
-          shieldTrigger={shieldCount}
-        />
-
-        {/* Game HUD */}
-        <GameHUD
-          stats={stats}
+      {/* 1. Opening Screen / Landing Interface */}
+      {!hasStarted && !isGameOver && !isPaused ? (
+        <OpeningScreen
+          heroes={HEROES}
+          selectedHero={cosmeticsConfig.heroId || 'shadow'}
+          boardId={cosmeticsConfig.boardId || 'cyber-phantom'}
+          trailId={cosmeticsConfig.trailId || 'electric-cyan'}
           bankedShards={bankedShards}
-          fps={fps}
-          drawCalls={drawCalls}
-          instanceCount={instanceCount}
-          lightingMode={lightingMode}
-          onSelectLighting={setLightingMode}
+          highScore={highScore}
+          bestDistance={bestDistance}
+          upgrades={playerUpgrades}
+          unlocked={unlockedItems}
+          onSelectHero={(id) => handleUpdateCosmetics({ ...cosmeticsConfig, heroId: id })}
+          onUnlockHero={(id, cost) => {
+            const ok = handleUnlockItem(id, cost);
+            if (ok !== false) {
+              handleUpdateCosmetics({ ...cosmeticsConfig, heroId: id });
+            }
+          }}
+          onSelectBoard={(id) => handleUpdateCosmetics({ ...cosmeticsConfig, boardId: id as any })}
+          onSelectTrail={(id) => handleUpdateCosmetics({ ...cosmeticsConfig, trailId: id as any })}
+          onUpgradeTech={handleUpgrade}
+          onOpenShop={handleOpenShop}
+          onPlay={handleStartGame}
+          onHowTo={() => setIsHowToOpen(true)}
+          onSettings={() => setIsSettingsOpen(true)}
           isMuted={isMuted}
           onToggleMute={handleToggleMute}
-          isCinematicCam={isCinematicCam}
-          onToggleCam={() => setIsCinematicCam(prev => !prev)}
-          isUpright={isUprightMode}
-          onToggleUpright={() => {
-            setIsUprightMode(prev => {
-              const next = !prev;
-              triggerNotification(next ? 'Upright Portrait Cam Active' : 'Widescreen Chase Cam Active');
-              return next;
-            });
-          }}
-          onActivateShield={() => setShieldCount(c => c + 1)}
-          onOpenGraphicsDrawer={() => setIsGraphicsDrawerOpen(true)}
-          onOpenDeliverables={() => setIsDeliverablesOpen(true)}
-          onOpenCosmetics={() => setIsCosmeticsOpen(true)}
-          onOpenDatasetCapture={() => setIsDatasetOpen(true)}
-          onPause={() => setIsPaused(prev => !prev)}
-          notification={notification}
+          missions={missions}
+          onClaimMission={handleClaimMission}
+          graphicsConfig={graphicsConfig}
+          shaderParams={shaderParams}
         />
+      ) : (
+        /* 2. Active 3D Game Stage */
+        <div className="relative w-full h-full overflow-hidden">
+          {/* 3D WebGL Canvas */}
+          <GameCanvas
+            graphicsConfig={graphicsConfig}
+            lightingMode={lightingMode}
+            shaderParams={shaderParams}
+            cosmeticsConfig={cosmeticsConfig}
+            upgrades={playerUpgrades}
+            activeMobileTrick={activeMobileTrick}
+            onClearMobileTrick={() => setActiveMobileTrick(null)}
+            onStatsUpdate={handleStatsUpdate}
+            audioManagerRef={audioManagerRef}
+            isCinematicCam={isCinematicCam}
+            isUpright={isUprightMode}
+            isPaused={isPaused}
+            onNotification={triggerNotification}
+            onGameOver={handleGameOver}
+            restartTrigger={restartCount}
+            reviveTrigger={reviveCount}
+            shieldTrigger={shieldCount}
+          />
 
-        {/* On-Screen Touch & Keybind Controls */}
-        <ControlsOverlay
-          onControlAction={handleControlAction}
-          onTriggerTrick={trick => setActiveMobileTrick(trick)}
-          isAirborne={!stats.isGrounded}
-          slowMoActive={stats.slowMoActive}
-        />
-      </div>
+          {/* Game HUD */}
+          <GameHUD
+            stats={stats}
+            bankedShards={bankedShards}
+            fps={fps}
+            drawCalls={drawCalls}
+            instanceCount={instanceCount}
+            lightingMode={lightingMode}
+            onSelectLighting={setLightingMode}
+            isMuted={isMuted}
+            onToggleMute={handleToggleMute}
+            isCinematicCam={isCinematicCam}
+            onToggleCam={() => setIsCinematicCam(prev => !prev)}
+            isUpright={isUprightMode}
+            onToggleUpright={() => {
+              setIsUprightMode(prev => {
+                const next = !prev;
+                triggerNotification(next ? 'Upright Portrait Cam Active' : 'Widescreen Chase Cam Active');
+                return next;
+              });
+            }}
+            onActivateShield={() => setShieldCount(c => c + 1)}
+            onOpenGraphicsDrawer={() => setIsGraphicsDrawerOpen(true)}
+            onOpenDeliverables={() => setIsDeliverablesOpen(true)}
+            onOpenCosmetics={() => handleOpenShop('boards')}
+            onOpenDatasetCapture={() => setIsDatasetOpen(true)}
+            onPause={() => setIsPaused(prev => !prev)}
+            notification={notification}
+          />
+
+          {/* On-Screen Touch & Keybind Controls */}
+          <ControlsOverlay
+            onControlAction={handleControlAction}
+            onTriggerTrick={trick => setActiveMobileTrick(trick)}
+            isAirborne={!stats.isGrounded}
+            slowMoActive={stats.slowMoActive}
+          />
+        </div>
+      )}
 
       {/* Graphics & Shaders Settings Drawer */}
       <GraphicsDrawer
@@ -564,6 +669,25 @@ export default function App() {
         onClose={() => setIsDatasetOpen(false)}
       />
 
+      {/* Pilot Manual / How To Play Modal */}
+      <HowToPlayModal
+        isOpen={isHowToOpen}
+        onClose={() => setIsHowToOpen(false)}
+      />
+
+      {/* System Settings Modal */}
+      <SettingsModal
+        isOpen={isSettingsOpen}
+        onClose={() => setIsSettingsOpen(false)}
+        config={graphicsConfig}
+        onUpdateConfig={handleUpdateConfig}
+        shaderParams={shaderParams}
+        onUpdateShaderParams={handleUpdateShaderParams}
+        isMuted={isMuted}
+        onToggleMute={handleToggleMute}
+        onResetDefaults={handleResetDefaults}
+      />
+
       {/* Voyager Cosmetics & Equipment Modal */}
       <CosmeticsModal
         isOpen={isCosmeticsOpen}
@@ -575,6 +699,7 @@ export default function App() {
         onUpgrade={handleUpgrade}
         unlockedItems={unlockedItems}
         onUnlockItem={handleUnlockItem}
+        initialTab={cosmeticsInitialTab}
       />
 
       {/* Game Paused Modal */}
@@ -588,17 +713,18 @@ export default function App() {
           }}
           onOpenCosmetics={() => {
             setIsPaused(false);
-            setIsCosmeticsOpen(true);
+            handleOpenShop('boards');
           }}
           onOpenGraphics={() => {
             setIsPaused(false);
-            setIsGraphicsDrawerOpen(true);
+            setIsSettingsOpen(true);
           }}
           isMuted={isMuted}
           onToggleMute={handleToggleMute}
           stats={stats}
           missions={missions}
           onClaimMission={handleClaimMission}
+          onQuitToMenu={handleQuitToMenu}
         />
       )}
 
@@ -616,8 +742,9 @@ export default function App() {
           onRevive={handleRevive}
           onOpenShop={() => {
             setIsGameOver(false);
-            setIsCosmeticsOpen(true);
+            handleOpenShop('boards');
           }}
+          onMainMenu={handleQuitToMenu}
         />
       )}
     </div>

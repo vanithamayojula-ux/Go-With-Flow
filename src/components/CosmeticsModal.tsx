@@ -29,6 +29,7 @@ interface CosmeticsModalProps {
   onUpgrade?: (upgradeKey: keyof PlayerUpgrades, cost: number) => void;
   unlockedItems?: string[];
   onUnlockItem?: (itemId: string, cost: number) => boolean | void;
+  initialTab?: 'upgrades' | 'loadout';
 }
 
 export const CosmeticsModal: React.FC<CosmeticsModalProps> = ({
@@ -41,8 +42,25 @@ export const CosmeticsModal: React.FC<CosmeticsModalProps> = ({
   onUpgrade,
   unlockedItems = ['shadow', 'cyber-phantom', 'electric-cyan', 'carbon-fiber'],
   onUnlockItem,
+  initialTab = 'upgrades',
 }) => {
-  const [activeTab, setActiveTab] = useState<'upgrades' | 'loadout'>('upgrades');
+  const [activeTab, setActiveTab] = useState<'upgrades' | 'loadout'>(initialTab);
+
+  React.useEffect(() => {
+    if (isOpen && initialTab) {
+      setActiveTab(initialTab);
+    }
+  }, [isOpen, initialTab]);
+
+  React.useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') onClose();
+    };
+    if (isOpen) {
+      window.addEventListener('keydown', handleKeyDown);
+    }
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, [isOpen, onClose]);
 
   if (!isOpen) return null;
 
