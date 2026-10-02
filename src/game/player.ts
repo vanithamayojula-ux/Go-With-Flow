@@ -524,7 +524,7 @@ export class PlayerManager {
       this.targetLaneX = getLaneX(this.currentLane);
       this.laneTimer = 0;
       this.laneDuration = 0.18; // 180ms smooth responsive lane change (0.15-0.25s)
-      this.cameraTilt = -direction * 0.085; // Snappy dynamic camera roll tilt
+      this.cameraTilt = (this.targetLaneX - this.position.x) * 0.035; // Snappy dynamic camera roll tilt
       this.emitLaneShiftParticles(direction);
       if (audioManager) audioManager.playCarveWhoosh();
       if (typeof navigator !== 'undefined' && navigator.vibrate) {
@@ -535,7 +535,7 @@ export class PlayerManager {
 
   emitLaneShiftParticles(direction: -1 | 1) {
     const sidePos = this.position.clone();
-    sidePos.x += direction * 0.35;
+    sidePos.x += (this.targetLaneX - this.position.x) >= 0 ? 0.35 : -0.35;
     sidePos.y += 0.2;
     this.emitSparks(sidePos, 5, 0x00d2e0);
   }
