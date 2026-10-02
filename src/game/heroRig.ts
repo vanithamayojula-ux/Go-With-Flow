@@ -61,16 +61,58 @@ export interface HeroRig {
 const cache = new Map<HeroId, Promise<LoadedHeroData | null> | LoadedHeroData>();
 const loader = new GLTFLoader();
 
-export function loadHeroModel(heroId: HeroId): Promise<LoadedHeroData | null> {
+export async function loadHeroModel(heroId: HeroId): Promise<LoadedHeroData | null> {
   const cached = cache.get(heroId);
   if (cached) {
     return cached instanceof Promise ? cached : Promise.resolve(cached);
   }
 
-  const modelPath = `/models/${heroId}.glb`;
+  const isBrowser = typeof window !== 'undefined';
+  if (!isBrowser) {
+    try {
+      const fsMod = 'fs';
+      const pathMod = 'path';
+      const fs: any = await import(/* @vite-ignore */ fsMod);
+      const path: any = await import(/* @vite-ignore */ pathMod);
+      const proc = (globalThis as any).process;
+      const cwd = proc && typeof proc.cwd === 'function' ? proc.cwd() : '.';
+      const filePath = path.resolve(cwd, `public/models/${heroId}.glb`);
+      const buf = fs.readFileSync(filePath);
+      const arrayBuf = buf.buffer.slice(buf.byteOffset, buf.byteOffset + buf.byteLength);
+      const p = new Promise<LoadedHeroData | null>((resolve) => {
+        loader.parse(
+          arrayBuf,
+          '',
+          (gltf) => {
+            const skinned: THREE.SkinnedMesh[] = [];
+            gltf.scene.traverse((o: THREE.Object3D) => {
+              if ((o as THREE.SkinnedMesh).isSkinnedMesh) {
+                skinned.push(o as THREE.SkinnedMesh);
+              }
+            });
+            const data: LoadedHeroData = { gltf, skinned };
+            cache.set(heroId, data);
+            resolve(data);
+          },
+          (err) => {
+            console.error(`[HeroRig] Failed to parse model for ${heroId}`, err);
+            resolve(null);
+          }
+        );
+      });
+      cache.set(heroId, p);
+      return p;
+    } catch (e) {
+      console.warn('[HeroRig] Node loading fallback', e);
+    }
+  }
+
+  const primaryPath = `/models/${heroId}.glb`;
+  const fallbackPath = `models/${heroId}.glb`;
+
   const p = new Promise<LoadedHeroData | null>((resolve) => {
     loader.load(
-      modelPath,
+      primaryPath,
       (gltf) => {
         const skinned: THREE.SkinnedMesh[] = [];
         gltf.scene.traverse((o: THREE.Object3D) => {
@@ -79,7 +121,7 @@ export function loadHeroModel(heroId: HeroId): Promise<LoadedHeroData | null> {
           }
         });
         if (skinned.length === 0) {
-          console.warn(`[HeroRig] No SkinnedMesh found in ${modelPath}`);
+          console.warn(`[HeroRig] No SkinnedMesh found in ${primaryPath}`);
         }
         const data: LoadedHeroData = { gltf, skinned };
         cache.set(heroId, data);
@@ -87,10 +129,9 @@ export function loadHeroModel(heroId: HeroId): Promise<LoadedHeroData | null> {
       },
       undefined,
       (err) => {
-        console.error(`[HeroRig] Failed to load model at ${modelPath}`, err);
-        // Fallback check: try relative path if absolute path fails in some environments
+        // Fallback check
         loader.load(
-          `models/${heroId}.glb`,
+          fallbackPath,
           (gltf) => {
             const skinned: THREE.SkinnedMesh[] = [];
             gltf.scene.traverse((o: THREE.Object3D) => {
@@ -104,7 +145,7 @@ export function loadHeroModel(heroId: HeroId): Promise<LoadedHeroData | null> {
           },
           undefined,
           (err2) => {
-            console.error(`[HeroRig] Relative path also failed for ${heroId}`, err2);
+            console.error(`[HeroRig] Failed to load model for ${heroId}`, err2);
             resolve(null);
           }
         );
@@ -127,8 +168,8 @@ export function buildHeroRig(heroId: HeroId): HeroRig | null {
 
   const root = new THREE.Group();
   root.name = `HeroRig_${heroId}`;
-  // Stand directly on the hoverboard surface
-  root.position.set(0, 0.12, 0);
+  // Stand directly on the hoverboard deck surface (<0.02m snapped)
+  root.position.set(0, 0.092, 0);
 
   const bodyGroup = new THREE.Group();
   bodyGroup.name = 'HeroBodyGroup';
@@ -164,7 +205,9 @@ export function buildHeroRig(heroId: HeroId): HeroRig | null {
         if ((m as THREE.MeshStandardMaterial).isMeshStandardMaterial || (m as any).isMaterial) {
           const stdMat = m as THREE.MeshStandardMaterial;
 
-          // Exclude player meshes from scene fog so hero stays crisp & readable
+          // Hero materials opaque: transparent=false, depthWrite=true, fog=false
+          stdMat.transparent = false;
+          stdMat.depthWrite = true;
           stdMat.fog = false;
 
           // 1. Color map sRGB color space & mipmaps
@@ -175,12 +218,12 @@ export function buildHeroRig(heroId: HeroId): HeroRig | null {
             stdMat.map.needsUpdate = true;
           }
 
-          // 2. Normal map softening (clamp normalScale to 0.35 to prevent noisy spongy appearance)
+          // 2. Normal map softening (spikes *0.35 to prevent noisy spongy appearance)
           if (stdMat.normalMap) {
             stdMat.normalScale.set(0.35, 0.35);
           }
 
-          // 3. Roughness & metalness tuning (roughness 0.75->0.5, metalness 0.9->0.6)
+          // 3. Roughness & metalness tuning: base #1a2438 metal 0.6 rough 0.5
           stdMat.roughness = 0.5;
           stdMat.metalness = 0.6;
           stdMat.envMapIntensity = 0.9;
@@ -199,16 +242,21 @@ export function buildHeroRig(heroId: HeroId): HeroRig | null {
             stdMat.color.setHSL(hsl.h, Math.min(1.0, hsl.s * 1.1), Math.max(0.35, hsl.l * 1.5));
           }
 
-          // 6. Hero accent rim emissive + leg glow emissiveIntensity 1.2 (not 3.0 blown)
-          if (heroId === 'void') {
-            if (stdMat.emissive) {
-              stdMat.emissive.setHex(0x00f0ff).multiplyScalar(0.55);
-              stdMat.emissiveIntensity = 1.2;
-            }
-          } else {
-            if (stdMat.emissive) {
-              stdMat.emissive.copy(heroColor).multiplyScalar(0.40);
-              stdMat.emissiveIntensity = 1.2;
+          // 6. Visor (*2.0) and veins / glow (*1.2) emissive tuning
+          const matName = (stdMat.name || '').toLowerCase();
+          const meshName = (mesh.name || '').toLowerCase();
+          const isVisor = matName.includes('visor') || matName.includes('eye') || matName.includes('glass') || meshName.includes('visor');
+
+          if (isVisor) {
+            stdMat.emissive = new THREE.Color(0x00f0ff);
+            stdMat.emissiveIntensity = 2.0; // visor *2.0
+          } else if (stdMat.emissive) {
+            if (heroId === 'void') {
+              stdMat.emissive.setHex(0x00f0ff).multiplyScalar(0.60);
+              stdMat.emissiveIntensity = 1.2; // veins *1.2
+            } else {
+              stdMat.emissive.copy(heroColor).multiplyScalar(0.45);
+              stdMat.emissiveIntensity = 1.2; // veins *1.2
             }
           }
 
@@ -300,8 +348,8 @@ export function buildHeroRig(heroId: HeroId): HeroRig | null {
       const r = d.driver.rotation;
       e.set(r.x * AXIS.x, r.y * AXIS.y, r.z * AXIS.z, d.order);
       q.setFromEuler(e);
-      // bone.quaternion = restQuat * drivenQuat (local-space)
-      d.bone.quaternion.copy(d.restQuat).multiply(q);
+      // bone.quaternion = drivenQuat * restQuat (parent-space)
+      d.bone.quaternion.copy(q).multiply(d.restQuat);
     }
 
     // Dynamic hips elevation relative to baseline rest pose

@@ -36,18 +36,65 @@ export interface PlayerCharacter {
 // 1. Surfboard Model Generators (5 Distinct Cyber-Surfboards)
 // ---------------------------------------------------------------------------
 
+function createTaperedBoxGeometry(w0: number, w1: number, h0: number, h1: number, length: number): THREE.BufferGeometry {
+  const geom = new THREE.BufferGeometry();
+  const halfL = length / 2;
+  const hw0 = w0 / 2, hw1 = w1 / 2;
+  const hh0 = h0 / 2, hh1 = h1 / 2;
+
+  // 8 vertices: 0-3 back (z = -halfL), 4-7 front (z = +halfL)
+  const vertices = new Float32Array([
+    // Back face (z = -halfL, width w0)
+    -hw0, -hh0, -halfL,
+     hw0, -hh0, -halfL,
+     hw0,  hh0, -halfL,
+    -hw0,  hh0, -halfL,
+    // Front face (z = +halfL, width w1)
+    -hw1, -hh1,  halfL,
+     hw1, -hh1,  halfL,
+     hw1,  hh1,  halfL,
+    -hw1,  hh1,  halfL,
+  ]);
+
+  const indices = [
+    // Front (+Z)
+    4, 5, 6,  4, 6, 7,
+    // Back (-Z)
+    1, 0, 3,  1, 3, 2,
+    // Top (+Y)
+    3, 2, 6,  3, 6, 7,
+    // Bottom (-Y)
+    0, 4, 5,  0, 5, 1,
+    // Left (-X)
+    0, 3, 7,  0, 7, 4,
+    // Right (+X)
+    5, 6, 2,  5, 2, 1,
+  ];
+
+  geom.setAttribute('position', new THREE.BufferAttribute(vertices, 3));
+  geom.setIndex(indices);
+  geom.computeVertexNormals();
+  return geom;
+}
+
 function createCyberPhantomBoard(): THREE.Group {
   const group = new THREE.Group();
   group.name = 'Board_CyberPhantom';
 
+  // Materials strictly matching Reference Cyber-Surfer Tech-Board
   const carbonDeckMat = new THREE.MeshStandardMaterial({
-    color: 0x090f18,
-    roughness: 0.30,
+    color: 0x0a0f1d,
+    roughness: 0.35,
     metalness: 0.65,
+  });
+  const chassisMat = new THREE.MeshStandardMaterial({
+    color: 0x0e1422,
+    roughness: 0.30,
+    metalness: 0.85,
   });
   const tractionMat = new THREE.MeshStandardMaterial({
     color: 0x05080e,
-    roughness: 0.94,
+    roughness: 0.95,
     metalness: 0.05,
   });
   const finMat = new THREE.MeshStandardMaterial({
@@ -55,80 +102,157 @@ function createCyberPhantomBoard(): THREE.Group {
     roughness: 0.30,
     metalness: 0.85,
   });
-  const stringerMat = new THREE.MeshBasicMaterial({ color: 0x00f0ff });
-  const neonCyanMat = new THREE.MeshBasicMaterial({ color: 0x00d2e0 });
-  const thrusterGlowMat = new THREE.MeshBasicMaterial({ color: 0x00d2e0 });
 
-  // Center Deck
-  const centerDeck = new THREE.Mesh(new THREE.BoxGeometry(0.38, 0.024, 0.64), carbonDeckMat);
+  // Stringer magenta 0.04 emissive 1.4
+  const stringerMat = new THREE.MeshStandardMaterial({
+    color: 0xff00aa,
+    emissive: new THREE.Color(0xff00aa),
+    emissiveIntensity: 1.4,
+    roughness: 0.2,
+    metalness: 0.8,
+  });
+
+  // Rails cyan tubes emissive 1.2
+  const cyanRailMat = new THREE.MeshStandardMaterial({
+    color: 0x00d2e0,
+    emissive: new THREE.Color(0x00d2e0),
+    emissiveIntensity: 1.2,
+    roughness: 0.2,
+    metalness: 0.8,
+  });
+
+  // Nose ring torus 0.18 cyan emissive 1.4
+  const noseRingMat = new THREE.MeshStandardMaterial({
+    color: 0x00f0ff,
+    emissive: new THREE.Color(0x00f0ff),
+    emissiveIntensity: 1.4,
+    roughness: 0.2,
+    metalness: 0.8,
+  });
+
+  // 2 Side pods cyan-white emissive 2.5
+  const thrusterGlowMat = new THREE.MeshStandardMaterial({
+    color: 0xa0f8ff,
+    emissive: new THREE.Color(0x00ffff),
+    emissiveIntensity: 2.5,
+    roughness: 0.1,
+    metalness: 0.9,
+  });
+
+  // 1. Center / Main Deck: 0.38 x 0.024 x 0.90 #0a0f1d (centered at z = 0, spans z = -0.45 to +0.45)
+  const centerDeck = new THREE.Mesh(new THREE.BoxGeometry(0.38, 0.024, 0.90), carbonDeckMat);
+  centerDeck.position.set(0, 0, 0);
   group.add(centerDeck);
 
-  // Nose Section
-  const noseDeck = new THREE.Mesh(new THREE.BoxGeometry(0.34, 0.022, 0.44), carbonDeckMat);
-  noseDeck.position.set(0, 0.014, 0.46);
-  noseDeck.rotation.x = -0.06;
-  group.add(noseDeck);
+  // 2. Pointed Nose Cone: extending to z+0.85, width tapered from 0.38 down to 0.10 (length 0.40m)
+  const noseGeom = createTaperedBoxGeometry(0.38, 0.10, 0.024, 0.020, 0.40);
+  const noseMesh = new THREE.Mesh(noseGeom, carbonDeckMat);
+  noseMesh.position.set(0, 0, 0.65);
+  group.add(noseMesh);
 
-  const noseTip = new THREE.Mesh(new THREE.CylinderGeometry(0.06, 0.16, 0.020, 12), carbonDeckMat);
-  noseTip.position.set(0, 0.028, 0.69);
-  noseTip.rotation.x = -0.06;
+  // Nose tip bevel cap
+  const noseTip = new THREE.Mesh(new THREE.CylinderGeometry(0.02, 0.05, 0.04, 12), carbonDeckMat);
+  noseTip.rotation.x = Math.PI / 2;
+  noseTip.position.set(0, 0, 0.87);
   group.add(noseTip);
 
-  // Tail Section
-  const tailDeck = new THREE.Mesh(new THREE.BoxGeometry(0.32, 0.022, 0.42), carbonDeckMat);
-  tailDeck.position.set(0, 0.002, -0.44);
-  group.add(tailDeck);
+  // 3. Nose Ring: Torus 0.18 cyan (glowing front foot / nose transition ring)
+  const noseRing = new THREE.Mesh(new THREE.TorusGeometry(0.18, 0.010, 16, 36), noseRingMat);
+  noseRing.rotation.x = Math.PI / 2;
+  noseRing.position.set(0, 0.014, 0.45);
+  group.add(noseRing);
 
-  // Center Stringer Spine
-  const stringerMesh = new THREE.Mesh(new THREE.BoxGeometry(0.014, 0.028, 1.46), stringerMat);
-  stringerMesh.position.set(0, 0.005, 0.04);
+  // 4. Tail Block: 0.42 x 0.10 x 0.35 at z = -0.65 (spans z = -0.475 to -0.825)
+  const tailBlock = new THREE.Mesh(new THREE.BoxGeometry(0.42, 0.10, 0.35), chassisMat);
+  tailBlock.position.set(0, -0.025, -0.65);
+  group.add(tailBlock);
+
+  // Tail block upper bevel trim
+  const tailPlate = new THREE.Mesh(new THREE.BoxGeometry(0.40, 0.014, 0.33), carbonDeckMat);
+  tailPlate.position.set(0, 0.013, -0.65);
+  group.add(tailPlate);
+
+  // 5. Center Stringer: magenta 0.04 emissive 1.4
+  const stringerMesh = new THREE.Mesh(new THREE.BoxGeometry(0.04, 0.026, 1.45), stringerMat);
+  stringerMesh.position.set(0, 0.003, 0.05);
   group.add(stringerMesh);
 
-  // Perimeter Neon Edge Rails
-  const railGeom = new THREE.BoxGeometry(0.012, 0.020, 1.40);
-  const leftRail = new THREE.Mesh(railGeom, neonCyanMat);
-  leftRail.position.set(-0.185, 0.002, 0.04);
-  const rightRail = new THREE.Mesh(railGeom, neonCyanMat);
-  rightRail.position.set(0.185, 0.002, 0.04);
-  group.add(leftRail, rightRail);
+  // 6. Perimeter Rails: cyan tubes emissive 1.2
+  // Main deck side rails
+  const railL = new THREE.Mesh(new THREE.BoxGeometry(0.012, 0.024, 0.90), cyanRailMat);
+  railL.position.set(-0.185, 0.001, 0);
+  const railR = new THREE.Mesh(new THREE.BoxGeometry(0.012, 0.024, 0.90), cyanRailMat);
+  railR.position.set(0.185, 0.001, 0);
+  group.add(railL, railR);
 
-  // Stomp & Front Traction Pads
-  const rearStomp = new THREE.Mesh(new THREE.BoxGeometry(0.28, 0.006, 0.36), tractionMat);
-  rearStomp.position.set(0, 0.014, -0.32);
-  const rearKickTail = new THREE.Mesh(new THREE.BoxGeometry(0.26, 0.012, 0.08), tractionMat);
-  rearKickTail.position.set(0, 0.019, -0.51);
-  const frontPad = new THREE.Mesh(new THREE.BoxGeometry(0.24, 0.006, 0.28), tractionMat);
-  frontPad.position.set(-0.02, 0.014, 0.28);
-  frontPad.rotation.y = 0.44;
-  group.add(rearStomp, rearKickTail, frontPad);
+  // Nose angled side rails (tapering from +-0.185 at z=0.45 to +-0.05 at z=0.85)
+  const noseRailL = new THREE.Mesh(new THREE.BoxGeometry(0.010, 0.022, 0.424), cyanRailMat);
+  noseRailL.position.set(-0.1175, 0.001, 0.65);
+  noseRailL.rotation.y = 0.337;
 
-  // Hydrodynamic Fins
-  const centerFin = new THREE.Mesh(new THREE.BoxGeometry(0.008, 0.065, 0.13), finMat);
-  centerFin.position.set(0, -0.040, -0.46);
+  const noseRailR = new THREE.Mesh(new THREE.BoxGeometry(0.010, 0.022, 0.424), cyanRailMat);
+  noseRailR.position.set(0.1175, 0.001, 0.65);
+  noseRailR.rotation.y = -0.337;
+  group.add(noseRailL, noseRailR);
+
+  // Tail block perimeter cyan trim
+  const tailRailL = new THREE.Mesh(new THREE.BoxGeometry(0.012, 0.024, 0.35), cyanRailMat);
+  tailRailL.position.set(-0.205, 0.001, -0.65);
+  const tailRailR = new THREE.Mesh(new THREE.BoxGeometry(0.012, 0.024, 0.35), cyanRailMat);
+  tailRailR.position.set(0.205, 0.001, -0.65);
+  group.add(tailRailL, tailRailR);
+
+  // 7. Front & Rear Traction Pads + 25° Kicktail
+  const frontPad = new THREE.Mesh(new THREE.BoxGeometry(0.26, 0.006, 0.28), tractionMat);
+  frontPad.position.set(0, 0.014, 0.28);
+  const rearStomp = new THREE.Mesh(new THREE.BoxGeometry(0.28, 0.006, 0.32), tractionMat);
+  rearStomp.position.set(0, 0.014, -0.28);
+
+  // 25° Kicktail (25 deg = 0.4363 rad)
+  const rearKickTail = new THREE.Mesh(new THREE.BoxGeometry(0.28, 0.014, 0.16), tractionMat);
+  rearKickTail.position.set(0, 0.024, -0.52);
+  rearKickTail.rotation.x = 25 * (Math.PI / 180);
+  group.add(frontPad, rearStomp, rearKickTail);
+
+  // 8. 2 Side Pods: radius 0.09 cyan-white emissive 2.5 + PointLight 1.5
+  // Left Thruster Pod
+  const podGeom = new THREE.CylinderGeometry(0.09, 0.09, 0.18, 24);
+  podGeom.rotateX(Math.PI / 2);
+
+  const leftPod = new THREE.Mesh(podGeom, chassisMat);
+  leftPod.position.set(-0.20, -0.02, -0.65);
+  const leftNozzle = new THREE.Mesh(new THREE.CircleGeometry(0.075, 24), thrusterGlowMat);
+  leftNozzle.position.set(0, 0, -0.091);
+  leftNozzle.rotation.y = Math.PI;
+  leftPod.add(leftNozzle);
+  const leftPodLight = new THREE.PointLight(0x00d2e0, 1.5, 3.5);
+  leftPodLight.position.set(0, 0, -0.10);
+  leftPod.add(leftPodLight);
+
+  // Right Thruster Pod
+  const rightPod = new THREE.Mesh(podGeom, chassisMat);
+  rightPod.position.set(0.20, -0.02, -0.65);
+  const rightNozzle = new THREE.Mesh(new THREE.CircleGeometry(0.075, 24), thrusterGlowMat);
+  rightNozzle.position.set(0, 0, -0.091);
+  rightNozzle.rotation.y = Math.PI;
+  rightPod.add(rightNozzle);
+  const rightPodLight = new THREE.PointLight(0x00d2e0, 1.5, 3.5);
+  rightPodLight.position.set(0, 0, -0.10);
+  rightPod.add(rightPodLight);
+
+  group.add(leftPod, rightPod);
+
+  // Hydrodynamic Underside Fins
+  const centerFin = new THREE.Mesh(new THREE.BoxGeometry(0.008, 0.065, 0.14), finMat);
+  centerFin.position.set(0, -0.055, -0.46);
   centerFin.rotation.x = 0.35;
-  const leftFin = new THREE.Mesh(new THREE.BoxGeometry(0.006, 0.048, 0.10), finMat);
-  leftFin.position.set(-0.11, -0.032, -0.34);
-  leftFin.rotation.set(0.28, 0, -0.22);
-  const rightFin = new THREE.Mesh(new THREE.BoxGeometry(0.006, 0.048, 0.10), finMat);
-  rightFin.position.set(0.11, -0.032, -0.34);
-  rightFin.rotation.set(0.28, 0, 0.22);
-  group.add(centerFin, leftFin, rightFin);
-
-  // Dual Plasma Ion Thrusters
-  const thrusterNozzleGeom = new THREE.CylinderGeometry(0.025, 0.035, 0.07, 8);
-  thrusterNozzleGeom.rotateX(Math.PI / 2);
-  const leftNozzle = new THREE.Mesh(thrusterNozzleGeom, finMat);
-  leftNozzle.position.set(-0.08, -0.018, -0.56);
-  const leftPlume = new THREE.Mesh(new THREE.CircleGeometry(0.022, 8), thrusterGlowMat);
-  leftPlume.position.set(0, 0, -0.036);
-  leftNozzle.add(leftPlume);
-
-  const rightNozzle = new THREE.Mesh(thrusterNozzleGeom, finMat);
-  rightNozzle.position.set(0.08, -0.018, -0.56);
-  const rightPlume = new THREE.Mesh(new THREE.CircleGeometry(0.022, 8), thrusterGlowMat);
-  rightPlume.position.set(0, 0, -0.036);
-  rightNozzle.add(rightPlume);
-  group.add(leftNozzle, rightNozzle);
+  const finL = new THREE.Mesh(new THREE.BoxGeometry(0.006, 0.050, 0.11), finMat);
+  finL.position.set(-0.13, -0.045, -0.36);
+  finL.rotation.set(0.28, 0, -0.22);
+  const finR = new THREE.Mesh(new THREE.BoxGeometry(0.006, 0.050, 0.11), finMat);
+  finR.position.set(0.13, -0.045, -0.36);
+  finR.rotation.set(0.28, 0, 0.22);
+  group.add(centerFin, finL, finR);
 
   return group;
 }
@@ -837,65 +961,73 @@ export function animatePlayerCharacter(
     const isSpecialAction = isSliding || isGrinding || !state.isGrounded;
     const carveBlend = speedFactor === 0 ? 0 : (isSpecialAction ? 0.20 : 1.0);
 
-    // Hips vertical riding bob and lateral weight shift (hips clamped within ±0.35)
+    // Hips vertical riding bob and deep surf crouch elevation y = 0.52 (base run pose)
+    // Euler YXZ: rot.x = 0.18, rot.y = 0.66 (regular stance yaw ONCE), rot.z = carve overlay 0.04 only
     const bob = Math.sin(time * 5 * speedFactor) * 0.012 * speedFactor;
-    b.hips.position.y = hipsBaseY + bob;
-    b.hips.rotation.z = Math.sin(carvePhase) * 0.04 * carveBlend + turnVelocity * 0.04;
-
-    // Spine whip-lag and rhythmic surfing compression (spine clamped within ±0.25)
-    b.spine.rotation.set(
-      0.04 + Math.sin(carvePhase * 2.0) * 0.02 * carveBlend,
-      0,
-      Math.sin(carvePhase + 0.35) * 0.05 * carveBlend - turnVelocity * 0.10
+    b.hips.position.y = 0.52 + bob;
+    b.hips.rotation.set(
+      0.18,
+      0.66,
+      Math.sin(carvePhase) * 0.04 * carveBlend + turnVelocity * 0.04
     );
-    b.chest.rotation.set(0.02, 0, -turnVelocity * 0.04);
 
-    // Head gaze: stably oriented forward down track (head -0.55 look-ahead only)
+    // Spine rot.x 0.30 forward lean, rot.y 0, rot.z carve overlay 0.04 only (Euler YXZ)
+    b.spine.rotation.set(
+      0.30 + Math.sin(carvePhase * 2.0) * 0.02 * carveBlend,
+      0,
+      Math.sin(carvePhase + 0.35) * 0.04 * carveBlend - turnVelocity * 0.10
+    );
+    b.chest.rotation.set(0.0, 0, -turnVelocity * 0.04);
+
+    // Head rot.x 0.25 + rot.y -0.55 stably oriented forward down track (Euler YXZ)
     b.head.rotation.set(
-      -0.02,
+      0.25,
       -0.55 - turnVelocity * 0.08,
       -Math.sin(carvePhase) * 0.02 * carveBlend
     );
 
-    // Active Counter-Phase Arm Balance Swing (arms clamped within ±0.65 grind / ±0.20 air)
-    const armRollL = -Math.sin(carvePhase) * 0.10 * carveBlend - 0.10 - turnVelocity * 0.05;
-    const armPitchL = 0.12 + Math.cos(carvePhase) * 0.05 * carveBlend;
-    b.leftArm.rotation.set(armPitchL, 0, armRollL);
-    b.leftForearm.rotation.set(-0.15 + Math.sin(carvePhase) * 0.04 * carveBlend, 0, 0);
+    // Arms (Euler ZYX):
+    // right shoulder -0.70 / 0.35, elbow 2.25 forward-down
+    // left shoulder +0.80 / -0.50, elbow 2.60 back-up
+    const armSway = Math.sin(carvePhase) * 0.04 * carveBlend;
+    b.leftArm.rotation.set(0.80 + armSway, 0, -0.50 - turnVelocity * 0.05);
+    b.leftForearm.rotation.set(2.60, 0, 0);
 
-    const armRollR = Math.sin(carvePhase) * 0.10 * carveBlend + 0.15 + turnVelocity * 0.05;
-    const armPitchR = -0.08 - Math.cos(carvePhase) * 0.05 * carveBlend;
-    b.rightArm.rotation.set(armPitchR, 0, armRollR);
-    b.rightForearm.rotation.set(-0.20 - Math.sin(carvePhase) * 0.04 * carveBlend, 0, 0);
+    b.rightArm.rotation.set(-0.70 - armSway, 0, 0.35 + turnVelocity * 0.05);
+    b.rightForearm.rotation.set(2.25, 0, 0);
 
-    // Rhythmic Knee Flex & Weight Shift
+    // Legs (Euler YXZ):
+    // front thigh (left) -1.65 / shin +1.60 / foot y0.44 25° at z+0.45
+    // back thigh (right) -2.00 / shin +1.95 / foot flat at z-0.45
     const legShift = Math.sin(carvePhase) * 0.03 * carveBlend;
-    b.leftThigh.rotation.set(legShift, 0, 0.02);
-    b.rightThigh.rotation.set(-legShift, 0, -0.02);
-    b.leftShin.rotation.set(-legShift * 0.5, 0, 0);
-    b.rightShin.rotation.set(legShift * 0.5, 0, 0);
+    b.leftThigh.rotation.set(-1.65 + legShift, 0, 0.02);
+    b.leftShin.rotation.set(1.60 - legShift * 0.5, 0, 0);
+
+    b.rightThigh.rotation.set(-2.00 - legShift, 0, -0.02);
+    b.rightShin.rotation.set(1.95 + legShift * 0.5, 0, 0);
 
     // 2. Movement States (strictly within specified clamp limits)
     if (isSliding) {
-      b.hips.position.y = hipsBaseY - 0.28;
-      b.spine.rotation.set(0.25, 0, -turnVelocity * 0.08); // clamped to <= 0.25
+      b.hips.position.y = 0.32;
+      b.spine.rotation.set(0.25, 0, -turnVelocity * 0.08);
       b.head.rotation.set(-0.20, -0.55, 0);
-      b.leftThigh.rotation.set(-0.25, 0, 0); // thigh -0.25
+      b.leftThigh.rotation.set(-0.25, 0, 0);
       b.rightThigh.rotation.set(-0.25, 0, 0);
-      b.leftShin.rotation.set(0.28, 0, 0); // shin +0.28
+      b.leftShin.rotation.set(0.28, 0, 0);
       b.rightShin.rotation.set(0.28, 0, 0);
       b.leftArm.rotation.set(0.18, 0, -0.15);
       b.rightArm.rotation.set(0.18, 0, 0.15);
     } else if (isGrinding) {
+      b.hips.position.y = 0.50;
       b.leftArm.rotation.set(0.12, 0, -0.28);
       b.rightArm.rotation.set(-0.10, 0, 0.32);
       b.leftForearm.rotation.set(-0.25, 0, 0);
       b.rightForearm.rotation.set(-0.25, 0, 0);
       b.spine.rotation.z = Math.sin(time * 10) * 0.04 - turnVelocity * 0.08;
     } else if (!state.isGrounded) {
-      b.hips.position.y = hipsBaseY + 0.16;
+      b.hips.position.y = 0.68;
       b.spine.rotation.set(0.10, 0, -turnVelocity * 0.08);
-      b.leftThigh.rotation.set(-0.18, 0, 0); // thigh -0.18
+      b.leftThigh.rotation.set(-0.18, 0, 0);
       b.rightThigh.rotation.set(-0.18, 0, 0);
       b.leftShin.rotation.set(0.22, 0, 0);
       b.rightShin.rotation.set(0.22, 0, 0);
@@ -943,31 +1075,31 @@ export function animatePlayerCharacter(
   if (pc.spineGroup && pc.spineGroup.visible) {
     const carveFreq = 2.0 + speedFactor * 0.8;
     const carvePhase = time * carveFreq;
-    const idleBob = Math.sin(time * 5.0) * 0.03;
+    const idleBob = Math.sin(time * 5.0) * 0.012;
 
-    pc.spineGroup.rotation.y = 0.66;
+    pc.spineGroup.rotation.y = 0.66; // regular stance yaw ONCE
 
     if (isSliding) {
-      pc.spineGroup.position.y = 0.05 + idleBob * 0.5;
+      pc.spineGroup.position.y = 0.32 + idleBob * 0.5;
       pc.spineGroup.rotation.x = 0.65;
       pc.spineGroup.rotation.z = turnVelocity * 0.05;
     } else if (stumbleTimer > 0) {
-      pc.spineGroup.position.y = 0.25;
+      pc.spineGroup.position.y = 0.45;
       pc.spineGroup.rotation.x = -0.35;
       pc.spineGroup.rotation.z = Math.sin(time * 24.0) * 0.15;
     } else if (isBoosting) {
-      pc.spineGroup.position.y = 0.22 + idleBob;
-      pc.spineGroup.rotation.x = 0.35;
-      pc.spineGroup.rotation.z = Math.sin(carvePhase) * 0.06 - turnVelocity * 0.08;
+      pc.spineGroup.position.y = 0.48 + idleBob;
+      pc.spineGroup.rotation.x = 0.28;
+      pc.spineGroup.rotation.z = Math.sin(carvePhase) * 0.04 - turnVelocity * 0.08;
     } else {
-      pc.spineGroup.position.y = 0.3 + idleBob;
-      pc.spineGroup.rotation.x = 0.10 + Math.sin(carvePhase * 2.0) * 0.02;
-      pc.spineGroup.rotation.z = Math.sin(carvePhase) * 0.07 - turnVelocity * 0.08;
+      pc.spineGroup.position.y = 0.52 + idleBob;
+      pc.spineGroup.rotation.x = 0.18 + Math.sin(carvePhase * 2.0) * 0.02;
+      pc.spineGroup.rotation.z = Math.sin(carvePhase) * 0.04 - turnVelocity * 0.08;
     }
 
     if (pc.headGroup) {
       pc.headGroup.rotation.y = -0.55 - turnVelocity * 0.06;
-      pc.headGroup.rotation.x = isSliding ? -0.4 : -0.05;
+      pc.headGroup.rotation.x = isSliding ? -0.4 : 0.25;
       pc.headGroup.rotation.z = -Math.sin(carvePhase) * 0.02;
     }
 
@@ -988,12 +1120,17 @@ export function animatePlayerCharacter(
         pc.rightArmGroup.rotation.x = -0.5;
         pc.rightArmGroup.rotation.z = 0.5;
       } else {
-        const armSway = Math.sin(carvePhase) * 0.15;
-        pc.leftArmGroup.rotation.x = 0.2 + Math.cos(carvePhase) * 0.08;
-        pc.leftArmGroup.rotation.z = -0.15 - armSway - turnVelocity * 0.05;
-        pc.rightArmGroup.rotation.x = -0.15 - Math.cos(carvePhase) * 0.08;
-        pc.rightArmGroup.rotation.z = 0.25 + armSway - turnVelocity * 0.05;
+        const armSway = Math.sin(carvePhase) * 0.04;
+        pc.leftArmGroup.rotation.x = 0.80 + armSway;
+        pc.leftArmGroup.rotation.z = -0.50 - turnVelocity * 0.05;
+        pc.rightArmGroup.rotation.x = -0.70 - armSway;
+        pc.rightArmGroup.rotation.z = 0.35 + turnVelocity * 0.05;
       }
+    }
+
+    if (pc.leftLegGroup && pc.rightLegGroup) {
+      pc.leftLegGroup.rotation.x = -1.65;
+      pc.rightLegGroup.rotation.x = -2.00;
     }
 
     if (pc.capeMesh) {

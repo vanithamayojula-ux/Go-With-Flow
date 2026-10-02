@@ -5,7 +5,7 @@ import * as path from 'path';
 
 const heroes = ['shadow', 'flame', 'thunder', 'frost', 'void'];
 const poses = ['bind', 'idle', 'run', 'slide', 'jump'];
-const views = ['three', 'front'];
+const views = ['side', 'three', 'front'];
 
 async function main() {
   const outDir = path.resolve(process.cwd(), 'screenshots/lab');

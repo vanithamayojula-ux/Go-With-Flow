@@ -33,19 +33,19 @@ async function initLab() {
   // Camera setup
   const camera = new THREE.PerspectiveCamera(45, width / height, 0.1, 100);
   
-  if (view === 'front') {
-    camera.position.set(0, 1.0, 3.2);
-    camera.lookAt(0, 0.9, 0);
-  } else if (view === 'side') {
-    camera.position.set(3.2, 1.0, 0);
-    camera.lookAt(0, 0.9, 0);
+  if (view === 'side') {
+    camera.position.set(3.0, 0.75, 0);
+    camera.lookAt(0, 0.60, 0);
+  } else if (view === 'front') {
+    camera.position.set(0, 0.8, 3.0);
+    camera.lookAt(0, 0.60, 0);
   } else if (view === 'back') {
-    camera.position.set(0, 1.0, -3.2);
-    camera.lookAt(0, 0.9, 0);
+    camera.position.set(0, 0.8, -3.0);
+    camera.lookAt(0, 0.60, 0);
   } else {
     // 3/4 isometric perspective
-    camera.position.set(2.2, 1.6, 2.4);
-    camera.lookAt(0, 0.85, 0);
+    camera.position.set(2.2, 1.4, 2.2);
+    camera.lookAt(0, 0.60, 0);
   }
 
   const renderer = new THREE.WebGLRenderer({ antialias: true, preserveDrawingBuffer: true });

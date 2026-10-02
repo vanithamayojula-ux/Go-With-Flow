@@ -29,7 +29,7 @@ export const HEROES: HeroDef[] = [
     blurb: 'Teleport dash — phases forward through anything in the way.',
     modelUrl: '/models/shadow.glb',
     previewUrl: '/hero-previews/shadow.jpg',
-    yawOffset: 0.66, // 38 deg regular surf stance (left shoulder leading)
+    yawOffset: 0, // Base orientation +Z along track
     ult: { type: 'dash', duration: 2.2, speedMul: 2.0 },
   },
   {
@@ -41,7 +41,7 @@ export const HEROES: HeroDef[] = [
     blurb: 'Immolation — burns a path clean and ignores explosions.',
     modelUrl: '/models/flame.glb',
     previewUrl: '/hero-previews/flame.jpg',
-    yawOffset: 0.66, // 38 deg regular surf stance
+    yawOffset: 0,
     ult: { type: 'burn', duration: 4.5, radius: 26 },
   },
   {
@@ -53,7 +53,7 @@ export const HEROES: HeroDef[] = [
     blurb: 'Overcharge — massive speed burst and chain lightning.',
     modelUrl: '/models/thunder.glb',
     previewUrl: '/hero-previews/thunder.jpg',
-    yawOffset: Math.PI + 0.66, // Backwards-authored GLB + 38 deg regular surf stance
+    yawOffset: 0,
     ult: { type: 'overcharge', duration: 5, speedMul: 1.7 },
   },
   {
@@ -65,7 +65,7 @@ export const HEROES: HeroDef[] = [
     blurb: 'Glacial halt — freezes the void, slowing everything but you.',
     modelUrl: '/models/frost.glb',
     previewUrl: '/hero-previews/frost.jpg',
-    yawOffset: Math.PI + 0.66, // Backwards-authored GLB + 38 deg regular surf stance
+    yawOffset: 0,
     ult: { type: 'freeze', duration: 5, timeMul: 0.5 },
   },
   {
@@ -77,7 +77,7 @@ export const HEROES: HeroDef[] = [
     blurb: 'Phase shift — becomes untouchable and drinks the abyss.',
     modelUrl: '/models/void.glb',
     previewUrl: '/hero-previews/void.jpg',
-    yawOffset: 0.66, // 38 deg regular surf stance
+    yawOffset: 0,
     ult: { type: 'phase', duration: 6 },
   },
 ];

@@ -338,9 +338,9 @@ export class PlayerManager {
       vertexShader: BoardTrailShader.vertexShader,
       fragmentShader: BoardTrailShader.fragmentShader,
       uniforms: {
-        uColorA: { value: new THREE.Color('#00D2E0') }, // Primary Balanced Cyan
-        uColorB: { value: new THREE.Color('#E00070') }, // Secondary Magenta
-        uOpacity: { value: 0.85 },
+        uColorA: { value: new THREE.Color('#00D2E0') }, // Primary Cyan
+        uColorB: { value: new THREE.Color('#FF00FF') }, // Secondary Magenta Speed Swirl
+        uOpacity: { value: 0.90 },
         uTime: { value: 0 },
       },
       transparent: true,
@@ -507,13 +507,13 @@ export class PlayerManager {
     };
     const hero = heroById(config.heroId);
     let colorA = '#00D2E0';
-    let colorB = '#E00070';
+    let colorB = '#FF00FF';
     if (config.trailId && trailColors[config.trailId]) {
       colorA = trailColors[config.trailId].a;
       colorB = trailColors[config.trailId].b;
     } else if (hero) {
       colorA = `#${hero.trail.toString(16).padStart(6, '0')}`;
-      colorB = `#${hero.color.toString(16).padStart(6, '0')}`;
+      colorB = '#FF00FF';
     }
     this.trailMaterial.uniforms.uColorA.value.set(colorA);
     this.trailMaterial.uniforms.uColorB.value.set(colorB);
@@ -1119,7 +1119,7 @@ export class PlayerManager {
   private updateTrailRibbon(effectiveDt: number) {
     this.boardMesh.getWorldPosition(this.trailBoardWorld);
 
-    const ribbonHalfWidth = 0.3;
+    const ribbonHalfWidth = 0.15; // 0.30m full ribbon width
     this.trailRightDir.set(1, 0, 0)
       .applyAxisAngle(this.trailAxisZ, -this.carveAngle)
       .multiplyScalar(ribbonHalfWidth);
@@ -1137,12 +1137,12 @@ export class PlayerManager {
       this.trailHistory[0].left.set(
         this.trailBoardWorld.x - this.trailRightDir.x,
         this.trailBoardWorld.y - this.trailRightDir.y - 0.05,
-        this.trailBoardWorld.z - this.trailRightDir.z - 0.8
+        this.trailBoardWorld.z - this.trailRightDir.z - 0.85
       );
       this.trailHistory[0].right.set(
         this.trailBoardWorld.x + this.trailRightDir.x,
         this.trailBoardWorld.y + this.trailRightDir.y - 0.05,
-        this.trailBoardWorld.z + this.trailRightDir.z - 0.8
+        this.trailBoardWorld.z + this.trailRightDir.z - 0.85
       );
     }
 
