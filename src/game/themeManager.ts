@@ -20,9 +20,72 @@ export const THEME_REGISTRY: Record<string, ThemeDefinition> = {
     name: 'Neon Undercity // Sector 01',
     color: '#00F0FF',
     secondaryColor: '#FF007F',
-    skyTopColor: 0x050711,
-    skyHorizonColor: 0x0c152b,
-    sunColor: 0x00f0ff,
+    skyTopColor: 0x010308,
+    skyHorizonColor: 0x007a8a,
+    sunColor: 0x00c8d8,
+  },
+  'dune-nomad': {
+    id: 'dune-nomad',
+    name: 'Dune Nomad // Amber Mesas',
+    color: '#FFAA33',
+    secondaryColor: '#FF6600',
+    skyTopColor: 0x3a1c00,
+    skyHorizonColor: 0xffaa33,
+    sunColor: 0xffaa33,
+  },
+  'aurora-frost': {
+    id: 'aurora-frost',
+    name: 'Aurora Frost // Glacier Tundra',
+    color: '#00FFCC',
+    secondaryColor: '#0088FF',
+    skyTopColor: 0x001a2e,
+    skyHorizonColor: 0x00ffcc,
+    sunColor: 0x00ffcc,
+  },
+  'bioluminescent-jungle': {
+    id: 'bioluminescent-jungle',
+    name: 'Bioluminescent Jungle // Canopy',
+    color: '#39FF14',
+    secondaryColor: '#00F0FF',
+    skyTopColor: 0x021a08,
+    skyHorizonColor: 0x39ff14,
+    sunColor: 0x39ff14,
+  },
+  'jungle': {
+    id: 'bioluminescent-jungle',
+    name: 'Bioluminescent Jungle // Canopy',
+    color: '#39FF14',
+    secondaryColor: '#00F0FF',
+    skyTopColor: 0x021a08,
+    skyHorizonColor: 0x39ff14,
+    sunColor: 0x39ff14,
+  },
+  'ember-core': {
+    id: 'ember-core',
+    name: 'Ember Core // Magma Obsidian',
+    color: '#FF3300',
+    secondaryColor: '#FF8800',
+    skyTopColor: 0x200000,
+    skyHorizonColor: 0xff3300,
+    sunColor: 0xff5500,
+  },
+  'nebula-drift': {
+    id: 'nebula-drift',
+    name: 'Nebula Drift // Stellar Void',
+    color: '#D0A0FF',
+    secondaryColor: '#FF007F',
+    skyTopColor: 0x0a001a,
+    skyHorizonColor: 0xd0a0ff,
+    sunColor: 0xd0a0ff,
+  },
+  'sky-realm': {
+    id: 'sky-realm',
+    name: 'Sky Realm // Ghibli Nature',
+    color: '#FEF08A',
+    secondaryColor: '#7DD3FC',
+    skyTopColor: 0x7dd3fc,
+    skyHorizonColor: 0xfef08a,
+    sunColor: 0xfef08a,
   },
   'quantum-desert': {
     id: 'quantum-desert',
@@ -123,8 +186,13 @@ export class ThemeManager {
   }
 
   triggerPortalWarp(targetBiome: BiomeType, playerPos: THREE.Vector3): void {
-    const nextTheme = THEME_REGISTRY[targetBiome] || THEME_REGISTRY['neon-undercity'];
-    this.currentTheme = nextTheme;
+    const nextTheme = THEME_REGISTRY[targetBiome];
+    if (!nextTheme) {
+      console.warn(`[ThemeManager] Biome '${targetBiome}' not found in registry, falling back to neon-undercity`);
+      this.currentTheme = THEME_REGISTRY['neon-undercity'];
+    } else {
+      this.currentTheme = nextTheme;
+    }
 
     this.isWarping = true;
     this.warpTimer = 1.2;

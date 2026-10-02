@@ -478,10 +478,10 @@ export class SkyManager {
     this.dirLight.position.set(...preset.sunPosition);
     this.ambientLight.color.set(preset.ambientColor);
 
-    (this.holoRingMesh.material as THREE.MeshBasicMaterial).color.set(preset.sunColor);
-
-    // Scene-level atmospheric cosmic depth fog (smooth exponential fade into deep galaxy void)
-    this.scene.fog = new THREE.FogExp2(new THREE.Color(0x020512), 0.0035);
+    // Scene-level atmospheric cosmic depth fog configured from biome preset
+    const fogCol = new THREE.Color(preset.fogColor || '#020512');
+    const fogDensity = 0.0035 * (preset.hazeDensity ?? 1.0);
+    this.scene.fog = new THREE.FogExp2(fogCol, fogDensity);
   }
 
   setGridMode(gridMode: number) {

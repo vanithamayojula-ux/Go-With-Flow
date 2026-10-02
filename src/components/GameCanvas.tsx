@@ -538,6 +538,7 @@ export const GameCanvas: React.FC<GameCanvasProps> = ({
         if (collision.nearMiss) {
           playerMgr.addCoins(3);
           playerMgr.overdriveMeter = Math.min(100, playerMgr.overdriveMeter + 10);
+          playerMgr.stats.nearMissCount = (playerMgr.stats.nearMissCount || 0) + 1;
           nearMissSlowMoTimer = 0.22; // Satisfying micro-slowmo brush with death
           screenShakeTimer = 0.16;
           screenShakeIntensity = 0.22;

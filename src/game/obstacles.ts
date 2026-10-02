@@ -13,7 +13,7 @@ export function laneIndexFromNumber(n: number): LaneIndex {
   return 0;
 }
 
-export type CellAction = 'free' | 'block' | 'jump' | 'duck';
+export type CellAction = 'free' | 'block' | 'jump' | 'duck' | 'rail' | 'boost';
 export type PatternRow = [CellAction, CellAction, CellAction];
 
 export function createMulberry32(seed: number) {
@@ -122,22 +122,80 @@ export const PATTERN_LIBRARY: PatternDef[] = [
     isAsymmetric: true,
     leftHeavy: false,
   },
-  // 8. Slalom Left / Slalom Right (Mirror pair)
+  // 8. Slalom Left / Slalom Right (3-Row Sequences with dynamic reaction gaps)
   {
     id: 'SLALOM_LEFT',
-    rows: [['block', 'free', 'free']],
-    unlockDifficulty: 0.45,
-    weight: 1.5,
+    rows: [
+      ['block', 'free', 'free'],
+      ['free', 'block', 'free'],
+      ['free', 'free', 'block'],
+    ],
+    unlockDifficulty: 0.35,
+    weight: 1.6,
     mirrorId: 'SLALOM_RIGHT',
     isAsymmetric: true,
     leftHeavy: true,
   },
   {
     id: 'SLALOM_RIGHT',
-    rows: [['free', 'free', 'block']],
-    unlockDifficulty: 0.45,
-    weight: 1.5,
+    rows: [
+      ['free', 'free', 'block'],
+      ['free', 'block', 'free'],
+      ['block', 'free', 'free'],
+    ],
+    unlockDifficulty: 0.35,
+    weight: 1.6,
     mirrorId: 'SLALOM_LEFT',
+    isAsymmetric: true,
+    leftHeavy: false,
+  },
+  // 9. Cyber Grind Rails (Center, Left, Right)
+  {
+    id: 'GRIND_RAIL_CENTER',
+    rows: [['block', 'rail', 'block']],
+    unlockDifficulty: 0.08,
+    weight: 1.9,
+  },
+  {
+    id: 'GRIND_RAIL_LEFT',
+    rows: [['rail', 'free', 'block']],
+    unlockDifficulty: 0.12,
+    weight: 1.5,
+    mirrorId: 'GRIND_RAIL_RIGHT',
+    isAsymmetric: true,
+    leftHeavy: true,
+  },
+  {
+    id: 'GRIND_RAIL_RIGHT',
+    rows: [['block', 'free', 'rail']],
+    unlockDifficulty: 0.12,
+    weight: 1.5,
+    mirrorId: 'GRIND_RAIL_LEFT',
+    isAsymmetric: true,
+    leftHeavy: false,
+  },
+  // 10. Sonic Boost Gates (Center, Left, Right)
+  {
+    id: 'BOOST_GATE_CENTER',
+    rows: [['block', 'boost', 'block']],
+    unlockDifficulty: 0.06,
+    weight: 1.8,
+  },
+  {
+    id: 'BOOST_GATE_LEFT',
+    rows: [['boost', 'free', 'block']],
+    unlockDifficulty: 0.14,
+    weight: 1.3,
+    mirrorId: 'BOOST_GATE_RIGHT',
+    isAsymmetric: true,
+    leftHeavy: true,
+  },
+  {
+    id: 'BOOST_GATE_RIGHT',
+    rows: [['block', 'free', 'boost']],
+    unlockDifficulty: 0.14,
+    weight: 1.3,
+    mirrorId: 'BOOST_GATE_LEFT',
     isAsymmetric: true,
     leftHeavy: false,
   },
@@ -209,8 +267,9 @@ export class ObstacleGeneratorState {
   currentReach: Set<LaneIndex> = new Set([0]);
   lastRowActions: PatternRow = ['free', 'free', 'free'];
   lastActionZ = { [-1]: -999, 0: -999, 1: -999 };
-  lastActionType: Record<number, 'jump' | 'duck' | null> = { [-1]: null, 0: null, 1: null };
+  lastActionType: Record<number, 'jump' | 'duck' | 'rail' | 'boost' | null> = { [-1]: null, 0: null, 1: null };
   lastWasMultiBlock = false;
+  private pendingRows: PatternRow[] = [];
 
   constructor(seed = 1337) {
     this.rng = createMulberry32(seed);
@@ -223,17 +282,23 @@ export class ObstacleGeneratorState {
     const rowGap = Math.max(minGap, (1 - difficulty) * 40 + difficulty * 20);
     const gapTime = rowGap / speed;
 
+    // 1. If we have queued rows from a multi-row sequence (like Slalom), process next row
+    if (this.pendingRows.length > 0) {
+      const queuedRow = this.pendingRows.shift()!;
+      this.updateStateForChosenRow(queuedRow, spawnZ, tSwitch, gapTime);
+      return queuedRow;
+    }
+
     const imbalance = this.laneLoad[-1] - this.laneLoad[1];
-    const pLeft = THREE.MathUtils.clamp(0.5 - 0.15 * imbalance, 0.1, 0.9);
 
     // Available patterns unlocked at current difficulty
     const available = PATTERN_LIBRARY.filter(p => difficulty >= p.unlockDifficulty);
 
+    let chosenPattern: PatternDef | null = null;
     let chosenRow: PatternRow = ['free', 'free', 'free'];
-    let candidateFound = false;
 
-    // Up to 8 resample attempts to guarantee solvability
-    for (let attempt = 0; attempt < 8; attempt++) {
+    // Up to 12 resample attempts to guarantee solvability
+    for (let attempt = 0; attempt < 12; attempt++) {
       // Weighted random selection
       const totalWeight = available.reduce((acc, p) => acc + p.weight, 0);
       let rand = this.rng() * totalWeight;
@@ -265,7 +330,7 @@ export class ObstacleGeneratorState {
         continue;
       }
 
-      // Rule B: Action safety — reject jump directly followed by duck (or vice versa) within recovery gap
+      // Rule B: Action safety — reject jump directly followed by duck (or vice versa) within recovery gap (0.6 * speed)
       const recoveryGap = 0.6 * speed;
       let actionConflict = false;
       for (let i = 0; i < 3; i++) {
@@ -274,13 +339,23 @@ export class ObstacleGeneratorState {
         if (action === 'jump' || action === 'duck') {
           const prevAction = this.lastActionType[lane];
           const distSince = spawnZ - this.lastActionZ[lane];
-          if (prevAction && prevAction !== action && distSince < recoveryGap) {
+          if (prevAction && ((prevAction === 'jump' && action === 'duck') || (prevAction === 'duck' && action === 'jump')) && distSince < recoveryGap) {
             actionConflict = true;
             break;
           }
         }
       }
       if (actionConflict) continue;
+
+      // Special Check for FULL_HURDLE & FULL_OVERHEAD across all lanes
+      const isFullHurdle = rowCandidate.every(c => c === 'jump');
+      const isFullOverhead = rowCandidate.every(c => c === 'duck');
+      if (isFullHurdle && this.lastRowActions.every(c => c === 'duck')) {
+        continue;
+      }
+      if (isFullOverhead && this.lastRowActions.every(c => c === 'jump')) {
+        continue;
+      }
 
       // Rule C: Guaranteed Reachability Check
       const nextReach = new Set<LaneIndex>();
@@ -292,7 +367,7 @@ export class ObstacleGeneratorState {
         // Check if targetLane is reachable from any lane in currentReach
         for (const fromLane of this.currentReach) {
           const timeNeeded = Math.abs(fromLane - targetLane) * tSwitch;
-          if (timeNeeded <= gapTime - 0.12) {
+          if (timeNeeded <= gapTime - 0.10) {
             nextReach.add(targetLane);
             break;
           }
@@ -300,37 +375,64 @@ export class ObstacleGeneratorState {
       }
 
       if (nextReach.size > 0) {
+        chosenPattern = selectedPattern;
         chosenRow = rowCandidate;
         this.currentReach = nextReach;
         this.lastWasMultiBlock = blockCount >= 2;
-        candidateFound = true;
         break;
       }
     }
 
-    if (!candidateFound) {
+    if (!chosenPattern) {
       // Solvability fallback: Clear row maintaining open reach
       chosenRow = ['free', 'free', 'free'];
       this.currentReach = new Set([-1, 0, 1]);
       this.lastWasMultiBlock = false;
+    } else if (chosenPattern.rows.length > 1) {
+      // Queue remaining rows of multi-row pattern (e.g. Slalom rows 1 and 2)
+      for (let r = 1; r < chosenPattern.rows.length; r++) {
+        this.pendingRows.push(chosenPattern.rows[r]);
+      }
     }
 
-    // Update lane loads and action histories
-    this.laneLoad[-1] = this.laneLoad[-1] * 0.9 + (chosenRow[0] !== 'free' ? 1 : 0);
-    this.laneLoad[0] = this.laneLoad[0] * 0.9 + (chosenRow[1] !== 'free' ? 1 : 0);
-    this.laneLoad[1] = this.laneLoad[1] * 0.9 + (chosenRow[2] !== 'free' ? 1 : 0);
+    this.updateStateForChosenRow(chosenRow, spawnZ, tSwitch, gapTime);
+    return chosenRow;
+  }
+
+  private updateStateForChosenRow(row: PatternRow, spawnZ: number, tSwitch: number, gapTime: number) {
+    const nextReach = new Set<LaneIndex>();
+    for (let i = 0; i < 3; i++) {
+      const targetLane = (i - 1) as LaneIndex;
+      const cell = row[i];
+      if (cell === 'block') continue;
+      for (const fromLane of this.currentReach) {
+        const timeNeeded = Math.abs(fromLane - targetLane) * tSwitch;
+        if (timeNeeded <= gapTime - 0.08) {
+          nextReach.add(targetLane);
+          break;
+        }
+      }
+    }
+    if (nextReach.size > 0) {
+      this.currentReach = nextReach;
+    } else {
+      this.currentReach = new Set([-1, 0, 1]);
+    }
+
+    this.laneLoad[-1] = this.laneLoad[-1] * 0.9 + (row[0] !== 'free' ? 1 : 0);
+    this.laneLoad[0] = this.laneLoad[0] * 0.9 + (row[1] !== 'free' ? 1 : 0);
+    this.laneLoad[1] = this.laneLoad[1] * 0.9 + (row[2] !== 'free' ? 1 : 0);
 
     for (let i = 0; i < 3; i++) {
       const lane = (i - 1) as LaneIndex;
-      const act = chosenRow[i];
-      if (act === 'jump' || act === 'duck') {
+      const act = row[i];
+      if (act === 'jump' || act === 'duck' || act === 'rail' || act === 'boost') {
         this.lastActionZ[lane] = spawnZ;
         this.lastActionType[lane] = act;
       }
     }
 
-    this.lastRowActions = chosenRow;
-    return chosenRow;
+    this.lastRowActions = row;
   }
 }
 
@@ -388,6 +490,33 @@ export class ObstacleManager {
 
   private portalRingGeom = new THREE.TorusGeometry(3.6, 0.24, 12, 32);
   private portalDiscGeom = new THREE.CircleGeometry(3.4, 32);
+
+  // Grind Rail Geometries & Materials
+  private railTubeGeom = new THREE.BoxGeometry(0.26, 0.22, 18.0);
+  private railPostGeom = new THREE.CylinderGeometry(0.08, 0.08, 0.90, 8);
+  private railMat = new THREE.MeshStandardMaterial({
+    color: 0x00f0ff,
+    emissive: new THREE.Color(0x00d2e0),
+    emissiveIntensity: 0.85,
+    metalness: 0.9,
+    roughness: 0.15,
+  });
+  private railPostMat = new THREE.MeshStandardMaterial({
+    color: 0x111927,
+    metalness: 0.85,
+    roughness: 0.4,
+  });
+
+  // Boost Gate Geometries & Materials
+  private boostPillarGeom = new THREE.BoxGeometry(0.24, 3.2, 0.35);
+  private boostTopGeom = new THREE.BoxGeometry(2.6, 0.35, 0.35);
+  private boostMat = new THREE.MeshStandardMaterial({
+    color: 0x00ffaa,
+    emissive: new THREE.Color(0x00ffaa),
+    emissiveIntensity: 1.2,
+    metalness: 0.5,
+    roughness: 0.15,
+  });
 
   private coinGeom = new THREE.OctahedronGeometry(0.24);
   private powerUpGeom = new THREE.DodecahedronGeometry(0.35);
@@ -453,6 +582,10 @@ export class ObstacleManager {
         this.createLowHurdle(lane, spawnZ);
       } else if (action === 'duck') {
         this.createOverheadLaserBarrier(lane, spawnZ);
+      } else if (action === 'rail') {
+        this.createGrindRail(lane, spawnZ, 18.0);
+      } else if (action === 'boost') {
+        this.createBoostGate(lane, spawnZ);
       }
     }
 
@@ -468,6 +601,87 @@ export class ObstacleManager {
         this.spawnPowerUp(coinX, spawnZ + rowGap * 0.5);
       }
     }
+  }
+
+  private createGrindRail(lane: LaneIndex, z: number, length = 18.0): void {
+    const x = getLaneX(lane);
+    const groundH = getTerrainHeight(x, z);
+    const railGroup = new THREE.Group();
+    const railTopY = groundH + 0.90;
+    railGroup.position.set(x, 0, z);
+
+    // Top Glowing Rail Tube
+    const tubeMesh = new THREE.Mesh(this.railTubeGeom, this.railMat);
+    tubeMesh.position.set(0, railTopY, 0);
+    railGroup.add(tubeMesh);
+
+    // Support Posts (every 5m along the rail length)
+    const postCount = Math.max(2, Math.floor(length / 5));
+    const startZ = -length * 0.5 + 2.0;
+    const stepZ = (length - 4.0) / (postCount - 1);
+    for (let p = 0; p < postCount; p++) {
+      const pz = startZ + p * stepZ;
+      const postGroundH = getTerrainHeight(x, z + pz);
+      const postMesh = new THREE.Mesh(this.railPostGeom, this.railPostMat);
+      postMesh.position.set(0, postGroundH + 0.45, pz);
+      railGroup.add(postMesh);
+    }
+
+    railGroup.frustumCulled = false;
+    this.group.add(railGroup);
+
+    this.obstacles.push({
+      id: `rail-${z}-${lane}`,
+      type: 'grind-rail',
+      category: 'grind-rail',
+      lane,
+      x,
+      y: railTopY,
+      z,
+      width: 0.8,
+      height: 0.95,
+      depth: length,
+      mesh: railGroup,
+      isGrindRail: true,
+      canJump: true,
+    });
+  }
+
+  private createBoostGate(lane: LaneIndex, z: number): void {
+    const x = getLaneX(lane);
+    const groundH = getTerrainHeight(x, z);
+    const gateGroup = new THREE.Group();
+    gateGroup.position.set(x, groundH, z);
+
+    // Left & Right Pillars
+    const postL = new THREE.Mesh(this.boostPillarGeom, this.boostMat);
+    postL.position.set(-1.25, 1.6, 0);
+    const postR = new THREE.Mesh(this.boostPillarGeom, this.boostMat);
+    postR.position.set(1.25, 1.6, 0);
+    gateGroup.add(postL, postR);
+
+    // Arch Top
+    const topBar = new THREE.Mesh(this.boostTopGeom, this.boostMat);
+    topBar.position.set(0, 3.1, 0);
+    gateGroup.add(topBar);
+
+    gateGroup.frustumCulled = false;
+    this.group.add(gateGroup);
+
+    this.obstacles.push({
+      id: `boost-${z}-${lane}`,
+      type: 'boost-gate',
+      category: 'boost-gate',
+      lane,
+      x,
+      y: groundH + 1.6,
+      z,
+      width: 2.6,
+      height: 3.2,
+      depth: 1.0,
+      mesh: gateGroup,
+      isBoostGate: true,
+    });
   }
 
   private createSolidBlock(lane: LaneIndex, z: number): void {
@@ -801,6 +1015,28 @@ export class ObstacleManager {
         continue;
       }
 
+      // Boost Gate pass-through activation
+      if (obs.isBoostGate) {
+        if (Math.abs(dz) < 1.8 && dx < 1.35) {
+          obs.cleared = true;
+          result.hitBoostGate = true;
+        }
+        continue;
+      }
+
+      // Grind Rail detection
+      if (obs.isGrindRail) {
+        const halfW = (obs.width ?? 0.8) * 0.5 + 0.45;
+        const halfD = (obs.depth ?? 18.0) * 0.5;
+        if (dx <= halfW && Math.abs(dz) <= halfD) {
+          // If player is atop or sliding along the rail (near top surface)
+          if (py >= obs.y - 0.35 && py <= obs.y + 1.25) {
+            result.isGrinding = true;
+          }
+        }
+        continue;
+      }
+
       const obsHalfWidth = (obs.width ?? 2.0) * 0.40;
       const obsHalfDepth = Math.max(0.45, (obs.depth ?? 0.8) * 0.40);
 
@@ -834,6 +1070,19 @@ export class ObstacleManager {
     }
 
     return result;
+  }
+
+  getObstacleSurfaceHeight(x: number, z: number, _playerY: number): number {
+    for (const obs of this.obstacles) {
+      if (obs.isGrindRail && !obs.cleared) {
+        const halfW = (obs.width ?? 0.8) * 0.5 + 0.45;
+        const halfD = (obs.depth ?? 18.0) * 0.5;
+        if (Math.abs(x - obs.x) <= halfW && Math.abs(z - obs.z) <= halfD) {
+          return obs.y;
+        }
+      }
+    }
+    return 0;
   }
 
   removeObstacle(obstacle: ObstacleItem): void {
@@ -890,6 +1139,10 @@ export class ObstacleManager {
     this.portalDiscGeom.dispose();
     this.coinGeom.dispose();
     this.powerUpGeom.dispose();
+    this.railTubeGeom.dispose();
+    this.railPostGeom.dispose();
+    this.boostPillarGeom.dispose();
+    this.boostTopGeom.dispose();
 
     // Dispose materials
     this.barrierMat.dispose();
@@ -899,5 +1152,8 @@ export class ObstacleManager {
     this.goldMat.dispose();
     this.telegraphMat.dispose();
     this.portalDiscMat.dispose();
+    this.railMat.dispose();
+    this.railPostMat.dispose();
+    this.boostMat.dispose();
   }
 }

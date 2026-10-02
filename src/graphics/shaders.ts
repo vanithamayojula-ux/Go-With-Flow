@@ -60,13 +60,15 @@ export const SkyboxShader = {
       vec3 dir = normalize(vWorldPosition);
       float elevation = clamp(dir.y * 0.5 + 0.5, 0.0, 1.0);
 
-      // Deep Galaxy Void: Dark Blue (#02040c) into Deep Cosmic Purple (#0a0418) to Midnight (#010206)
-      vec3 deepVoid = vec3(0.008, 0.015, 0.045);    // Dark Navy Base
-      vec3 nebulaPurple = vec3(0.045, 0.012, 0.095); // Deep Cosmic Violet
-      vec3 zenithVoid = vec3(0.002, 0.004, 0.012);   // Pure Obsidian Black
-      
-      vec3 galaxyBase = mix(deepVoid, nebulaPurple, smoothstep(0.1, 0.65, elevation));
-      galaxyBase = mix(galaxyBase, zenithVoid, smoothstep(0.6, 1.0, elevation));
+      // Per-biome 3-stop dynamic atmospheric gradient
+      vec3 skyGrad = mix(uSkyHorizon, uSkyMid, smoothstep(0.0, 0.45, elevation));
+      skyGrad = mix(skyGrad, uSkyTop, smoothstep(0.45, 1.0, elevation));
+
+      // Sun Disc and atmospheric sun bloom
+      vec3 sunDir = normalize(uSunPosition);
+      float sunDot = max(0.0, dot(dir, sunDir));
+      float sunDisc = smoothstep(0.996, 0.999, sunDot) * 2.5 + pow(sunDot, 64.0) * 0.75;
+      vec3 galaxyBase = skyGrad + uSunColor * sunDisc;
 
       // Slow majestic galaxy rotation (0.01x parallax)
       float slowTime = uTime * 0.015;
@@ -80,13 +82,13 @@ export const SkyboxShader = {
       vec2 nebCoord2 = skyCoord * 3.2 - vec2(slowTime * 0.15, slowTime * 0.25);
       float nebFbm2 = fbm(nebCoord2);
 
-      vec3 nebColA = vec3(0.02, 0.06, 0.14); // Deep Indigo
-      vec3 nebColB = vec3(0.07, 0.01, 0.12); // Royal Violet / Purple
-      vec3 nebColC = vec3(0.00, 0.05, 0.08); // Cyan Filament Tint
+      vec3 nebColA = mix(uSkyMid * 1.5, vec3(0.02, 0.06, 0.14), 0.5);
+      vec3 nebColB = mix(uSkyHorizon * 1.5, vec3(0.07, 0.01, 0.12), 0.5);
+      vec3 nebColC = uSunColor * 0.4;
 
       vec3 nebulaGlow = mix(nebColA, nebColB, nebFbm1) * smoothstep(0.25, 0.75, nebFbm1 * 1.2);
       nebulaGlow += nebColC * smoothstep(0.35, 0.85, nebFbm2) * 0.6;
-      galaxyBase += nebulaGlow * 0.85;
+      galaxyBase += nebulaGlow * (0.85 * uHazeDensity);
 
       // --- Layer 1: Distant Pinpoint Starfield (Crisp, High-Density) ---
       vec2 starGrid1 = skyCoord * 90.0;
@@ -102,7 +104,6 @@ export const SkyboxShader = {
       }
 
       // --- Layer 2: Fast High-Velocity Speed Streaks at High KM/H ---
-      // When player accelerates, stars along periphery stretch into relativistic warp lines
       float speedFactor = clamp((uSpeed - 20.0) / 40.0, 0.0, 1.0);
       if (speedFactor > 0.01) {
         vec2 streakCoord = dir.xy * 60.0;
@@ -110,7 +111,7 @@ export const SkyboxShader = {
         float streakId = hash(floor(streakCoord));
         if (streakId > 0.985) {
           float streakLine = smoothstep(0.08, 0.0, abs(fract(streakCoord.x) - 0.5));
-          galaxyBase += vec3(0.0, 0.85, 1.0) * streakLine * speedFactor * 0.45;
+          galaxyBase += uSunColor * streakLine * speedFactor * 0.45;
         }
       }
 
@@ -121,7 +122,7 @@ export const SkyboxShader = {
         float gridLineX = abs(fract(gridAngle * 16.0) - 0.5);
         float gridLineY = abs(fract(gridElevation * 20.0) - 0.5);
         float gridMask = (smoothstep(0.03, 0.0, gridLineX) + smoothstep(0.03, 0.0, gridLineY)) * 0.4;
-        galaxyBase += vec3(0.0, 0.9, 0.95) * gridMask * uGridMode;
+        galaxyBase += uSunColor * gridMask * uGridMode;
       }
 
       // Calm horizon blending to preserve gameplay focus
@@ -349,6 +350,7 @@ export const PostProcessShader = {
     uniform float uHighSpeedBlur;
     uniform float uWarpIntensity;
     uniform float uFilmGrain;
+    uniform float uHeatShimmer;
     uniform float uColorLift;
     uniform float uRainIntensity;
     uniform vec2 uResolution;
@@ -360,6 +362,12 @@ export const PostProcessShader = {
 
     void main() {
       vec2 uv = vUv;
+
+      // 0. Heat Shimmer / Thermal Distortion
+      if (uHeatShimmer > 0.01) {
+        float shimmer = sin(uv.y * 80.0 + uTime * 12.0) * 0.003 * uHeatShimmer;
+        uv.x += shimmer;
+      }
 
       // 0. Radial Portal Vortex Warp Distortion
       if (uWarpIntensity > 0.01) {
@@ -450,12 +458,24 @@ export const PostProcessShader = {
       float vignette = smoothstep(0.8, 0.35, screenEdge);
       sceneCol *= mix(0.82, 1.0, vignette);
 
-      // 8. Color Lift
+      // 8. CRT Scanlines
+      if (uScanlines > 0.005) {
+        float scanline = sin(uv.y * uResolution.y * 1.5) * 0.5 + 0.5;
+        sceneCol *= (1.0 - uScanlines * (1.0 - scanline) * 0.45);
+      }
+
+      // 9. Film Grain
+      if (uFilmGrain > 0.005) {
+        float grain = (hash(uv + vec2(uTime * 0.24, uTime * 0.17)) - 0.5) * uFilmGrain * 0.16;
+        sceneCol += vec3(grain);
+      }
+
+      // 10. Color Lift
       if (uColorLift > 0.01) {
         sceneCol = mix(sceneCol, sceneCol + vec3(0.01, 0.02, 0.04), uColorLift * 0.25);
       }
 
-      // 9. Crisp 5-Tap Contrast Sharpening (High Visual Clarity & Laplacian Edge Definition)
+      // 11. Crisp 5-Tap Contrast Sharpening (High Visual Clarity & Laplacian Edge Definition)
       vec2 sTexel = 1.0 / max(uResolution, vec2(1.0, 1.0));
       vec3 colCenter = sceneCol;
       vec3 colUp = texture2D(tDiffuse, uv + vec2(0.0, sTexel.y)).rgb;
@@ -465,7 +485,7 @@ export const PostProcessShader = {
       vec3 laplacian = colCenter * 5.0 - (colUp + colDown + colLeft + colRight);
       sceneCol = mix(sceneCol, clamp(laplacian, 0.0, 1.0), 0.30);
 
-      // 10. Cyberpunk Contrast & Clean Output
+      // 12. Cyberpunk Contrast & Clean Output
       gl_FragColor = vec4(clamp(sceneCol, 0.0, 1.0), 1.0);
     }
   `

@@ -429,7 +429,16 @@ export class PlayerManager {
       });
     }
 
-    // 5. Visor, Underglow & Cape Colors
+    // 5. Visor, Underglow, Footlights & Cape Colors
+    const boardDefaultGlow: Record<string, string> = {
+      'cyber-phantom': '#00F0FF',
+      'laser-edge': '#FF2200',
+      'grid-runner': '#00FF66',
+      'tokyo-neon': '#FF007F',
+      'void-stalker': '#9900FF',
+    };
+    const boardGlow = boardDefaultGlow[bId] || '#00F0FF';
+
     const glowColor =
       config.visorColor ||
       (config.trailId === 'hot-magenta'
@@ -440,15 +449,24 @@ export class PlayerManager {
         ? '#FF00AA'
         : '#00F0FF');
 
+    const uColor = config.underglowColor || boardGlow || glowColor;
+
     if (pc.visorMesh && pc.visorMesh.material) {
       (pc.visorMesh.material as THREE.MeshPhysicalMaterial).color.set(glowColor);
       (pc.visorMesh.material as THREE.MeshPhysicalMaterial).emissive.set(glowColor);
     }
 
     if (pc.underglowMesh && pc.underglowMesh.material) {
-      const uColor = config.underglowColor || glowColor;
       (pc.underglowMesh.material as THREE.MeshBasicMaterial).color.set(uColor);
-      if (pc.underglowLight) pc.underglowLight.color.set(uColor);
+    }
+    if (pc.underglowLight) {
+      pc.underglowLight.color.set(uColor);
+    }
+    if (pc.footLightLeft) {
+      pc.footLightLeft.color.set(uColor);
+    }
+    if (pc.footLightRight) {
+      pc.footLightRight.color.set(uColor);
     }
 
     if (pc.capeMesh && pc.capeMesh.material) {
@@ -531,10 +549,11 @@ export class PlayerManager {
   }
 
   applyBoostGateHit(audioManager?: AudioManager | null) {
-    this.boostTimer = 1.4;
+    this.boostTimer = 1.6;
     this.stats.isBoosting = true;
-    this.velocity.z = Math.min(this.velocity.z + 16.0, 52.0);
+    this.velocity.z = Math.min(this.velocity.z + 18.0, 56.0);
     this.overdriveMeter = Math.min(100, this.overdriveMeter + 35.0);
+    this.stats.boostEnergy = Math.min(100, (this.stats.boostEnergy || 0) + 50.0);
     if (audioManager) audioManager.playBoostGate();
     this.emitJumpDust(this.position, 10);
     this.emitSparks(this.position, 12, 0x00ffaa);
@@ -961,9 +980,18 @@ export class PlayerManager {
       this.playerCharacter.footLightRight.intensity = footInt;
     }
 
-    // Slide Contact Sparks
+    // Slide Contact Sparks & Rail Grind Friction Sparks
     if (this.isSliding) {
       this.emitSparks(this.position, 2, 0x00f0ff);
+    }
+    if (this.isGrinding) {
+      this.emitSparks(this.position, 3, 0xffd700);
+      this.overdriveMeter = Math.min(100, this.overdriveMeter + 14.0 * effectiveDt);
+      this.stats.boostEnergy = Math.min(100, (this.stats.boostEnergy || 0) + 20.0 * effectiveDt);
+    } else if (this.stats.isBoosting) {
+      this.stats.boostEnergy = Math.max(0, (this.stats.boostEnergy || 0) - 25.0 * effectiveDt);
+    } else {
+      this.stats.boostEnergy = Math.max(0, (this.stats.boostEnergy || 0) - 10.0 * effectiveDt);
     }
 
     // Cyber Crouch / Duck under barriers pose & stumble recoil
@@ -998,13 +1026,26 @@ export class PlayerManager {
     else if (this.stats.combo >= 3) cTier = 'magenta';
     else if (this.stats.combo === 2) cTier = 'cyan';
 
+    // Style Tier Derivation (Chill -> Breeze -> Flow -> Transcendent)
+    let sTier: 'Chill' | 'Breeze' | 'Flow' | 'Transcendent' = 'Chill';
+    if (this.overdriveMeter >= 85 || this.stats.combo >= 6 || this.stats.scoreMultiplier >= 4) {
+      sTier = 'Transcendent';
+    } else if (this.overdriveMeter >= 55 || this.stats.combo >= 4 || this.stats.scoreMultiplier >= 2) {
+      sTier = 'Flow';
+    } else if (this.overdriveMeter >= 25 || this.stats.combo >= 2) {
+      sTier = 'Breeze';
+    }
+
     this.stats.overdriveMeter = this.overdriveMeter;
     this.stats.overdriveTier = odTier;
     this.stats.comboTier = cTier;
+    this.stats.styleTier = sTier;
     this.stats.styleMeter = this.overdriveMeter;
+    this.stats.isGrinding = this.isGrinding;
     this.stats.speed = Math.round(this.velocity.z * 3.6); // km/h
     this.stats.distance += Math.round(this.velocity.z * effectiveDt * 1.5);
-    this.stats.score += Math.round(this.velocity.z * effectiveDt * 4.0 * this.scoreMultiplier);
+    const grindScoreBonus = this.isGrinding ? 2.0 : 1.0;
+    this.stats.score += Math.round(this.velocity.z * effectiveDt * 4.0 * this.scoreMultiplier * grindScoreBonus);
     this.stats.highScore = Math.max(this.stats.highScore, this.stats.score);
     this.stats.currentLane = this.currentLane;
     this.stats.isSliding = this.isSliding;
