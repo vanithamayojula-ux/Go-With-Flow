@@ -192,23 +192,27 @@ export class PlayerManager {
   dustTexture!: THREE.CanvasTexture;
   petalTexture!: THREE.CanvasTexture;
 
-  constructor(scene: THREE.Scene) {
+  constructor(scene: THREE.Scene, initialCosmetics?: CosmeticsConfig) {
     this.scene = scene;
     this.group = new THREE.Group();
     this.scene.add(this.group);
+
+    if (initialCosmetics) {
+      this.currentCosmetics = { ...this.currentCosmetics, ...initialCosmetics };
+    }
 
     const h = getTerrainHeight(0, 0);
     this.position.set(0, h + this.hoverHeight, 0);
     this.group.position.copy(this.position);
 
     // Build 3D Hero / Cyberpunk Skater Character & Hoverboard
-    this.playerCharacter = createPlayerCharacter();
+    this.playerCharacter = createPlayerCharacter(this.currentCosmetics.heroId);
     this.characterMesh = this.playerCharacter.group;
     this.boardMesh = this.playerCharacter.board;
 
     this.group.add(this.playerCharacter.group);
 
-    // Dedicated top-back key light illuminating the player character's silhouette cleanly
+    // Dedicated top-back key light illuminating the player character's silhouette cleanly: key 3.2 (0, 3.5, -4.5)
     const playerKeyLight = new THREE.DirectionalLight(0xffffff, 3.2);
     playerKeyLight.position.set(0, 3.5, -4.5);
     playerKeyLight.target.position.set(0, 1.0, 0);
@@ -226,11 +230,6 @@ export class PlayerManager {
     const playerHemiLight = new THREE.HemisphereLight(0x88ccff, 0x080810, 0.6);
     playerHemiLight.position.set(0, 5, 0);
     this.group.add(playerHemiLight);
-
-    // Soft cyan halo glow around player to ensure complete foreground pop and visibility
-    const playerGlowLight = new THREE.PointLight(0x00d2e0, 2.0, 5.0);
-    playerGlowLight.position.set(0, 0.8, 0);
-    this.group.add(playerGlowLight);
 
     // 3. Thin Fresnel-Rim Holo-Shield Bubble (Crystal clear sightline, zero forward occlusion)
     const shieldGeom = new THREE.SphereGeometry(1.65, 32, 24);
@@ -987,8 +986,8 @@ export class PlayerManager {
     const unifiedCarveTilt = continuousCarveRoll + laneCarveTilt;
 
     this.boardMesh.rotation.z = unifiedCarveTilt;
-    this.boardMesh.rotation.x = this.pitchAngle + Math.sin(carvePhase * 2.0) * 0.015 * carveBlend + (this.activeTrick === 'flip' ? this.flipAngle : 0);
-    this.boardMesh.rotation.y = this.spinAngle;
+    this.boardMesh.rotation.x = this.isGrounded ? 0 : (this.activeTrick === 'flip' ? this.flipAngle : 0);
+    this.boardMesh.rotation.y = this.isGrounded ? 0 : this.spinAngle;
 
     // Animate Holo-Shield Shell
     if (this.shieldMesh && this.shieldMesh.visible) {
@@ -1031,19 +1030,17 @@ export class PlayerManager {
       this.stats.boostEnergy = Math.max(0, (this.stats.boostEnergy || 0) - 10.0 * effectiveDt);
     }
 
-    // Cyber Crouch / Duck under barriers pose & stumble recoil
+    // Stumble recoil
     if (this.stumbleTimer > 0) {
       this.stumbleTimer -= effectiveDt;
       this.stats.stumbleTimer = this.stumbleTimer;
     }
-    const stumbleOffset = this.stumbleTimer > 0 ? Math.sin(this.stumbleTimer * 28.0) * 0.12 : 0;
-    const slideCrouchY = this.isSliding ? -0.18 : (-this.grabPoseWeight * 0.25 + stumbleOffset);
-    const slidePitch = this.isSliding ? 0.35 : (this.flipAngle - this.grabPoseWeight * 0.5 + (this.stumbleTimer > 0 ? 0.18 : 0));
 
-    this.characterMesh.rotation.z = unifiedCarveTilt;
-    this.characterMesh.rotation.x = slidePitch;
-    this.characterMesh.rotation.y = (this.isGrounded ? 0 : this.spinAngle);
-    this.characterMesh.position.y = slideCrouchY;
+    // Character root remains stable with zero double-tilt
+    this.characterMesh.rotation.z = 0;
+    this.characterMesh.rotation.x = 0;
+    this.characterMesh.rotation.y = 0;
+    this.characterMesh.position.y = 0;
 
     // Overdrive & Combo Tiers calculation
     let odTier: OverdriveTier = 'Dormant';
@@ -1100,14 +1097,11 @@ export class PlayerManager {
     this.updateTrailRibbon(effectiveDt);
     this.updateParticles(effectiveDt);
 
-    // Camera follow (Immersive low-angle chase perspective matching reference images)
-    // Low eye-level vantage shows wet mirror reflections stretching out in the foreground
-    // and soaring skyscraper heights reaching up into the night sky
-    const camOffset = this.isUpright ? CAM_OFFSET_UPRIGHT : CAM_OFFSET_WIDE;
+    // Camera follow: y+2.6 z-5.2 look y+1.6
     this.cameraPos.set(
       this.position.x * 0.58,
-      this.position.y + camOffset.y,
-      this.position.z + camOffset.z
+      this.position.y + 2.6,
+      this.position.z - 5.2
     );
     this.cameraLookAt.set(
       this.position.x * 0.58,

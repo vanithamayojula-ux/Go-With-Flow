@@ -871,6 +871,8 @@ export function createPlayerCharacter(heroId?: HeroId): PlayerCharacter {
   // Hero GLTF Dynamic Rig Swapping
   playerChar.setHero = async (targetHeroId?: HeroId): Promise<boolean> => {
     if (targetHeroId) {
+      playerChar.activeHeroId = targetHeroId;
+      spineGroup.visible = false;
       const loaded = await loadHeroModel(targetHeroId);
       if (loaded) {
         const rig = buildHeroRig(targetHeroId);
@@ -900,6 +902,8 @@ export function createPlayerCharacter(heroId?: HeroId): PlayerCharacter {
   };
 
   if (heroId) {
+    spineGroup.visible = false;
+    playerChar.activeHeroId = heroId;
     playerChar.setHero(heroId);
   }
 
@@ -1025,7 +1029,8 @@ export function animatePlayerCharacter(
       b.rightForearm.rotation.set(-0.25, 0, 0);
       b.spine.rotation.z = Math.sin(time * 10) * 0.04 - turnVelocity * 0.08;
     } else if (!state.isGrounded) {
-      b.hips.position.y = 0.68;
+      // Jump tuck: hips+0.16 / thighs-0.18 / shins+0.22 gated strictly to airtime
+      b.hips.position.y = 0.52 + 0.16;
       b.spine.rotation.set(0.10, 0, -turnVelocity * 0.08);
       b.leftThigh.rotation.set(-0.18, 0, 0);
       b.rightThigh.rotation.set(-0.18, 0, 0);
@@ -1129,8 +1134,8 @@ export function animatePlayerCharacter(
     }
 
     if (pc.leftLegGroup && pc.rightLegGroup) {
-      pc.leftLegGroup.rotation.x = -1.65;
-      pc.rightLegGroup.rotation.x = -2.00;
+      pc.leftLegGroup.rotation.x = -0.45;
+      pc.rightLegGroup.rotation.x = 0.45;
     }
 
     if (pc.capeMesh) {

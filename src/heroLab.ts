@@ -40,7 +40,7 @@ async function initLab() {
     camera.position.set(0, 0.8, 3.0);
     camera.lookAt(0, 0.60, 0);
   } else if (view === 'back') {
-    camera.position.set(0, 0.8, -3.0);
+    camera.position.set(0, 1.4, -3.2);
     camera.lookAt(0, 0.60, 0);
   } else {
     // 3/4 isometric perspective
@@ -52,15 +52,15 @@ async function initLab() {
   renderer.setSize(width, height);
   renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 2));
   renderer.toneMapping = THREE.ACESFilmicToneMapping;
-  renderer.toneMappingExposure = 1.1;
+  renderer.toneMappingExposure = 1.0;
   container.appendChild(renderer.domElement);
 
-  // Studio lighting
-  const ambient = new THREE.AmbientLight(0xddeeff, 1.2);
+  // Studio lighting: key 3.2 (0,3.5,-4.5), rim magenta 1.5 (-3,2,4), hemi 0.6/0.4, spot 3.0
+  const ambient = new THREE.AmbientLight(0xddeeff, 0.35);
   scene.add(ambient);
 
   const keyLight = new THREE.DirectionalLight(0xffffff, 3.2);
-  keyLight.position.set(4, 6, 4);
+  keyLight.position.set(0, 3.5, -4.5);
   scene.add(keyLight);
 
   const rimMagenta = new THREE.DirectionalLight(0xff00aa, 1.5);
@@ -71,9 +71,11 @@ async function initLab() {
   fillLight.position.set(0, 5, 0);
   scene.add(fillLight);
 
-  const rimLight = new THREE.DirectionalLight(0x00d2e0, 1.5);
-  rimLight.position.set(0, 4, -4);
-  scene.add(rimLight);
+  const spotLight = new THREE.SpotLight(0x00d2e0, 3.0, 26, Math.PI / 6, 0.35, 1.1);
+  spotLight.position.set(0, 3.0, 3.0);
+  spotLight.target.position.set(0, 0.6, 0);
+  scene.add(spotLight);
+  scene.add(spotLight.target);
 
   // Ground grid
   const grid = new THREE.GridHelper(6, 12, 0x00d2e0, 0x223344);

@@ -253,7 +253,7 @@ export const GameCanvas: React.FC<GameCanvasProps> = ({
     const foliageMgr = new FoliageManager(scene);
     foliageMgrRef.current = foliageMgr;
 
-    const playerMgr = new PlayerManager(scene);
+    const playerMgr = new PlayerManager(scene, cosmeticsConfig);
     playerMgr.setUpright(isUpright);
     if (upgrades) playerMgr.applyUpgrades(upgrades);
     playerMgr.applyCosmetics(cosmeticsConfig);

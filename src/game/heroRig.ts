@@ -205,9 +205,13 @@ export function buildHeroRig(heroId: HeroId): HeroRig | null {
         if ((m as THREE.MeshStandardMaterial).isMeshStandardMaterial || (m as any).isMaterial) {
           const stdMat = m as THREE.MeshStandardMaterial;
 
-          // Hero materials opaque: transparent=false, depthWrite=true, fog=false
+          // Hero materials solid & opaque: transparent=false, opacity=1, depthWrite=true, side=FrontSide, blending=NormalBlending
           stdMat.transparent = false;
+          stdMat.opacity = 1.0;
           stdMat.depthWrite = true;
+          stdMat.depthTest = true;
+          stdMat.side = THREE.FrontSide;
+          stdMat.blending = THREE.NormalBlending;
           stdMat.fog = false;
 
           // 1. Color map sRGB color space & mipmaps
@@ -242,20 +246,26 @@ export function buildHeroRig(heroId: HeroId): HeroRig | null {
             stdMat.color.setHSL(hsl.h, Math.min(1.0, hsl.s * 1.1), Math.max(0.35, hsl.l * 1.5));
           }
 
-          // 6. Visor (*2.0) and veins / glow (*1.2) emissive tuning
+          // 6. Visor (*2.0), veins (*1.2) and chest (cap 0.4) emissive tuning
           const matName = (stdMat.name || '').toLowerCase();
           const meshName = (mesh.name || '').toLowerCase();
           const isVisor = matName.includes('visor') || matName.includes('eye') || matName.includes('glass') || meshName.includes('visor');
+          const isChest = matName.includes('chest') || matName.includes('body') || matName.includes('torso') || meshName.includes('chest') || meshName.includes('body');
 
           if (isVisor) {
             stdMat.emissive = new THREE.Color(0x00f0ff);
             stdMat.emissiveIntensity = 2.0; // visor *2.0
+          } else if (isChest) {
+            if (stdMat.emissive) {
+              stdMat.emissive.copy(heroColor).multiplyScalar(0.20);
+              stdMat.emissiveIntensity = 0.4; // chest cap 0.4
+            }
           } else if (stdMat.emissive) {
             if (heroId === 'void') {
-              stdMat.emissive.setHex(0x00f0ff).multiplyScalar(0.60);
+              stdMat.emissive.setHex(0x00f0ff).multiplyScalar(0.50);
               stdMat.emissiveIntensity = 1.2; // veins *1.2
             } else {
-              stdMat.emissive.copy(heroColor).multiplyScalar(0.45);
+              stdMat.emissive.copy(heroColor).multiplyScalar(0.40);
               stdMat.emissiveIntensity = 1.2; // veins *1.2
             }
           }
@@ -265,16 +275,6 @@ export function buildHeroRig(heroId: HeroId): HeroRig | null {
       }
     }
   });
-
-  // Dedicated dynamic back rim light (behind and above hero, illuminating contours toward camera)
-  const rimLight = new THREE.PointLight(heroDef.trail || heroDef.color, 3.4, 6.5);
-  rimLight.position.set(0, 1.7, -0.65);
-  root.add(rimLight);
-
-  // Front fill light
-  const frontFill = new THREE.PointLight(heroDef.color, 2.0, 5.5);
-  frontFill.position.set(0, 1.4, 0.9);
-  root.add(frontFill);
 
   interface BoneDriverEntry {
     bone: THREE.Object3D;
@@ -348,8 +348,8 @@ export function buildHeroRig(heroId: HeroId): HeroRig | null {
       const r = d.driver.rotation;
       e.set(r.x * AXIS.x, r.y * AXIS.y, r.z * AXIS.z, d.order);
       q.setFromEuler(e);
-      // bone.quaternion = drivenQuat * restQuat (parent-space)
-      d.bone.quaternion.copy(q).multiply(d.restQuat);
+      // bone.quaternion = restQuat * drivenQuat (local-space)
+      d.bone.quaternion.copy(d.restQuat).multiply(q);
     }
 
     // Dynamic hips elevation relative to baseline rest pose
