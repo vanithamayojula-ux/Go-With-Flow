@@ -59,12 +59,16 @@ async function initLab() {
   const ambient = new THREE.AmbientLight(0xddeeff, 1.2);
   scene.add(ambient);
 
-  const keyLight = new THREE.DirectionalLight(0xffffff, 2.0);
+  const keyLight = new THREE.DirectionalLight(0xffffff, 3.2);
   keyLight.position.set(4, 6, 4);
   scene.add(keyLight);
 
-  const fillLight = new THREE.DirectionalLight(0x88bbff, 1.0);
-  fillLight.position.set(-4, 3, -2);
+  const rimMagenta = new THREE.DirectionalLight(0xff00aa, 1.5);
+  rimMagenta.position.set(-3, 2, 4);
+  scene.add(rimMagenta);
+
+  const fillLight = new THREE.HemisphereLight(0x88ccff, 0x080810, 0.6);
+  fillLight.position.set(0, 5, 0);
   scene.add(fillLight);
 
   const rimLight = new THREE.DirectionalLight(0x00d2e0, 1.5);
@@ -97,7 +101,7 @@ async function initLab() {
   if (pc.heroRig) {
     if (pose === 'bind') {
       // Raw bind pose - reset all bone quaternions to raw restQuat
-      // Do not apply any animation
+      pc.syncBones?.();
     } else {
       let activeTrick: any = null;
       let turnVelocity = 0;
@@ -119,7 +123,8 @@ async function initLab() {
         turnVelocity: turnVelocity,
         nearestObstacleDist: 999,
       };
-      animatePlayerCharacter(pc, time, 1.0, animState);
+      const speedFactor = pose === 'idle' ? 0 : 1.0;
+      animatePlayerCharacter(pc, time, speedFactor, animState);
     }
   }
 
@@ -181,7 +186,8 @@ async function initLab() {
         turnVelocity: turnVelocity,
         nearestObstacleDist: 999,
       };
-      animatePlayerCharacter(pc, curTime, 1.0, animState);
+      const speedFactor = pose === 'idle' ? 0 : 1.0;
+      animatePlayerCharacter(pc, curTime, speedFactor, animState);
     }
     renderer.render(scene, camera);
   }

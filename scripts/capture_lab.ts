@@ -4,7 +4,7 @@ import * as fs from 'fs';
 import * as path from 'path';
 
 const heroes = ['shadow', 'flame', 'thunder', 'frost', 'void'];
-const poses = ['bind', 'idle', 'slide', 'jump'];
+const poses = ['bind', 'idle', 'run', 'slide', 'jump'];
 const views = ['three', 'front'];
 
 async function main() {
@@ -27,7 +27,8 @@ async function main() {
   for (const hero of heroes) {
     for (const pose of poses) {
       for (const view of views) {
-        const url = `http://127.0.0.1:${port}/hero-lab.html?hero=${hero}&pose=${pose}&view=${view}&time=1.0`;
+        const time = pose === 'bind' || pose === 'idle' ? 0 : 1.0;
+        const url = `http://127.0.0.1:${port}/hero-lab.html?hero=${hero}&pose=${pose}&view=${view}&time=${time}`;
         await page.goto(url);
         await page.waitForFunction(() => (window as any).__labReady === true, { timeout: 15000 });
         await page.waitForTimeout(400);

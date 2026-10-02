@@ -20,8 +20,8 @@ import {
 import { getLaneX } from './obstacles';
 import { heroById } from './heroes';
 
-const CAM_OFFSET_UPRIGHT = new THREE.Vector3(0, 2.35, -4.8);
-const CAM_OFFSET_WIDE = new THREE.Vector3(0, 2.7, -5.6);
+const CAM_OFFSET_UPRIGHT = new THREE.Vector3(0, 2.6, -5.2);
+const CAM_OFFSET_WIDE = new THREE.Vector3(0, 2.85, -5.8);
 
 export class PlayerManager {
   scene: THREE.Scene;
@@ -209,9 +209,23 @@ export class PlayerManager {
     this.group.add(this.playerCharacter.group);
 
     // Dedicated top-back key light illuminating the player character's silhouette cleanly
-    const playerKeyLight = new THREE.DirectionalLight(0xffffff, 2.2);
+    const playerKeyLight = new THREE.DirectionalLight(0xffffff, 3.2);
     playerKeyLight.position.set(0, 3.5, -4.5);
+    playerKeyLight.target.position.set(0, 1.0, 0);
     this.group.add(playerKeyLight);
+    this.group.add(playerKeyLight.target);
+
+    // Rim Directional magenta 1.5 from back-left (-3, 2, 4)
+    const playerRimLight = new THREE.DirectionalLight(0xff00aa, 1.5);
+    playerRimLight.position.set(-3, 2, 4);
+    playerRimLight.target.position.set(0, 1.0, 0);
+    this.group.add(playerRimLight);
+    this.group.add(playerRimLight.target);
+
+    // Fill Hemisphere light (sky 0x88ccff 0.6 / ground 0x080810 0.4)
+    const playerHemiLight = new THREE.HemisphereLight(0x88ccff, 0x080810, 0.6);
+    playerHemiLight.position.set(0, 5, 0);
+    this.group.add(playerHemiLight);
 
     // Soft cyan halo glow around player to ensure complete foreground pop and visibility
     const playerGlowLight = new THREE.PointLight(0x00d2e0, 2.0, 5.0);
@@ -968,7 +982,7 @@ export class PlayerManager {
     const isSpecialAction = this.isSliding || this.isGrinding || !this.isGrounded;
     const carveBlend = isSpecialAction ? 0.20 : 1.0;
 
-    const continuousCarveRoll = Math.sin(carvePhase) * 0.065 * carveBlend;
+    const continuousCarveRoll = Math.sin(carvePhase) * 0.04 * carveBlend;
     const laneCarveTilt = -this.carveAngle * 1.1;
     const unifiedCarveTilt = continuousCarveRoll + laneCarveTilt;
 
@@ -1097,7 +1111,7 @@ export class PlayerManager {
     );
     this.cameraLookAt.set(
       this.position.x * 0.58,
-      this.position.y + 2.1,
+      this.position.y + 1.6,
       this.position.z + 14.0
     );
   }

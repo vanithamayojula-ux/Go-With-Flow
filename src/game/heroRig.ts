@@ -164,6 +164,9 @@ export function buildHeroRig(heroId: HeroId): HeroRig | null {
         if ((m as THREE.MeshStandardMaterial).isMeshStandardMaterial || (m as any).isMaterial) {
           const stdMat = m as THREE.MeshStandardMaterial;
 
+          // Exclude player meshes from scene fog so hero stays crisp & readable
+          stdMat.fog = false;
+
           // 1. Color map sRGB color space & mipmaps
           if (stdMat.map) {
             stdMat.map.colorSpace = THREE.SRGBColorSpace;
@@ -172,31 +175,41 @@ export function buildHeroRig(heroId: HeroId): HeroRig | null {
             stdMat.map.needsUpdate = true;
           }
 
-          // 2. Normal map softening (clamp normalScale to 0.45 to prevent noisy spongy appearance)
+          // 2. Normal map softening (clamp normalScale to 0.35 to prevent noisy spongy appearance)
           if (stdMat.normalMap) {
-            stdMat.normalScale.set(0.45, 0.45);
+            stdMat.normalScale.set(0.35, 0.35);
           }
 
-          // 3. Roughness floor & metalness ceiling for solid matte cyber finish
-          stdMat.roughness = Math.max(0.45, Math.min(stdMat.roughness || 0.5, 0.75));
-          stdMat.metalness = Math.min(stdMat.metalness || 0.3, 0.65);
-          stdMat.envMapIntensity = 0.8;
+          // 3. Roughness & metalness tuning (roughness 0.75->0.5, metalness 0.9->0.6)
+          stdMat.roughness = 0.5;
+          stdMat.metalness = 0.6;
+          stdMat.envMapIntensity = 0.9;
 
           // 4. Remove transmission, clearcoat, sheen noise
           (stdMat as any).transmission = 0;
           (stdMat as any).clearcoat = 0;
           (stdMat as any).sheen = 0;
 
-          // 5. Albedo lift for dark heroes (Shadow, Void)
+          // 5. Albedo lift for dark heroes (Shadow, Void) — #0a0f1d -> #1a2438 lift, never pure black albedo
           const hsl = { h: 0, s: 0, l: 0 };
           stdMat.color.getHSL(hsl);
-          if (hsl.l < 0.35) {
-            stdMat.color.setHSL(hsl.h, Math.min(1.0, hsl.s * 1.2), Math.max(0.38, hsl.l * 1.9));
+          if (hsl.l < 0.18) {
+            stdMat.color.setHex(0x1a2438);
+          } else if (hsl.l < 0.40) {
+            stdMat.color.setHSL(hsl.h, Math.min(1.0, hsl.s * 1.1), Math.max(0.35, hsl.l * 1.5));
           }
 
-          // 6. Hero accent rim emissive
-          if (stdMat.emissive) {
-            stdMat.emissive.copy(heroColor).multiplyScalar(0.28);
+          // 6. Hero accent rim emissive + leg glow emissiveIntensity 1.2 (not 3.0 blown)
+          if (heroId === 'void') {
+            if (stdMat.emissive) {
+              stdMat.emissive.setHex(0x00f0ff).multiplyScalar(0.55);
+              stdMat.emissiveIntensity = 1.2;
+            }
+          } else {
+            if (stdMat.emissive) {
+              stdMat.emissive.copy(heroColor).multiplyScalar(0.40);
+              stdMat.emissiveIntensity = 1.2;
+            }
           }
 
           stdMat.needsUpdate = true;
@@ -220,44 +233,54 @@ export function buildHeroRig(heroId: HeroId): HeroRig | null {
     driver: THREE.Object3D;
     restQuat: THREE.Quaternion;
     restPos: THREE.Vector3;
+    order: THREE.EulerOrder;
   }
 
   const driverEntries: BoneDriverEntry[] = [];
 
-  const createDriver = (boneName: string, driverName: string) => {
+  const createDriver = (boneName: string, driverName: string, order: THREE.EulerOrder = 'YXZ') => {
     const bone = byName.get(boneName);
     const driver = new THREE.Object3D();
     driver.name = driverName;
+    driver.rotation.order = order;
     if (bone) {
       driverEntries.push({
         bone,
         driver,
         restQuat: bone.quaternion.clone(),
         restPos: bone.position.clone(),
+        order,
       });
     }
     return driver;
   };
 
-  const hipsDriver = createDriver(BONE_NAMES.hips, 'driver_hips');
-  const spineDriver = createDriver(BONE_NAMES.spine, 'driver_spine');
-  const headDriver = createDriver(BONE_NAMES.head, 'driver_head');
-  const leftArmDriver = createDriver(BONE_NAMES.leftArm, 'driver_leftArm');
-  const leftForearmDriver = createDriver(BONE_NAMES.leftForearm, 'driver_leftForearm');
-  const rightArmDriver = createDriver(BONE_NAMES.rightArm, 'driver_rightArm');
-  const rightForearmDriver = createDriver(BONE_NAMES.rightForearm, 'driver_rightForearm');
-  const leftThighDriver = createDriver(BONE_NAMES.leftThigh, 'driver_leftThigh');
-  const leftShinDriver = createDriver(BONE_NAMES.leftShin, 'driver_leftShin');
-  const rightThighDriver = createDriver(BONE_NAMES.rightThigh, 'driver_rightThigh');
-  const rightShinDriver = createDriver(BONE_NAMES.rightShin, 'driver_rightShin');
+  // Explicit Euler orders: hips/spine YXZ, shoulders/arms ZYX, thighs/shins YXZ
+  const hipsDriver = createDriver(BONE_NAMES.hips, 'driver_hips', 'YXZ');
+  const spineDriver = createDriver(BONE_NAMES.spine, 'driver_spine', 'YXZ');
+  const headDriver = createDriver(BONE_NAMES.head, 'driver_head', 'YXZ');
+  const leftArmDriver = createDriver(BONE_NAMES.leftArm, 'driver_leftArm', 'ZYX');
+  const leftForearmDriver = createDriver(BONE_NAMES.leftForearm, 'driver_leftForearm', 'ZYX');
+  const rightArmDriver = createDriver(BONE_NAMES.rightArm, 'driver_rightArm', 'ZYX');
+  const rightForearmDriver = createDriver(BONE_NAMES.rightForearm, 'driver_rightForearm', 'ZYX');
+  const leftThighDriver = createDriver(BONE_NAMES.leftThigh, 'driver_leftThigh', 'YXZ');
+  const leftShinDriver = createDriver(BONE_NAMES.leftShin, 'driver_leftShin', 'YXZ');
+  const rightThighDriver = createDriver(BONE_NAMES.rightThigh, 'driver_rightThigh', 'YXZ');
+  const rightShinDriver = createDriver(BONE_NAMES.rightShin, 'driver_rightShin', 'YXZ');
 
   // Dummy drivers for joints not directly in hero skeleton
   const chestDriver = new THREE.Object3D();
+  chestDriver.rotation.order = 'YXZ';
   const neckDriver = new THREE.Object3D();
+  neckDriver.rotation.order = 'YXZ';
   const leftShoulderDriver = new THREE.Object3D();
+  leftShoulderDriver.rotation.order = 'ZYX';
   const rightShoulderDriver = new THREE.Object3D();
+  rightShoulderDriver.rotation.order = 'ZYX';
   const leftFootDriver = new THREE.Object3D();
+  leftFootDriver.rotation.order = 'YXZ';
   const rightFootDriver = new THREE.Object3D();
+  rightFootDriver.rotation.order = 'YXZ';
 
   if (driverEntries.length < 8) {
     console.warn(`[HeroRig] Insufficient bone drivers found (${driverEntries.length}/11) for ${heroId}`);
@@ -275,9 +298,9 @@ export function buildHeroRig(heroId: HeroId): HeroRig | null {
   const syncBones = () => {
     for (const d of driverEntries) {
       const r = d.driver.rotation;
-      e.set(r.x * AXIS.x, r.y * AXIS.y, r.z * AXIS.z, 'XYZ');
+      e.set(r.x * AXIS.x, r.y * AXIS.y, r.z * AXIS.z, d.order);
       q.setFromEuler(e);
-      // Character-frame rotation applied to bone bind pose (rest pose outer, delta inner)
+      // bone.quaternion = restQuat * drivenQuat (local-space)
       d.bone.quaternion.copy(d.restQuat).multiply(q);
     }
 

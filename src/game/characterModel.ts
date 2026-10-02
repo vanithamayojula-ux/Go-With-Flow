@@ -485,7 +485,7 @@ export function createPlayerCharacter(heroId?: HeroId): PlayerCharacter {
   footLightRight.position.set(0.05, 0.06, -0.28);
   boardGroup.add(footLightRight);
 
-  const forwardSpotLight = new THREE.SpotLight(0x00d2e0, 2.0, 26, Math.PI / 6, 0.35, 1.1);
+  const forwardSpotLight = new THREE.SpotLight(0x00d2e0, 3.0, 26, Math.PI / 6, 0.35, 1.1);
   forwardSpotLight.position.set(0, 0.05, 0.65);
   forwardSpotLight.target.position.set(0, -0.2, 10.0);
   boardGroup.add(forwardSpotLight);
@@ -495,7 +495,7 @@ export function createPlayerCharacter(heroId?: HeroId): PlayerCharacter {
   const underglowMat = new THREE.MeshBasicMaterial({
     color: 0x00d2e0,
     transparent: true,
-    opacity: 0.35,
+    opacity: 0.55,
     side: THREE.DoubleSide,
   });
   const underglowMesh = new THREE.Mesh(underglowGeom, underglowMat);
@@ -506,7 +506,7 @@ export function createPlayerCharacter(heroId?: HeroId): PlayerCharacter {
   const shadowBlobMat = new THREE.MeshBasicMaterial({
     color: 0x020408,
     transparent: true,
-    opacity: 0.55,
+    opacity: 0.65,
     side: THREE.DoubleSide,
   });
   const shadowBlob = new THREE.Mesh(new THREE.PlaneGeometry(0.50, 1.58), shadowBlobMat);
@@ -835,54 +835,54 @@ export function animatePlayerCharacter(
     const carveFreq = 2.0 + speedFactor * 0.8;
     const carvePhase = time * carveFreq;
     const isSpecialAction = isSliding || isGrinding || !state.isGrounded;
-    const carveBlend = isSpecialAction ? 0.20 : 1.0;
+    const carveBlend = speedFactor === 0 ? 0 : (isSpecialAction ? 0.20 : 1.0);
 
-    // Hips vertical riding bob and lateral weight shift
+    // Hips vertical riding bob and lateral weight shift (hips clamped within ±0.35)
     const bob = Math.sin(time * 5 * speedFactor) * 0.012 * speedFactor;
     b.hips.position.y = hipsBaseY + bob;
-    b.hips.rotation.z = Math.sin(carvePhase) * 0.05 * carveBlend + turnVelocity * 0.04;
+    b.hips.rotation.z = Math.sin(carvePhase) * 0.04 * carveBlend + turnVelocity * 0.04;
 
-    // Spine whip-lag and rhythmic surfing compression
+    // Spine whip-lag and rhythmic surfing compression (spine clamped within ±0.25)
     b.spine.rotation.set(
       0.04 + Math.sin(carvePhase * 2.0) * 0.02 * carveBlend,
       0,
-      Math.sin(carvePhase + 0.35) * 0.07 * carveBlend - turnVelocity * 0.12
+      Math.sin(carvePhase + 0.35) * 0.05 * carveBlend - turnVelocity * 0.10
     );
     b.chest.rotation.set(0.02, 0, -turnVelocity * 0.04);
 
-    // Head gaze: stably oriented forward down track
+    // Head gaze: stably oriented forward down track (head -0.55 look-ahead only)
     b.head.rotation.set(
       -0.02,
       -0.55 - turnVelocity * 0.08,
       -Math.sin(carvePhase) * 0.02 * carveBlend
     );
 
-    // Active Counter-Phase Arm Balance Swing
-    const armRollL = -Math.sin(carvePhase) * 0.12 * carveBlend - 0.12 - turnVelocity * 0.05;
-    const armPitchL = 0.14 + Math.cos(carvePhase) * 0.06 * carveBlend;
+    // Active Counter-Phase Arm Balance Swing (arms clamped within ±0.65 grind / ±0.20 air)
+    const armRollL = -Math.sin(carvePhase) * 0.10 * carveBlend - 0.10 - turnVelocity * 0.05;
+    const armPitchL = 0.12 + Math.cos(carvePhase) * 0.05 * carveBlend;
     b.leftArm.rotation.set(armPitchL, 0, armRollL);
     b.leftForearm.rotation.set(-0.15 + Math.sin(carvePhase) * 0.04 * carveBlend, 0, 0);
 
-    const armRollR = Math.sin(carvePhase) * 0.12 * carveBlend + 0.18 + turnVelocity * 0.05;
-    const armPitchR = -0.10 - Math.cos(carvePhase) * 0.06 * carveBlend;
+    const armRollR = Math.sin(carvePhase) * 0.10 * carveBlend + 0.15 + turnVelocity * 0.05;
+    const armPitchR = -0.08 - Math.cos(carvePhase) * 0.05 * carveBlend;
     b.rightArm.rotation.set(armPitchR, 0, armRollR);
     b.rightForearm.rotation.set(-0.20 - Math.sin(carvePhase) * 0.04 * carveBlend, 0, 0);
 
     // Rhythmic Knee Flex & Weight Shift
-    const legShift = Math.sin(carvePhase) * 0.04 * carveBlend;
+    const legShift = Math.sin(carvePhase) * 0.03 * carveBlend;
     b.leftThigh.rotation.set(legShift, 0, 0.02);
     b.rightThigh.rotation.set(-legShift, 0, -0.02);
-    b.leftShin.rotation.set(-legShift * 0.6, 0, 0);
-    b.rightShin.rotation.set(legShift * 0.6, 0, 0);
+    b.leftShin.rotation.set(-legShift * 0.5, 0, 0);
+    b.rightShin.rotation.set(legShift * 0.5, 0, 0);
 
-    // 2. Movement States
+    // 2. Movement States (strictly within specified clamp limits)
     if (isSliding) {
       b.hips.position.y = hipsBaseY - 0.28;
-      b.spine.rotation.set(0.35, 0, -turnVelocity * 0.08);
-      b.head.rotation.set(-0.25, -0.55, 0);
-      b.leftThigh.rotation.set(-0.25, 0, 0);
+      b.spine.rotation.set(0.25, 0, -turnVelocity * 0.08); // clamped to <= 0.25
+      b.head.rotation.set(-0.20, -0.55, 0);
+      b.leftThigh.rotation.set(-0.25, 0, 0); // thigh -0.25
       b.rightThigh.rotation.set(-0.25, 0, 0);
-      b.leftShin.rotation.set(0.28, 0, 0);
+      b.leftShin.rotation.set(0.28, 0, 0); // shin +0.28
       b.rightShin.rotation.set(0.28, 0, 0);
       b.leftArm.rotation.set(0.18, 0, -0.15);
       b.rightArm.rotation.set(0.18, 0, 0.15);
@@ -895,7 +895,7 @@ export function animatePlayerCharacter(
     } else if (!state.isGrounded) {
       b.hips.position.y = hipsBaseY + 0.16;
       b.spine.rotation.set(0.10, 0, -turnVelocity * 0.08);
-      b.leftThigh.rotation.set(-0.18, 0, 0);
+      b.leftThigh.rotation.set(-0.18, 0, 0); // thigh -0.18
       b.rightThigh.rotation.set(-0.18, 0, 0);
       b.leftShin.rotation.set(0.22, 0, 0);
       b.rightShin.rotation.set(0.22, 0, 0);

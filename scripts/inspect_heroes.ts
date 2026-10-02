@@ -44,4 +44,6 @@ for (const heroId of heroes) {
       console.log(`  [${idx}] ${n.name}`);
     });
   }
+
+  console.log(`Materials:`, JSON.stringify(gltf.materials, null, 2));
 }
