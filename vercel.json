@@ -4,7 +4,11 @@
   "outputDirectory": "dist",
   "rewrites": [
     {
-      "source": "/(.*)",
+      "source": "/hero-lab",
+      "destination": "/hero-lab.html"
+    },
+    {
+      "source": "/((?!assets|models|hero-lab.html|hero-previews|favicon.ico).*)",
       "destination": "/index.html"
     }
   ]
