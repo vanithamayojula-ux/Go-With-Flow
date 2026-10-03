@@ -1097,16 +1097,16 @@ export class PlayerManager {
     this.updateTrailRibbon(effectiveDt);
     this.updateParticles(effectiveDt);
 
-    // Camera follow: y+2.6 z-5.2 look y+1.6
+    // Camera follow calibrated for clear rider framing & visibility
     this.cameraPos.set(
       this.position.x * 0.58,
-      this.position.y + 2.6,
-      this.position.z - 5.2
+      this.position.y + 2.0,
+      this.position.z - 3.8
     );
     this.cameraLookAt.set(
       this.position.x * 0.58,
-      this.position.y + 1.6,
-      this.position.z + 14.0
+      this.position.y + 1.25,
+      this.position.z + 8.0
     );
   }
 

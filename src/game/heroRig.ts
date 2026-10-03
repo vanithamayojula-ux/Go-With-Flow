@@ -219,17 +219,25 @@ export function buildHeroRig(heroId: HeroId): HeroRig | null {
           stdMat.blending = THREE.NormalBlending;
           stdMat.fog = false;
 
-          // 1. Color map sRGB color space & mipmaps
+          // 1. Color map sRGB color space, anisotropic filtering & mipmaps
           if (stdMat.map) {
             stdMat.map.colorSpace = THREE.SRGBColorSpace;
             stdMat.map.generateMipmaps = true;
             stdMat.map.minFilter = THREE.LinearMipmapLinearFilter;
+            stdMat.map.magFilter = THREE.LinearFilter;
+            stdMat.map.anisotropy = 8; // High-resolution texture sharpness at distance
             stdMat.map.needsUpdate = true;
             stdMat.color.setHex(0xffffff); // Keep pure white so texture is unclouded
-            stdMat.emissive.setHex(0x000000); // No cyan bloom blowout over texture
-            stdMat.emissiveIntensity = 0.0;
+            if (heroId !== 'custom') {
+              stdMat.emissive.copy(heroColor).multiplyScalar(0.20);
+              stdMat.emissiveIntensity = 0.5;
+            } else {
+              stdMat.emissive.setHex(0x000000);
+              stdMat.emissiveIntensity = 0.0;
+            }
             stdMat.roughness = 0.45;
-            stdMat.metalness = 0.25;
+            stdMat.metalness = 0.3;
+            stdMat.envMapIntensity = 1.2;
             stdMat.needsUpdate = true;
             continue;
           }
@@ -349,9 +357,11 @@ export function buildHeroRig(heroId: HeroId): HeroRig | null {
     const box = new THREE.Box3().setFromObject(scene);
     const size = box.getSize(new THREE.Vector3());
 
-    if (size.z > 0.001) {
-      const targetLength = 1.70; // 1.70m standard hoverboard deck length matching game scale
-      const scale = targetLength / size.z;
+    if (size.y > 0.001) {
+      // In model.glb: height is ~0.613m in crouch. All other characters in game are 1.75m tall.
+      // An athletic crouch for a 1.75m hero is ~1.45m high:
+      const targetCrouchHeight = 1.45;
+      const scale = targetCrouchHeight / size.y; // ~2.365x scale
       scene.scale.setScalar(scale);
 
       const scaledBox = new THREE.Box3().setFromObject(scene);
@@ -360,6 +370,15 @@ export function buildHeroRig(heroId: HeroId): HeroRig | null {
       scene.position.y -= scaledBox.min.y;
       scene.position.z -= scaledCenter.z;
     }
+
+    // Dedicated rider lighting to illuminate character clearly
+    const riderLight = new THREE.DirectionalLight(0xffffff, 2.5);
+    riderLight.position.set(0, 4.0, -3.5); // Illuminates rider from above and behind (chase camera view)
+    bodyGroup.add(riderLight);
+
+    const riderRim = new THREE.PointLight(heroDef.color || 0x00f0ff, 2.0, 6.0);
+    riderRim.position.set(0, 1.2, 0.4);
+    bodyGroup.add(riderRim);
 
     const dummyJoint = new THREE.Object3D();
     return {
