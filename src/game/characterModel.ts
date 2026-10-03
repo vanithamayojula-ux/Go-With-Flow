@@ -675,8 +675,8 @@ export function createPlayerCharacter(heroId?: HeroId): PlayerCharacter {
   // -------------------------------------------------------------------------
   const spineGroup = new THREE.Group();
   spineGroup.name = 'ProceduralSpineGroup';
-  spineGroup.position.set(0, 0.28, 0);
-  rootGroup.add(spineGroup);
+  spineGroup.position.set(0, 0.20, 0);
+  boardGroup.add(spineGroup);
 
   const suitMat = new THREE.MeshStandardMaterial({
     color: 0x1a2233,
@@ -878,9 +878,9 @@ export function createPlayerCharacter(heroId?: HeroId): PlayerCharacter {
         const rig = buildHeroRig(targetHeroId);
         if (rig) {
           if (playerChar.heroRig?.root) {
-            rootGroup.remove(playerChar.heroRig.root);
+            boardGroup.remove(playerChar.heroRig.root);
           }
-          rootGroup.add(rig.root);
+          boardGroup.add(rig.root);
           spineGroup.visible = false;
           // When using custom 3D model, hide procedural board meshes so they don't clip with model's built-in hoverboard
           if (!rig.skinned) {
@@ -904,7 +904,7 @@ export function createPlayerCharacter(heroId?: HeroId): PlayerCharacter {
 
     // Fallback to procedural character
     if (playerChar.heroRig?.root) {
-      rootGroup.remove(playerChar.heroRig.root);
+      boardGroup.remove(playerChar.heroRig.root);
     }
     spineGroup.visible = true;
     playerChar.board.visible = true;
@@ -978,79 +978,74 @@ export function animatePlayerCharacter(
     const isSpecialAction = isSliding || isGrinding || !state.isGrounded;
     const carveBlend = speedFactor === 0 ? 0 : (isSpecialAction ? 0.20 : 1.0);
 
-    // Hips vertical riding bob and deep surf crouch elevation y = 0.52 (base run pose)
-    // Euler YXZ: rot.x = 0.18, rot.y = 0.66 (regular stance yaw ONCE), rot.z = carve overlay 0.04 only
+    // Hips vertical riding bob and surf crouch elevation based on hipsBaseY
     const bob = Math.sin(time * 5 * speedFactor) * 0.012 * speedFactor;
-    b.hips.position.y = 0.52 + bob;
+    b.hips.position.y = hipsBaseY - 0.06 + bob;
     b.hips.rotation.set(
-      0.18,
-      0.66,
-      Math.sin(carvePhase) * 0.04 * carveBlend + turnVelocity * 0.04
+      0.08,
+      0.55, // Regular stance yaw ~31 degrees
+      Math.sin(carvePhase) * 0.02 * carveBlend + turnVelocity * 0.02
     );
 
-    // Spine rot.x 0.30 forward lean, rot.y 0, rot.z carve overlay 0.04 only (Euler YXZ)
+    // Spine rot.x forward lean, rot.y 0, rot.z carve overlay
     b.spine.rotation.set(
-      0.30 + Math.sin(carvePhase * 2.0) * 0.02 * carveBlend,
+      0.15 + Math.sin(carvePhase * 2.0) * 0.015 * carveBlend,
       0,
-      Math.sin(carvePhase + 0.35) * 0.04 * carveBlend - turnVelocity * 0.10
+      Math.sin(carvePhase + 0.35) * 0.02 * carveBlend - turnVelocity * 0.04
     );
-    b.chest.rotation.set(0.0, 0, -turnVelocity * 0.04);
+    b.chest.rotation.set(0.0, 0, -turnVelocity * 0.02);
 
-    // Head rot.x 0.25 + rot.y -0.55 stably oriented forward down track (Euler YXZ)
+    // Head stably oriented forward down track
     b.head.rotation.set(
-      0.25,
-      -0.55 - turnVelocity * 0.08,
-      -Math.sin(carvePhase) * 0.02 * carveBlend
+      0.10,
+      -0.45 - turnVelocity * 0.04,
+      -Math.sin(carvePhase) * 0.01 * carveBlend
     );
 
-    // Arms (Euler ZYX):
-    // right shoulder -0.70 / 0.35, elbow 2.25 forward-down
-    // left shoulder +0.80 / -0.50, elbow 2.60 back-up
-    const armSway = Math.sin(carvePhase) * 0.04 * carveBlend;
-    b.leftArm.rotation.set(0.80 + armSway, 0, -0.50 - turnVelocity * 0.05);
-    b.leftForearm.rotation.set(2.60, 0, 0);
+    // Arms in athletic surf counterbalance:
+    const armSway = Math.sin(carvePhase) * 0.03 * carveBlend;
+    b.leftArm.rotation.set(0.50 + armSway, 0, -0.35 - turnVelocity * 0.03);
+    b.leftForearm.rotation.set(0.85, 0, 0);
 
-    b.rightArm.rotation.set(-0.70 - armSway, 0, 0.35 + turnVelocity * 0.05);
-    b.rightForearm.rotation.set(2.25, 0, 0);
+    b.rightArm.rotation.set(-0.45 - armSway, 0, 0.25 + turnVelocity * 0.03);
+    b.rightForearm.rotation.set(0.70, 0, 0);
 
-    // Legs (Euler YXZ):
-    // front thigh (left) -1.65 / shin +1.60 / foot y0.44 25° at z+0.45
-    // back thigh (right) -2.00 / shin +1.95 / foot flat at z-0.45
-    const legShift = Math.sin(carvePhase) * 0.03 * carveBlend;
-    b.leftThigh.rotation.set(-1.65 + legShift, 0, 0.02);
-    b.leftShin.rotation.set(1.60 - legShift * 0.5, 0, 0);
+    // Legs: Natural surf knee bend that keeps feet firmly anchored on deck
+    const legShift = Math.sin(carvePhase) * 0.02 * carveBlend;
+    b.leftThigh.rotation.set(-0.35 + legShift, 0, 0.02);
+    b.leftShin.rotation.set(0.58 - legShift * 0.5, 0, 0);
 
-    b.rightThigh.rotation.set(-2.00 - legShift, 0, -0.02);
-    b.rightShin.rotation.set(1.95 + legShift * 0.5, 0, 0);
+    b.rightThigh.rotation.set(-0.30 - legShift, 0, -0.02);
+    b.rightShin.rotation.set(0.52 + legShift * 0.5, 0, 0);
 
-    // 2. Movement States (strictly within specified clamp limits)
+    // 2. Movement States
     if (isSliding) {
-      b.hips.position.y = 0.32;
-      b.spine.rotation.set(0.25, 0, -turnVelocity * 0.08);
-      b.head.rotation.set(-0.20, -0.55, 0);
-      b.leftThigh.rotation.set(-0.25, 0, 0);
-      b.rightThigh.rotation.set(-0.25, 0, 0);
-      b.leftShin.rotation.set(0.28, 0, 0);
-      b.rightShin.rotation.set(0.28, 0, 0);
-      b.leftArm.rotation.set(0.18, 0, -0.15);
-      b.rightArm.rotation.set(0.18, 0, 0.15);
+      b.hips.position.y = hipsBaseY - 0.28;
+      b.spine.rotation.set(0.35, 0, -turnVelocity * 0.05);
+      b.head.rotation.set(-0.15, -0.45, 0);
+      b.leftThigh.rotation.set(-0.65, 0, 0);
+      b.rightThigh.rotation.set(-0.65, 0, 0);
+      b.leftShin.rotation.set(0.95, 0, 0);
+      b.rightShin.rotation.set(0.95, 0, 0);
+      b.leftArm.rotation.set(0.25, 0, -0.20);
+      b.rightArm.rotation.set(0.25, 0, 0.20);
     } else if (isGrinding) {
-      b.hips.position.y = 0.50;
-      b.leftArm.rotation.set(0.12, 0, -0.28);
-      b.rightArm.rotation.set(-0.10, 0, 0.32);
-      b.leftForearm.rotation.set(-0.25, 0, 0);
-      b.rightForearm.rotation.set(-0.25, 0, 0);
-      b.spine.rotation.z = Math.sin(time * 10) * 0.04 - turnVelocity * 0.08;
+      b.hips.position.y = hipsBaseY - 0.04 + bob;
+      b.leftArm.rotation.set(0.30, 0, -0.40);
+      b.rightArm.rotation.set(-0.25, 0, 0.40);
+      b.leftForearm.rotation.set(0.40, 0, 0);
+      b.rightForearm.rotation.set(0.40, 0, 0);
+      b.spine.rotation.z = Math.sin(time * 10) * 0.02 - turnVelocity * 0.04;
     } else if (!state.isGrounded) {
-      // Jump tuck: hips+0.16 / thighs-0.18 / shins+0.22 gated strictly to airtime
-      b.hips.position.y = 0.52 + 0.16;
-      b.spine.rotation.set(0.10, 0, -turnVelocity * 0.08);
-      b.leftThigh.rotation.set(-0.18, 0, 0);
-      b.rightThigh.rotation.set(-0.18, 0, 0);
-      b.leftShin.rotation.set(0.22, 0, 0);
-      b.rightShin.rotation.set(0.22, 0, 0);
-      b.leftArm.rotation.set(-0.20, 0, -0.20);
-      b.rightArm.rotation.set(-0.20, 0, 0.20);
+      // Jump tuck: knees lifted slightly, hips slightly elevated
+      b.hips.position.y = hipsBaseY + 0.12;
+      b.spine.rotation.set(0.12, 0, -turnVelocity * 0.04);
+      b.leftThigh.rotation.set(-0.55, 0, 0);
+      b.rightThigh.rotation.set(-0.55, 0, 0);
+      b.leftShin.rotation.set(0.85, 0, 0);
+      b.rightShin.rotation.set(0.85, 0, 0);
+      b.leftArm.rotation.set(-0.35, 0, -0.30);
+      b.rightArm.rotation.set(-0.35, 0, 0.30);
     }
 
     // 3. Trick Animations

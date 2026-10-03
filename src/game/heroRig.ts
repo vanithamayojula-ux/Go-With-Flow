@@ -1,6 +1,7 @@
 import * as THREE from 'three';
 import { GLTFLoader } from 'three/examples/jsm/loaders/GLTFLoader.js';
 import { MeshoptDecoder } from 'three/examples/jsm/libs/meshopt_decoder.module.js';
+import * as SkeletonUtils from 'three/examples/jsm/utils/SkeletonUtils.js';
 import { HeroId } from '../types';
 import { heroById } from './heroes';
 
@@ -177,14 +178,14 @@ export function buildHeroRig(heroId: HeroId): HeroRig | null {
   const root = new THREE.Group();
   root.name = `HeroRig_${heroId}`;
   // Stand directly on the hoverboard deck surface (<0.02m snapped)
-  root.position.set(0, 0.08, 0);
+  root.position.set(0, 0.014, 0);
 
   const bodyGroup = new THREE.Group();
   bodyGroup.name = 'HeroBodyGroup';
   root.add(bodyGroup);
 
-  // Clone gltf scene cleanly so multiple instances or cosmetic reloads never mutate original
-  const scene = entry.gltf.scene.clone(true);
+  // Clone gltf scene cleanly using SkeletonUtils so SkinnedMesh skeletons bind properly
+  const scene = SkeletonUtils.clone(entry.gltf.scene) as THREE.Group;
   scene.position.set(0, 0, 0);
   scene.rotation.set(0, 0, 0);
   scene.scale.set(1, 1, 1);
