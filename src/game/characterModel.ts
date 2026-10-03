@@ -882,7 +882,12 @@ export function createPlayerCharacter(heroId?: HeroId): PlayerCharacter {
           }
           rootGroup.add(rig.root);
           spineGroup.visible = false;
-          // All characters use the unified horizontal cyber hoverboard
+          // When using custom 3D model, hide procedural board meshes so they don't clip with model's built-in hoverboard
+          if (!rig.skinned) {
+            Object.values(boards).forEach((b) => {
+              b.visible = false;
+            });
+          }
           playerChar.board.visible = true;
           playerChar.syncBones = rig.syncBones;
           playerChar.heroRig = rig;

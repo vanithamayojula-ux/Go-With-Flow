@@ -431,8 +431,9 @@ export class PlayerManager {
     const bId = config.boardId || 'cyber-phantom';
     const boards = pc.boards;
     if (boards) {
+      const isCustomHero = pc.heroRig && !pc.heroRig.skinned;
       Object.keys(boards).forEach(key => {
-        if (boards[key]) boards[key].visible = (key === bId);
+        if (boards[key]) boards[key].visible = !isCustomHero && (key === bId);
       });
     }
 

@@ -171,18 +171,150 @@ export function buildHeroRig(heroId: HeroId): HeroRig | null {
   const entry = cache.get(heroId);
   if (!entry || entry instanceof Promise) return null;
 
+  const heroDef = heroById(heroId);
+  const isCustomGlb = heroDef.modelUrl.includes('model.glb') || entry.skinned.length === 0;
+
   const root = new THREE.Group();
   root.name = `HeroRig_${heroId}`;
   // Stand directly on the hoverboard deck surface (<0.02m snapped)
-  root.position.set(0, 0.092, 0);
+  root.position.set(0, 0.08, 0);
 
   const bodyGroup = new THREE.Group();
   bodyGroup.name = 'HeroBodyGroup';
   root.add(bodyGroup);
 
-  const scene = entry.gltf.scene;
+  // Clone gltf scene cleanly so multiple instances or cosmetic reloads never mutate original
+  const scene = entry.gltf.scene.clone(true);
   scene.position.set(0, 0, 0);
-  const heroDef = heroById(heroId);
+  scene.rotation.set(0, 0, 0);
+  scene.scale.set(1, 1, 1);
+  scene.updateMatrixWorld(true);
+
+  if (isCustomGlb) {
+    // 1. Calculate raw bounding box
+    const bbox = new THREE.Box3().setFromObject(scene);
+    const size = bbox.getSize(new THREE.Vector3());
+
+    // 2. Lock hero scale: standard hero crouching height = 1.72m
+    const targetHeight = 1.72;
+    const scaleFactor = size.y > 0.05 ? targetHeight / size.y : 2.80;
+    scene.scale.setScalar(scaleFactor);
+    scene.updateMatrixWorld(true);
+
+    // 3. Align bottom of the hoverboard exactly on ground plane (y = 0) and center on X/Z
+    const scaledBox = new THREE.Box3().setFromObject(scene);
+    const scaledCenter = scaledBox.getCenter(new THREE.Vector3());
+    scene.position.x = -scaledCenter.x;
+    scene.position.z = -scaledCenter.z;
+    scene.position.y = -scaledBox.min.y;
+    scene.rotation.set(0, heroDef.yawOffset || 0, 0); // Faces forward (+Z) along track
+    bodyGroup.add(scene);
+
+    // 4. Preserve authentic PBR textures & materials (never overwrite color with dark #1a2438 or add blown-out emissive)
+    scene.traverse((o: THREE.Object3D) => {
+      if ((o as THREE.Mesh).isMesh) {
+        const mesh = o as THREE.Mesh;
+        mesh.frustumCulled = false;
+        mesh.castShadow = true;
+        mesh.receiveShadow = true;
+
+        const mats = Array.isArray(mesh.material) ? mesh.material : [mesh.material];
+        for (const m of mats) {
+          if (!m) continue;
+          const stdMat = m as THREE.MeshStandardMaterial;
+          stdMat.transparent = false;
+          stdMat.opacity = 1.0;
+          stdMat.depthWrite = true;
+          stdMat.depthTest = true;
+          stdMat.side = THREE.FrontSide;
+          stdMat.blending = THREE.NormalBlending;
+          stdMat.fog = false;
+
+          if (stdMat.map) {
+            stdMat.map.colorSpace = THREE.SRGBColorSpace;
+            stdMat.map.generateMipmaps = true;
+            stdMat.map.minFilter = THREE.LinearMipmapLinearFilter;
+            stdMat.map.magFilter = THREE.LinearFilter;
+            stdMat.map.anisotropy = 4; // Razor-sharp 2K textures at distance
+            stdMat.map.needsUpdate = true;
+          }
+
+          stdMat.color.setRGB(1, 1, 1); // 100% full authentic texture color fidelity
+          stdMat.roughness = 0.45;
+          stdMat.metalness = 0.25;
+          stdMat.envMapIntensity = 1.0;
+          stdMat.emissive.setRGB(0, 0, 0); // No bloom clip / no blown-out white blobs
+          stdMat.emissiveIntensity = 0;
+          stdMat.needsUpdate = true;
+        }
+      }
+    });
+
+    // 5. Dedicated High-Clarity Studio Lighting for the Cyber Surfer
+    // Key light illuminating from upper rear chase angle
+    const keyLight = new THREE.DirectionalLight(0xffffff, 3.2);
+    keyLight.position.set(0, 4.5, -4.0);
+    bodyGroup.add(keyLight);
+
+    // Front fill light illuminating chest and visor
+    const frontLight = new THREE.DirectionalLight(0xdff0ff, 2.2);
+    frontLight.position.set(0, 3.0, 5.0);
+    bodyGroup.add(frontLight);
+
+    // Ambient hemisphere light ensuring no pitch-black shadows
+    const hemiLight = new THREE.HemisphereLight(0xffffff, 0x1a2438, 1.4);
+    bodyGroup.add(hemiLight);
+
+    // Subtle cyan rim accent
+    const cyanRim = new THREE.PointLight(0x00f0ff, 1.6, 6.0);
+    cyanRim.position.set(0, 1.2, -0.5);
+    bodyGroup.add(cyanRim);
+
+    // Dummy bone drivers so animation calls never crash
+    const dummyJoint = new THREE.Object3D();
+    const hipsDriver = new THREE.Object3D();
+    const spineDriver = new THREE.Object3D();
+
+    return {
+      root,
+      bodyGroup,
+      scene,
+      body: scene,
+      head: dummyJoint,
+      armL: dummyJoint,
+      armR: dummyJoint,
+      legL: dummyJoint,
+      legR: dummyJoint,
+      drivers: {
+        hips: hipsDriver,
+        spine: spineDriver,
+        chest: dummyJoint,
+        neck: dummyJoint,
+        head: dummyJoint,
+        leftShoulder: dummyJoint,
+        leftArm: dummyJoint,
+        leftForearm: dummyJoint,
+        rightShoulder: dummyJoint,
+        rightArm: dummyJoint,
+        rightForearm: dummyJoint,
+        leftThigh: dummyJoint,
+        leftShin: dummyJoint,
+        leftFoot: dummyJoint,
+        rightThigh: dummyJoint,
+        rightShin: dummyJoint,
+        rightFoot: dummyJoint,
+      },
+      syncBones: () => {
+        // Dynamic surfing carve lean into turns
+        bodyGroup.rotation.z = spineDriver.rotation.z * 0.35;
+        bodyGroup.rotation.x = spineDriver.rotation.x * 0.25;
+      },
+      skinned: false,
+      hipsRestY: 0,
+    };
+  }
+
+  scene.position.set(0, 0, 0);
   scene.rotation.set(0, heroDef.yawOffset || 0, 0); // Faces forward (+Z) along track
   bodyGroup.add(scene);
 

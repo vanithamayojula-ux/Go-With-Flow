@@ -25,7 +25,7 @@ import {
 } from './types';
 
 const DEFAULT_COSMETICS_CONFIG: CosmeticsConfig = {
-  heroId: 'void',
+  heroId: 'custom',
   boardId: 'cyber-phantom',
   trailId: 'electric-cyan',
   capeColor: '#00f0ff',
