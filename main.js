@@ -2,9 +2,9 @@ import * as THREE from 'three';
 import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
 import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
 
-// 1. Scene Setup
+// 1. Scene Setup with Black Background
 const scene = new THREE.Scene();
-scene.background = new THREE.Color(0x12151c);
+scene.background = new THREE.Color(0x000000);
 
 // 2. Camera Setup
 const camera = new THREE.PerspectiveCamera(
@@ -15,7 +15,7 @@ const camera = new THREE.PerspectiveCamera(
 );
 camera.position.set(0, 1.5, 3);
 
-// 3. WebGL Renderer Setup
+// 3. WebGLRenderer Setup
 const container = document.getElementById('canvas-container');
 const renderer = new THREE.WebGLRenderer({ antialias: true });
 renderer.setSize(window.innerWidth, window.innerHeight);
@@ -30,23 +30,19 @@ const controls = new OrbitControls(camera, renderer.domElement);
 controls.enableDamping = true;
 controls.dampingFactor = 0.05;
 
-// 5. Lighting
-const ambientLight = new THREE.AmbientLight(0xffffff, 1.8);
+// 5. Lighting (Ambient and Directional to ensure model is clearly visible)
+const ambientLight = new THREE.AmbientLight(0xffffff, 2.0);
 scene.add(ambientLight);
 
-const keyLight = new THREE.DirectionalLight(0xffffff, 2.2);
-keyLight.position.set(5, 10, 7.5);
-scene.add(keyLight);
+const mainDirectionalLight = new THREE.DirectionalLight(0xffffff, 2.5);
+mainDirectionalLight.position.set(5, 10, 7.5);
+scene.add(mainDirectionalLight);
 
-const fillLight = new THREE.DirectionalLight(0xffffff, 1.0);
-fillLight.position.set(-5, 5, -5);
-scene.add(fillLight);
+const fillDirectionalLight = new THREE.DirectionalLight(0xffffff, 1.2);
+fillDirectionalLight.position.set(-5, 5, -5);
+scene.add(fillDirectionalLight);
 
-// Ground grid for reference
-const gridHelper = new THREE.GridHelper(10, 20, 0x00d2e0, 0x223344);
-scene.add(gridHelper);
-
-// 6. GLTF/GLB Loader with Auto-Framing & Error Handling
+// 6. Model Loading using GLTFLoader from "/model.glb"
 const loader = new GLTFLoader();
 const statusOverlay = document.getElementById('status-overlay');
 
@@ -55,56 +51,58 @@ loader.load(
   (gltf) => {
     const model = gltf.scene;
 
-    // Calculate bounding box to auto-center and adjust camera
+    // Calculate bounding box for centering and optimal scale/camera framing
     const box = new THREE.Box3().setFromObject(model);
     const size = box.getSize(new THREE.Vector3());
     const center = box.getCenter(new THREE.Vector3());
 
-    // Center model at world origin and set base on grid
+    // Center model at world origin (0, 0, 0)
     model.position.x -= center.x;
-    model.position.y -= box.min.y;
+    model.position.y -= center.y;
     model.position.z -= center.z;
 
-    // Adjust camera distance based on model dimensions
+    // Adjust camera distance to fit any model scale automatically
     const maxDim = Math.max(size.x, size.y, size.z);
     const fov = camera.fov * (Math.PI / 180);
-    let cameraZ = Math.abs((maxDim / 2) / Math.tan(fov / 2)) * 1.6;
+    let cameraZ = Math.abs((maxDim / 2) / Math.tan(fov / 2)) * 1.5;
     cameraZ = Math.max(cameraZ, 2.0);
 
-    camera.position.set(0, maxDim * 0.7, cameraZ);
-    camera.lookAt(0, maxDim * 0.35, 0);
-    controls.target.set(0, maxDim * 0.35, 0);
+    camera.position.set(0, maxDim * 0.4, cameraZ);
+    camera.lookAt(0, 0, 0);
+    controls.target.set(0, 0, 0);
     controls.update();
 
+    // Add model to scene
     scene.add(model);
 
     if (statusOverlay) {
-      statusOverlay.textContent = 'Model loaded (Left-click: Rotate • Right-click: Pan • Scroll: Zoom)';
+      statusOverlay.textContent = 'Model loaded successfully (Drag: Rotate • Right-click: Pan • Scroll: Zoom)';
       setTimeout(() => {
         statusOverlay.style.opacity = '0';
-      }, 4000);
+      }, 3500);
     }
   },
-  (progressEvent) => {
-    if (statusOverlay && progressEvent.total > 0) {
-      const percent = Math.round((progressEvent.loaded / progressEvent.total) * 100);
+  (progress) => {
+    if (statusOverlay && progress.total > 0) {
+      const percent = Math.round((progress.loaded / progress.total) * 100);
       statusOverlay.textContent = `Loading /model.glb: ${percent}%`;
     }
   },
   (error) => {
+    // 7. Clear Error Handling
     console.error('Error loading /model.glb:', error);
     if (statusOverlay) {
       statusOverlay.classList.add('error');
       statusOverlay.innerHTML = `
-        <strong>Error loading 3D model:</strong><br />
-        Could not load <code>/model.glb</code>.<br />
-        Please place your 3D model inside <code>public/model.glb</code>.
+        <strong>Error loading model:</strong><br />
+        Failed to load <code>/model.glb</code>.<br />
+        Ensure your file is placed at <code>public/model.glb</code> and dev server is running.
       `;
     }
   }
 );
 
-// 7. Responsive Window Resize
+// Window Resize Handling
 window.addEventListener('resize', () => {
   camera.aspect = window.innerWidth / window.innerHeight;
   camera.updateProjectionMatrix();
@@ -112,7 +110,7 @@ window.addEventListener('resize', () => {
   renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
 });
 
-// 8. Animation Loop
+// 8. Animation Render Loop
 function animate() {
   requestAnimationFrame(animate);
   controls.update();
