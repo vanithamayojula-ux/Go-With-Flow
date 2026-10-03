@@ -16,6 +16,7 @@ export default defineConfig(() => {
         input: {
           main: path.resolve(__dirname, 'index.html'),
           heroLab: path.resolve(__dirname, 'hero-lab.html'),
+          viewer: path.resolve(__dirname, 'viewer.html'),
         },
       },
     },

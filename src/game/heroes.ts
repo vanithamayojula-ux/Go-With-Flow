@@ -21,6 +21,18 @@ export interface HeroDef {
 
 export const HEROES: HeroDef[] = [
   {
+    id: 'custom',
+    name: 'Cyber 3D Model',
+    color: 0x00f0ff,
+    trail: 0x70ffff,
+    cost: 0,
+    blurb: 'Custom 3D model loaded from public/model.glb directly onto your hoverboard!',
+    modelUrl: '/model.glb',
+    previewUrl: '/player_sprite.jpg',
+    yawOffset: 0,
+    ult: { type: 'dash', duration: 2.5, speedMul: 2.0 },
+  },
+  {
     id: 'shadow',
     name: 'Shadow Blade',
     color: 0x9aa6c4,

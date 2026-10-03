@@ -76,7 +76,9 @@ export async function loadHeroModel(heroId: HeroId): Promise<LoadedHeroData | nu
       const path: any = await import(/* @vite-ignore */ pathMod);
       const proc = (globalThis as any).process;
       const cwd = proc && typeof proc.cwd === 'function' ? proc.cwd() : '.';
-      const filePath = path.resolve(cwd, `public/models/${heroId}.glb`);
+      const heroDef = heroById(heroId);
+      const modelRelPath = heroDef?.modelUrl || `/models/${heroId}.glb`;
+      const filePath = path.resolve(cwd, modelRelPath.startsWith('/') ? `public${modelRelPath}` : `public/${modelRelPath}`);
       const buf = fs.readFileSync(filePath);
       const arrayBuf = buf.buffer.slice(buf.byteOffset, buf.byteOffset + buf.byteLength);
       const p = new Promise<LoadedHeroData | null>((resolve) => {
@@ -107,8 +109,9 @@ export async function loadHeroModel(heroId: HeroId): Promise<LoadedHeroData | nu
     }
   }
 
-  const primaryPath = `/models/${heroId}.glb`;
-  const fallbackPath = `models/${heroId}.glb`;
+  const heroDef = heroById(heroId);
+  const primaryPath = heroDef?.modelUrl || `/models/${heroId}.glb`;
+  const fallbackPath = primaryPath.startsWith('/') ? primaryPath.slice(1) : primaryPath;
 
   const p = new Promise<LoadedHeroData | null>((resolve) => {
     loader.load(
@@ -331,8 +334,62 @@ export function buildHeroRig(heroId: HeroId): HeroRig | null {
   rightFootDriver.rotation.order = 'YXZ';
 
   if (driverEntries.length < 8) {
-    console.warn(`[HeroRig] Insufficient bone drivers found (${driverEntries.length}/11) for ${heroId}`);
-    return null;
+    console.info(`[HeroRig] Auto-framing custom/unskinned 3D model for ${heroId} onto hoverboard.`);
+
+    // Auto-fit to hoverboard deck
+    const box = new THREE.Box3().setFromObject(scene);
+    const size = box.getSize(new THREE.Vector3());
+    const maxDim = Math.max(size.x, size.y, size.z);
+
+    if (maxDim > 0.001) {
+      const targetHeight = 1.6; // standard skater height
+      const scale = targetHeight / maxDim;
+      scene.scale.setScalar(scale);
+
+      const scaledBox = new THREE.Box3().setFromObject(scene);
+      const scaledCenter = scaledBox.getCenter(new THREE.Vector3());
+      scene.position.x -= scaledCenter.x;
+      scene.position.y -= scaledBox.min.y;
+      scene.position.z -= scaledCenter.z;
+    }
+
+    const dummyJoint = new THREE.Object3D();
+    return {
+      root,
+      bodyGroup,
+      scene,
+      body: scene,
+      head: dummyJoint,
+      armL: dummyJoint,
+      armR: dummyJoint,
+      legL: dummyJoint,
+      legR: dummyJoint,
+      drivers: {
+        hips: hipsDriver,
+        spine: spineDriver,
+        chest: chestDriver,
+        neck: neckDriver,
+        head: headDriver,
+        leftShoulder: leftShoulderDriver,
+        leftArm: leftArmDriver,
+        leftForearm: leftForearmDriver,
+        rightShoulder: rightShoulderDriver,
+        rightArm: rightArmDriver,
+        rightForearm: rightForearmDriver,
+        leftThigh: leftThighDriver,
+        leftShin: leftShinDriver,
+        leftFoot: leftFootDriver,
+        rightThigh: rightThighDriver,
+        rightShin: rightShinDriver,
+        rightFoot: rightFootDriver,
+      },
+      syncBones: () => {
+        bodyGroup.rotation.z = spineDriver.rotation.z * 0.35;
+        bodyGroup.rotation.x = spineDriver.rotation.x * 0.25;
+      },
+      skinned: false,
+      hipsRestY: 0,
+    };
   }
 
   const hipsEntry = driverEntries.find((d) => d.driver === hipsDriver);
