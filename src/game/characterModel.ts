@@ -972,104 +972,172 @@ export function animatePlayerCharacter(
     b.rightArm.rotation.set(0, 0, 0);
     b.rightForearm.rotation.set(0, 0, 0);
 
-    // 1. Continuous Rhythmic Carving & Surfing Weight-Shift Cycle
-    const carveFreq = 2.0 + speedFactor * 0.8;
-    const carvePhase = time * carveFreq;
+    // 1. Continuous Micro-Movement & Idle Bounce Loop (Character NEVER static)
+    // 4Hz riding bounce loop + breathing motion
+    const bounceFreq = 4.0 + speedFactor * 2.0;
+    const bounce = Math.sin(time * bounceFreq * Math.PI * 2) * 0.018;
+    const breathe = Math.sin(time * 3.5) * 0.025;
+    const idleSway = Math.sin(time * 2.0) * 0.035;
+
+    // Directional Leaning & Snappy Lane Switching (0.15-0.25s)
+    const leanRatio = THREE.MathUtils.clamp(turnVelocity * 0.12, -0.65, 0.65);
+    const carvePhase = time * (2.0 + speedFactor * 0.8);
     const isSpecialAction = isSliding || isGrinding || !state.isGrounded;
     const carveBlend = speedFactor === 0 ? 0 : (isSpecialAction ? 0.20 : 1.0);
 
-    // Hips vertical riding bob and surf crouch elevation based on hipsBaseY
-    const bob = Math.sin(time * 5 * speedFactor) * 0.012 * speedFactor;
-    b.hips.position.y = hipsBaseY - 0.06 + bob;
+    b.hips.position.y = hipsBaseY - 0.06 + bounce;
     b.hips.rotation.set(
       0.08,
-      0.55, // Regular stance yaw ~31 degrees
-      Math.sin(carvePhase) * 0.02 * carveBlend + turnVelocity * 0.02
+      0.55 + leanRatio * 0.25, // Regular stance yaw with dynamic lane-cut yaw
+      Math.sin(carvePhase) * 0.03 * carveBlend + leanRatio * 0.45
     );
 
-    // Spine rot.x forward lean, rot.y 0, rot.z carve overlay
+    // Spine: forward lean + breathing expansion + lean follow-through
     b.spine.rotation.set(
-      0.15 + Math.sin(carvePhase * 2.0) * 0.015 * carveBlend,
+      0.15 + breathe + Math.sin(carvePhase * 2.0) * 0.015 * carveBlend,
       0,
-      Math.sin(carvePhase + 0.35) * 0.02 * carveBlend - turnVelocity * 0.04
+      Math.sin(carvePhase + 0.35) * 0.02 * carveBlend + leanRatio * 0.35
     );
-    b.chest.rotation.set(0.0, 0, -turnVelocity * 0.02);
+    b.chest.rotation.set(breathe * 0.5, 0, -leanRatio * 0.15);
 
     // Head stably oriented forward down track
     b.head.rotation.set(
       0.10,
-      -0.45 - turnVelocity * 0.04,
+      -0.45 - leanRatio * 0.35,
       -Math.sin(carvePhase) * 0.01 * carveBlend
     );
 
-    // Arms in athletic surf counterbalance:
-    const armSway = Math.sin(carvePhase) * 0.03 * carveBlend;
-    b.leftArm.rotation.set(0.50 + armSway, 0, -0.35 - turnVelocity * 0.03);
-    b.leftForearm.rotation.set(0.85, 0, 0);
+    // Arms: Exaggerated Arcade Silhouette
+    // When leaning LEFT (turnVelocity < 0, leanRatio < 0): RIGHT ARM EXTENDS HIGH ACROSS BODY
+    // When leaning RIGHT (turnVelocity > 0, leanRatio > 0): LEFT ARM EXTENDS HIGH ACROSS BODY
+    const armSway = Math.sin(carvePhase) * 0.04 * carveBlend;
+    if (leanRatio < -0.05) {
+      // Hard Left Lean: Right arm extended high across body, left arm tucked
+      const ext = Math.min(1.0, -leanRatio * 1.8);
+      b.rightArm.rotation.set(-0.85 * ext, 0, 0.95 * ext);
+      b.rightForearm.rotation.set(0.35, 0, 0);
+      b.leftArm.rotation.set(0.65 * ext, 0, -0.65 * ext);
+      b.leftForearm.rotation.set(1.20, 0, 0);
+    } else if (leanRatio > 0.05) {
+      // Hard Right Lean: Left arm extended high across body, right arm tucked
+      const ext = Math.min(1.0, leanRatio * 1.8);
+      b.leftArm.rotation.set(0.85 * ext, 0, -0.95 * ext);
+      b.leftForearm.rotation.set(0.35, 0, 0);
+      b.rightArm.rotation.set(-0.65 * ext, 0, 0.65 * ext);
+      b.rightForearm.rotation.set(1.20, 0, 0);
+    } else {
+      // Balanced surfing counter-balance with continuous micro-motion
+      b.leftArm.rotation.set(0.50 + armSway + idleSway, 0, -0.35 - breathe);
+      b.leftForearm.rotation.set(0.85, 0, 0);
+      b.rightArm.rotation.set(-0.45 - armSway - idleSway, 0, 0.25 + breathe);
+      b.rightForearm.rotation.set(0.70, 0, 0);
+    }
 
-    b.rightArm.rotation.set(-0.45 - armSway, 0, 0.25 + turnVelocity * 0.03);
-    b.rightForearm.rotation.set(0.70, 0, 0);
-
-    // Legs: Natural surf knee bend that keeps feet firmly anchored on deck
+    // Legs: Natural athletic knee bend with micro bounce
     const legShift = Math.sin(carvePhase) * 0.02 * carveBlend;
-    b.leftThigh.rotation.set(-0.35 + legShift, 0, 0.02);
-    b.leftShin.rotation.set(0.58 - legShift * 0.5, 0, 0);
+    b.leftThigh.rotation.set(-0.35 + legShift + bounce * 5.0, 0, 0.02);
+    b.leftShin.rotation.set(0.58 - legShift * 0.5 - bounce * 6.0, 0, 0);
 
-    b.rightThigh.rotation.set(-0.30 - legShift, 0, -0.02);
-    b.rightShin.rotation.set(0.52 + legShift * 0.5, 0, 0);
+    b.rightThigh.rotation.set(-0.30 - legShift - bounce * 5.0, 0, -0.02);
+    b.rightShin.rotation.set(0.52 + legShift * 0.5 + bounce * 6.0, 0, 0);
 
     // 2. Movement States
-    if (isSliding) {
+    if (isBoosting) {
+      // BOOST MODE: Lower crouch, arms pulled back like jet wings, aggressive forward lean
+      const shiver = Math.sin(time * 60) * 0.006;
+      b.hips.position.y = hipsBaseY - 0.22 + shiver;
+      b.spine.rotation.set(0.48, 0, leanRatio * 0.35);
+      b.head.rotation.set(-0.20, -0.45, 0); // Head looks up through brow
+      b.leftArm.rotation.set(-0.75, 0, -0.55);
+      b.leftForearm.rotation.set(0.35, 0, 0);
+      b.rightArm.rotation.set(-0.75, 0, 0.55);
+      b.rightForearm.rotation.set(0.35, 0, 0);
+      b.leftThigh.rotation.set(-0.75, 0, 0);
+      b.leftShin.rotation.set(1.10, 0, 0);
+      b.rightThigh.rotation.set(-0.70, 0, 0);
+      b.rightShin.rotation.set(1.05, 0, 0);
+    } else if (isSliding) {
+      // RAIL SLIDE: Low friction crouch
       b.hips.position.y = hipsBaseY - 0.28;
-      b.spine.rotation.set(0.35, 0, -turnVelocity * 0.05);
+      b.spine.rotation.set(0.40, 0, -turnVelocity * 0.05);
       b.head.rotation.set(-0.15, -0.45, 0);
-      b.leftThigh.rotation.set(-0.65, 0, 0);
-      b.rightThigh.rotation.set(-0.65, 0, 0);
-      b.leftShin.rotation.set(0.95, 0, 0);
-      b.rightShin.rotation.set(0.95, 0, 0);
+      b.leftThigh.rotation.set(-0.70, 0, 0);
+      b.rightThigh.rotation.set(-0.70, 0, 0);
+      b.leftShin.rotation.set(1.05, 0, 0);
+      b.rightShin.rotation.set(1.05, 0, 0);
       b.leftArm.rotation.set(0.25, 0, -0.20);
       b.rightArm.rotation.set(0.25, 0, 0.20);
     } else if (isGrinding) {
-      b.hips.position.y = hipsBaseY - 0.04 + bob;
-      b.leftArm.rotation.set(0.30, 0, -0.40);
-      b.rightArm.rotation.set(-0.25, 0, 0.40);
-      b.leftForearm.rotation.set(0.40, 0, 0);
-      b.rightForearm.rotation.set(0.40, 0, 0);
-      b.spine.rotation.z = Math.sin(time * 10) * 0.02 - turnVelocity * 0.04;
+      b.hips.position.y = hipsBaseY - 0.04 + bounce;
+      b.leftArm.rotation.set(0.35, 0, -0.45);
+      b.rightArm.rotation.set(-0.30, 0, 0.45);
+      b.leftForearm.rotation.set(0.45, 0, 0);
+      b.rightForearm.rotation.set(0.45, 0, 0);
+      b.spine.rotation.z = Math.sin(time * 12) * 0.03 - leanRatio * 0.15;
     } else if (!state.isGrounded) {
-      // Jump tuck: knees lifted slightly, hips slightly elevated
-      b.hips.position.y = hipsBaseY + 0.12;
-      b.spine.rotation.set(0.12, 0, -turnVelocity * 0.04);
-      b.leftThigh.rotation.set(-0.55, 0, 0);
-      b.rightThigh.rotation.set(-0.55, 0, 0);
-      b.leftShin.rotation.set(0.85, 0, 0);
-      b.rightShin.rotation.set(0.85, 0, 0);
-      b.leftArm.rotation.set(-0.35, 0, -0.30);
-      b.rightArm.rotation.set(-0.35, 0, 0.30);
+      // JUMP: Stylized Subway Surfers air pose (knees pulled up to chest, arms spread)
+      b.hips.position.y = hipsBaseY + 0.18;
+      b.spine.rotation.set(0.12, 0, -leanRatio * 0.15);
+      b.leftThigh.rotation.set(-0.75, 0, 0);
+      b.rightThigh.rotation.set(-0.75, 0, 0);
+      b.leftShin.rotation.set(1.15, 0, 0);
+      b.rightShin.rotation.set(1.15, 0, 0);
+      // Stylized spread arms
+      b.leftArm.rotation.set(0.15, 0, -0.75);
+      b.leftForearm.rotation.set(0.25, 0, 0);
+      b.rightArm.rotation.set(-0.15, 0, 0.75);
+      b.rightForearm.rotation.set(0.25, 0, 0);
     }
 
-    // 3. Trick Animations
-    if (activeTrick === 'spin' || state.activeTrickName?.includes('Corkscrew')) {
-      b.spine.rotation.y = time * 20;
-    } else if (activeTrick === 'flip' || state.activeTrickName?.includes('Backflip')) {
-      b.hips.rotation.x = time * 18;
-    } else if (activeTrick === 'grab' || state.activeTrickName?.includes('Grab')) {
-      b.leftArm.rotation.set(0.35, 0, -0.20);
-      b.spine.rotation.x = 0.20;
+    // 3. Stylized Arcade Tricks (Exaggerated & Dynamic)
+    if (activeTrick === 'spin' || state.activeTrickName?.includes('Spin')) {
+      // TRICK 2: Board Spin 360° (Rider airborne corkscrews hips while board spins)
+      b.hips.position.y = hipsBaseY + 0.22;
+      b.spine.rotation.y = time * 24.0;
+      b.leftThigh.rotation.set(-0.65, 0, 0);
+      b.rightThigh.rotation.set(-0.65, 0, 0);
+      b.leftShin.rotation.set(1.0, 0, 0);
+      b.rightShin.rotation.set(1.0, 0, 0);
+    } else if (activeTrick === 'flip' || state.activeTrickName?.includes('Balance')) {
+      // TRICK 1: One-Leg Balance (Front foot locked to kicktail, back leg and arm kicked out in diagonal karate pose)
+      b.hips.position.y = hipsBaseY + 0.15;
+      b.hips.rotation.set(0.12, 0.75, 0.25);
+      b.leftThigh.rotation.set(-0.45, 0, 0);
+      b.leftShin.rotation.set(0.75, 0, 0);
+      b.rightThigh.rotation.set(-1.25, 0, -0.75);
+      b.rightShin.rotation.set(0.25, 0, 0);
+      b.rightArm.rotation.set(-1.10, 0, 1.25);
+      b.leftArm.rotation.set(0.40, 0, -0.45);
+    } else if (activeTrick === 'grab' || state.activeTrickName?.includes('Side Kick')) {
+      // TRICK 3: Side Kick Pose (Grab board rail with left hand, launch exaggerated side kick)
+      b.hips.position.y = hipsBaseY + 0.18;
+      b.hips.rotation.set(0.18, -0.45, -0.35);
+      b.leftArm.rotation.set(1.10, 0, -0.75);
+      b.leftForearm.rotation.set(1.45, 0, 0);
+      b.rightThigh.rotation.set(-1.45, 0, 1.10);
+      b.rightShin.rotation.set(0.18, 0, 0);
+      b.leftThigh.rotation.set(-0.60, 0, 0);
+      b.leftShin.rotation.set(0.95, 0, 0);
     } else if (activeTrick === 'pose' || state.activeTrickName?.includes('Glide')) {
-      b.leftArm.rotation.set(0.18, 0, -0.38);
-      b.rightArm.rotation.set(-0.12, 0, 0.42);
+      b.leftArm.rotation.set(0.25, 0, -0.65);
+      b.rightArm.rotation.set(-0.25, 0, 0.65);
       b.leftForearm.rotation.set(-0.15, 0, 0);
       b.rightForearm.rotation.set(-0.15, 0, 0);
-      b.chest.rotation.x = -0.10;
+      b.chest.rotation.x = -0.15;
     }
 
-    // 4. Stumble / Recoil
+    // 4. Hit / Collision (Sudden backward jerk, flailing arms, instant 0.25s recovery)
     if (stumbleTimer > 0) {
-      const recoil = Math.sin(stumbleTimer * 25) * 0.2;
-      b.spine.rotation.x = -recoil;
-      b.leftArm.rotation.x = recoil * 1.2;
-      b.rightArm.rotation.x = recoil * 1.2;
+      const recoilNorm = Math.min(1.0, stumbleTimer / 0.35);
+      const recoil = Math.sin(stumbleTimer * 22.0) * recoilNorm;
+      b.hips.position.y = hipsBaseY - 0.12 * recoilNorm;
+      b.hips.position.z = -0.15 * recoilNorm;
+      b.spine.rotation.x = -0.65 * recoil;
+      b.head.rotation.x = -0.75 * recoil; // Head snaps back violently
+      b.leftArm.rotation.set(0.80 * recoil, 0, -1.25 * recoil);
+      b.rightArm.rotation.set(-0.80 * recoil, 0, 1.25 * recoil);
+    } else {
+      b.hips.position.z = 0;
     }
 
     // 5. Head Look-Ahead

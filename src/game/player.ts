@@ -743,9 +743,9 @@ export class PlayerManager {
     this.stats.slowMoActive = true;
 
     const trickNames: Record<TrickType, string> = {
-      spin: 'Cyber Corkscrew 360°',
-      flip: 'Laser Invert Backflip',
-      grab: 'Neon Rail Grab',
+      spin: 'Board Spin 360°',
+      flip: 'One-Leg Balance',
+      grab: 'Side Kick Pose',
       pose: 'Sonic Air Glide',
     };
 
@@ -999,7 +999,7 @@ export class PlayerManager {
     const unifiedCarveTilt = continuousCarveRoll + laneCarveTilt;
 
     this.boardMesh.rotation.z = unifiedCarveTilt;
-    this.boardMesh.rotation.x = this.isGrounded ? 0 : (this.activeTrick === 'flip' ? this.flipAngle : 0);
+    this.boardMesh.rotation.x = this.isGrounded ? 0 : (this.activeTrick === 'flip' ? this.flipAngle : 0.42 * Math.sin(Math.min(1.0, (this.stats.airTime || 0) * 2.5) * Math.PI));
     this.boardMesh.rotation.y = this.isGrounded ? 0 : this.spinAngle;
 
     // Animate Holo-Shield Shell
