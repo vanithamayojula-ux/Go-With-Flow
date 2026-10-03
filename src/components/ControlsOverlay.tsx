@@ -87,70 +87,83 @@ export const ControlsOverlay: React.FC<ControlsOverlayProps> = ({
         </div>
       </div>
 
-      {/* Bottom control clusters */}
-      <div className="flex items-end justify-between w-full">
+      {/* Bottom control bar with safe area inset and unclipped keybind hints */}
+      <div className="fixed bottom-0 inset-x-0 px-2 pb-[env(safe-area-inset-bottom)] mb-2 flex items-center justify-between gap-2 overflow-x-auto text-[11px] md:text-sm pointer-events-none">
         {/* Left Side: Steering Paddles */}
-        <div className="flex items-center space-x-3 pointer-events-auto">
+        <div className="flex items-center gap-1.5 sm:gap-2 pointer-events-auto shrink-0">
           <button
             id="btn-carve-left"
-            className="w-14 h-14 sm:w-16 sm:h-16 rounded-xl bg-black/80 backdrop-blur-xl border border-cyan-500/40 text-cyan-300 flex items-center justify-center active:scale-95 active:bg-cyan-500/80 active:text-black transition-all shadow-[0_0_15px_rgba(0,240,255,0.2)]"
+            className="min-h-[48px] min-w-[48px] w-12 h-12 sm:w-14 sm:h-14 rounded-xl bg-black/80 backdrop-blur-xl border border-cyan-500/40 text-cyan-300 flex items-center justify-center active:scale-95 active:bg-cyan-500/80 active:text-black transition-all shadow-[0_0_15px_rgba(0,240,255,0.2)]"
             onPointerDown={() => onControlAction('left', true)}
             onPointerUp={() => onControlAction('left', false)}
             onPointerLeave={() => onControlAction('left', false)}
             aria-label="Shift Lane Left"
           >
-            <ArrowLeft className="w-6 h-6" />
+            <ArrowLeft className="w-5 h-5 sm:w-6 sm:h-6" />
           </button>
 
           <button
             id="btn-carve-right"
-            className="w-14 h-14 sm:w-16 sm:h-16 rounded-xl bg-black/80 backdrop-blur-xl border border-cyan-500/40 text-cyan-300 flex items-center justify-center active:scale-95 active:bg-cyan-500/80 active:text-black transition-all shadow-[0_0_15px_rgba(0,240,255,0.2)]"
+            className="min-h-[48px] min-w-[48px] w-12 h-12 sm:w-14 sm:h-14 rounded-xl bg-black/80 backdrop-blur-xl border border-cyan-500/40 text-cyan-300 flex items-center justify-center active:scale-95 active:bg-cyan-500/80 active:text-black transition-all shadow-[0_0_15px_rgba(0,240,255,0.2)]"
             onPointerDown={() => onControlAction('right', true)}
             onPointerUp={() => onControlAction('right', false)}
             onPointerLeave={() => onControlAction('right', false)}
             aria-label="Shift Lane Right"
           >
-            <ArrowRight className="w-6 h-6" />
+            <ArrowRight className="w-5 h-5 sm:w-6 sm:h-6" />
           </button>
         </div>
 
-        {/* Center: Minimal Cyber Keybind Hints */}
-        <div className="hidden md:flex items-center space-x-2 px-4 py-2 rounded-lg bg-black/80 backdrop-blur-xl border border-cyan-500/30 text-xs text-white/80 font-mono tracking-wide shadow-lg">
-          <span><kbd className="px-1.5 py-0.5 rounded bg-cyan-950/60 border border-cyan-500/40 text-cyan-300 font-bold">A</kbd> <kbd className="px-1.5 py-0.5 rounded bg-cyan-950/60 border border-cyan-500/40 text-cyan-300 font-bold">D</kbd> SHIFT LANE</span>
-          <span className="text-cyan-500/40">•</span>
-          <span><kbd className="px-2 py-0.5 rounded bg-cyan-950/60 border border-cyan-500/40 text-cyan-300 font-bold">SPACE / W</kbd> JUMP</span>
-          <span className="text-cyan-500/40">•</span>
-          <span><kbd className="px-1.5 py-0.5 rounded bg-pink-950/60 border border-pink-500/40 text-pink-300 font-bold">S / DOWN</kbd> SLIDE</span>
-          <span className="text-cyan-500/40">•</span>
-          <span><kbd className="px-1.5 py-0.5 rounded bg-emerald-950/60 border border-emerald-500/40 text-emerald-300 font-bold">2x SPACE</kbd> SHIELD</span>
+        {/* Center: Unclipped Keybind Hints */}
+        <div className="flex items-center gap-2 px-3 py-2 rounded-lg bg-black/85 backdrop-blur-xl border border-cyan-500/30 text-[11px] md:text-sm text-white/90 font-mono tracking-wide shadow-lg shrink-0 pointer-events-auto whitespace-nowrap overflow-x-auto">
+          <span className="hidden sm:inline-flex items-center gap-1">
+            <kbd className="px-1.5 py-0.5 rounded bg-cyan-950/60 border border-cyan-500/40 text-cyan-300 font-bold text-[10px] md:text-xs">A</kbd>
+            <kbd className="px-1.5 py-0.5 rounded bg-cyan-950/60 border border-cyan-500/40 text-cyan-300 font-bold text-[10px] md:text-xs">D</kbd>
+            <span className="text-slate-300">LANE</span>
+          </span>
+          <span className="hidden sm:inline text-cyan-500/40">•</span>
+          <span className="inline-flex items-center gap-1">
+            <kbd className="px-1.5 py-0.5 rounded bg-cyan-950/60 border border-cyan-500/40 text-cyan-300 font-bold text-[10px] md:text-xs">SPACE/W</kbd>
+            <span className="text-cyan-200 font-bold">JUMP</span>
+          </span>
+          <span className="text-pink-500/40">•</span>
+          <span className="inline-flex items-center gap-1">
+            <kbd className="px-1.5 py-0.5 rounded bg-pink-950/60 border border-pink-500/40 text-pink-300 font-bold text-[10px] md:text-xs">S/DOWN</kbd>
+            <span className="text-pink-200 font-bold">SLIDE</span>
+          </span>
+          <span className="text-emerald-500/40">•</span>
+          <span className="inline-flex items-center gap-1">
+            <kbd className="px-1.5 py-0.5 rounded bg-emerald-950/60 border border-emerald-500/40 text-emerald-300 font-bold text-[10px] md:text-xs">2xSPACE</kbd>
+            <span className="text-emerald-200 font-bold">SHIELD</span>
+          </span>
         </div>
 
         {/* Right Side: Action Buttons (Slide, Jump) */}
-        <div className="flex items-center space-x-3 pointer-events-auto">
+        <div className="flex items-center gap-1.5 sm:gap-2 pointer-events-auto shrink-0">
           {/* Slide / Duck Button */}
           <button
             id="btn-action-slide"
-            className="w-14 h-14 sm:w-16 sm:h-16 rounded-xl bg-pink-950/80 backdrop-blur-xl border border-pink-500/60 text-pink-200 flex flex-col items-center justify-center active:scale-95 active:bg-pink-500 active:text-black transition-all shadow-[0_0_15px_rgba(255,0,127,0.3)]"
+            className="min-h-[48px] min-w-[48px] w-12 h-12 sm:w-14 sm:h-14 rounded-xl bg-pink-950/80 backdrop-blur-xl border border-pink-500/60 text-pink-200 flex flex-col items-center justify-center active:scale-95 active:bg-pink-500 active:text-black transition-all shadow-[0_0_15px_rgba(255,0,127,0.3)]"
             onPointerDown={() => onControlAction('slide', true)}
             onPointerUp={() => onControlAction('slide', false)}
             onPointerLeave={() => onControlAction('slide', false)}
             aria-label="Slide Under Laser Barriers"
           >
             <ArrowDown className="w-5 h-5 text-pink-300" />
-            <span className="text-[10px] uppercase font-black tracking-widest mt-0.5">Slide</span>
+            <span className="text-[9px] sm:text-[10px] uppercase font-black tracking-widest mt-0.5">Slide</span>
           </button>
 
           {/* Jump Button */}
           <button
             id="btn-action-jump"
-            className="w-16 h-16 sm:w-18 sm:h-18 rounded-xl bg-cyan-950/80 backdrop-blur-xl border border-cyan-400/70 text-cyan-100 flex flex-col items-center justify-center active:scale-95 active:bg-cyan-400 active:text-black transition-all shadow-[0_0_20px_rgba(0,240,255,0.4)]"
+            className="min-h-[48px] min-w-[48px] w-12 h-12 sm:w-14 sm:h-14 rounded-xl bg-cyan-950/80 backdrop-blur-xl border border-cyan-400/70 text-cyan-100 flex flex-col items-center justify-center active:scale-95 active:bg-cyan-400 active:text-black transition-all shadow-[0_0_20px_rgba(0,240,255,0.4)]"
             onPointerDown={() => onControlAction('jump', true)}
             onPointerUp={() => onControlAction('jump', false)}
             onPointerLeave={() => onControlAction('jump', false)}
             aria-label="Jump & Leap"
           >
-            <ArrowUp className="w-6 h-6 text-cyan-200" />
-            <span className="text-[10px] uppercase font-black tracking-widest mt-0.5">Jump</span>
+            <ArrowUp className="w-5 h-5 sm:w-6 sm:h-6 text-cyan-200" />
+            <span className="text-[9px] sm:text-[10px] uppercase font-black tracking-widest mt-0.5">Jump</span>
           </button>
         </div>
       </div>

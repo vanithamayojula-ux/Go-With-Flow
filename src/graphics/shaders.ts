@@ -207,19 +207,11 @@ export const TerrainShader = {
       float fresnel = pow(1.0 - max(dot(V, perturbedN), 0.0), 3.2);
       float wetness = clamp(fresnel * 0.65 + puddleMask * 0.30, 0.06, 0.75);
 
-      // 3. Strict Color System:
-      // Primary: Pure Neon Cyan (Player & Highway Rails ONLY)
-      // Secondary: Deep Cosmic Navy/Obsidian
+      // 3. Wet dark asphalt with specular puddle reflections and fresnel (not flat teal)
       vec3 neonCyan = vec3(0.0, 0.85, 0.95);
-      vec3 deepSpaceObsidian = vec3(0.003, 0.005, 0.012);
-
-      // Center corridor subtle ambient starlight reflection
-      float centerDist = abs(vWorldPosition.x);
-      float centerStreak = exp(-centerDist * centerDist * 0.22);
-      vec3 spaceReflection = neonCyan * centerStreak * 0.35;
-
-      // Clean, dark space highway surface
-      vec3 wetSurface = mix(pavementBase, pavementBase * 0.15 + spaceReflection, wetness * 0.55);
+      vec3 wetSkyReflect = mix(vec3(0.012, 0.016, 0.028), vec3(0.025, 0.038, 0.06), fresnel);
+      vec3 puddleColor = mix(pavementBase, wetSkyReflect * 1.5, puddleMask * 0.45);
+      vec3 wetSurface = mix(pavementBase, puddleColor, wetness * 0.5);
 
       // 4. --- EXACT 3-LANE SPACE HIGHWAY MARKINGS & GUIDED NEON RAILS ---
       float roadX = vWorldPosition.x;
@@ -228,33 +220,28 @@ export const TerrainShader = {
       float railX = uRailX > 0.1 ? uRailX : 4.5;
       float divX = uDividerX > 0.1 ? uDividerX : 1.3;
 
-      // Exactly 2 Solid glowing outer highway rails (+-railX)
-      float railLeft = smoothstep(0.20, 0.02, abs(roadX - (-railX)));
-      float railRight = smoothstep(0.20, 0.02, abs(roadX - railX));
-      float guideRails = railLeft * 1.5 + railRight * 1.5;
+      // Exactly 2 Solid glowing outer highway rails (+-railX): thin (0.02)
+      float railLeft = smoothstep(0.035, 0.015, abs(roadX - (-railX)));
+      float railRight = smoothstep(0.035, 0.015, abs(roadX - railX));
+      float guideRails = railLeft * 1.6 + railRight * 1.6;
 
-      // Exactly 2 Dashed lane divider lines between the 3 lanes (+-divX)
-      float divLeft = smoothstep(0.12, 0.02, abs(roadX - (-divX)));
-      float divRight = smoothstep(0.12, 0.02, abs(roadX - divX));
+      // Exactly 2 Dashed lane divider lines between the 3 lanes (+-divX): thin
+      float divLeft = smoothstep(0.030, 0.012, abs(roadX - (-divX)));
+      float divRight = smoothstep(0.030, 0.012, abs(roadX - divX));
       float dashRate = 24.0 + uSpeed * 1.1;
       float laneDashes = step(0.45, fract((roadZ - uTime * dashRate) * 0.16));
-      float dividerLines = (divLeft + divRight) * laneDashes;
+      float dividerLines = (divLeft + divRight) * laneDashes * 1.2;
 
       // Subtle lane center flow guides (marking the 3 lane paths)
-      float laneCenterL = smoothstep(0.40, 0.04, abs(roadX - (-laneW)));
-      float laneCenterC = smoothstep(0.40, 0.04, abs(roadX - 0.0));
-      float laneCenterR = smoothstep(0.40, 0.04, abs(roadX - laneW));
-      float laneFlow = (laneCenterL + laneCenterC + laneCenterR) * 0.08 * (sin((roadZ - uTime * 28.0) * 0.2) * 0.5 + 0.5);
+      float laneCenterL = smoothstep(0.10, 0.015, abs(roadX - (-laneW)));
+      float laneCenterC = smoothstep(0.10, 0.015, abs(roadX - 0.0));
+      float laneCenterR = smoothstep(0.10, 0.015, abs(roadX - laneW));
+      float laneFlow = (laneCenterL + laneCenterC + laneCenterR) * 0.02 * (sin((roadZ - uTime * 28.0) * 0.2) * 0.5 + 0.5);
 
       // Strict Color System: Cyan ONLY for rails and road guidance
-      vec3 emissiveLines = neonCyan * (guideRails * 1.5 + dividerLines * 1.3 + laneFlow);
+      vec3 emissiveLines = neonCyan * (guideRails * 1.5 + dividerLines * 1.2 + laneFlow);
 
       vec3 finalCol = wetSurface + emissiveLines;
-
-      // Subtle atmospheric rim lighting
-      float rimIntensity = uRimLightIntensity > 0.0 ? uRimLightIntensity : 0.14;
-      float rim = pow(1.0 - max(dot(V, N), 0.0), 4.2);
-      finalCol += neonCyan * rim * rimIntensity;
 
       // 5. Depth System: Foreground is Razor-Sharp & Punchy;
       // Distance smoothly recedes into Per-Biome / Cosmic Space Fog
@@ -315,10 +302,10 @@ export const BoardTrailShader = {
     varying vec2 vUv;
 
     void main() {
-      // High-energy laser ribbon with intense white core
+      // Tight laser ribbon - shrunk 50% without wide blurry blob
       float distFromCenter = abs(vUv.y - 0.5) * 2.0; // 0 at center, 1 at edge
-      float core = pow(1.0 - distFromCenter, 4.0); // Pure white blinding core
-      float glow = pow(1.0 - distFromCenter, 1.5); // Saturated neon outer glow
+      float core = pow(1.0 - distFromCenter, 5.0); // Intense thin core
+      float glow = pow(1.0 - distFromCenter, 2.8); // Sleek outer glow
 
       // Length fade
       float lengthFade = smoothstep(0.0, 0.25, vProgress);
@@ -327,7 +314,7 @@ export const BoardTrailShader = {
       float pulse = sin(vProgress * 24.0 - uTime * 20.0) * 0.2 + 0.8;
 
       vec3 neonHue = mix(uColorA, uColorB, vProgress);
-      vec3 finalCol = mix(neonHue * 2.2, vec3(1.0, 1.0, 1.0) * 2.8, core);
+      vec3 finalCol = mix(neonHue * 1.6, vec3(0.95, 0.95, 0.95) * 1.8, core);
 
       float alpha = glow * lengthFade * uOpacity * pulse;
       gl_FragColor = vec4(finalCol, clamp(alpha, 0.0, 1.0));

@@ -231,6 +231,18 @@ export class PlayerManager {
     playerHemiLight.position.set(0, 5, 0);
     this.group.add(playerHemiLight);
 
+    // Spot light 3.0
+    const playerSpot = new THREE.SpotLight(0x00d2e0, 3.0, 24, Math.PI / 6, 0.35, 1.1);
+    playerSpot.position.set(0, 4.0, -3.0);
+    playerSpot.target.position.set(0, 0.8, 0);
+    this.group.add(playerSpot);
+    this.group.add(playerSpot.target);
+
+    // Underglow 0.65
+    const playerUnderglow = new THREE.PointLight(0x00d2e0, 0.65, 3.5);
+    playerUnderglow.position.set(0, -0.05, 0);
+    this.group.add(playerUnderglow);
+
     // 3. Thin Fresnel-Rim Holo-Shield Bubble (Crystal clear sightline, zero forward occlusion)
     const shieldGeom = new THREE.SphereGeometry(1.65, 32, 24);
     const shieldMat = new THREE.ShaderMaterial({
@@ -339,7 +351,7 @@ export class PlayerManager {
       uniforms: {
         uColorA: { value: new THREE.Color('#00D2E0') }, // Primary Cyan
         uColorB: { value: new THREE.Color('#FF00FF') }, // Secondary Magenta Speed Swirl
-        uOpacity: { value: 0.90 },
+        uOpacity: { value: 0.60 },
         uTime: { value: 0 },
       },
       transparent: true,
@@ -1097,16 +1109,16 @@ export class PlayerManager {
     this.updateTrailRibbon(effectiveDt);
     this.updateParticles(effectiveDt);
 
-    // Camera follow calibrated for clear rider framing & visibility
+    // Camera ONE preset: pos x*0.58 y+2.6 z-5.2 look y+1.6 FOV 62
     this.cameraPos.set(
       this.position.x * 0.58,
-      this.position.y + 2.0,
-      this.position.z - 3.8
+      this.position.y + 2.6,
+      this.position.z - 5.2
     );
     this.cameraLookAt.set(
       this.position.x * 0.58,
-      this.position.y + 1.25,
-      this.position.z + 8.0
+      this.position.y + 1.6,
+      this.position.z + 12.0
     );
   }
 

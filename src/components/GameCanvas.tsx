@@ -711,12 +711,11 @@ export const GameCanvas: React.FC<GameCanvasProps> = ({
         const radius = 18;
         const camX = playerMgr.position.x + Math.sin(timeSeconds * 0.4) * radius;
         const camZ = playerMgr.position.z + Math.cos(timeSeconds * 0.4) * radius;
-        camera.position.set(camX, playerMgr.position.y + 6, camZ);
         camera.lookAt(playerMgr.position.x, playerMgr.position.y + 1.5, playerMgr.position.z);
       } else {
         const baseFov = 62;
-        const targetFov = baseFov + Math.min(12, (playerMgr.stats.speed / 150) * 10 + (playerMgr.stats.isBoosting ? 5 : 0));
-        camera.fov = THREE.MathUtils.lerp(camera.fov, targetFov, 5.0 * dt);
+        const targetFov = Math.min(70, Math.max(62, baseFov + (playerMgr.stats.speed / 150) * 6 + (playerMgr.stats.isBoosting ? 2 : 0)));
+        camera.fov = THREE.MathUtils.lerp(camera.fov, targetFov, 3.5 * dt);
         camera.updateProjectionMatrix();
 
         camera.position.copy(playerMgr.cameraPos);

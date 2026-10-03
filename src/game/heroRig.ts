@@ -186,10 +186,25 @@ export function buildHeroRig(heroId: HeroId): HeroRig | null {
   scene.rotation.set(0, heroDef.yawOffset || 0, 0); // Faces forward (+Z) along track
   bodyGroup.add(scene);
 
+  // Lock hero scale: hero 1.7m
+  scene.updateMatrixWorld(true);
+  const bbox = new THREE.Box3().setFromObject(scene);
+  const size = new THREE.Vector3();
+  bbox.getSize(size);
+  if (size.y > 0.05) {
+    const scaleFactor = 1.70 / size.y;
+    scene.scale.setScalar(scaleFactor);
+  }
+
   const byName = new Map<string, THREE.Object3D>();
   scene.traverse((o: THREE.Object3D) => {
     if (o.name) {
       byName.set(o.name, o);
+    }
+    // Remove any pitched vertical board or standalone box inside hero models
+    const lname = (o.name || '').toLowerCase();
+    if (lname.includes('surfboard') || lname.includes('hoverboard') || (lname.includes('board') && !lname.includes('root'))) {
+      o.visible = false;
     }
   });
 
@@ -225,21 +240,8 @@ export function buildHeroRig(heroId: HeroId): HeroRig | null {
             stdMat.map.generateMipmaps = true;
             stdMat.map.minFilter = THREE.LinearMipmapLinearFilter;
             stdMat.map.magFilter = THREE.LinearFilter;
-            stdMat.map.anisotropy = 8; // High-resolution texture sharpness at distance
+            stdMat.map.anisotropy = 4; // High-resolution texture sharpness at distance
             stdMat.map.needsUpdate = true;
-            stdMat.color.setHex(0xffffff); // Keep pure white so texture is unclouded
-            if (heroId !== 'custom') {
-              stdMat.emissive.copy(heroColor).multiplyScalar(0.20);
-              stdMat.emissiveIntensity = 0.5;
-            } else {
-              stdMat.emissive.setHex(0x000000);
-              stdMat.emissiveIntensity = 0.0;
-            }
-            stdMat.roughness = 0.45;
-            stdMat.metalness = 0.3;
-            stdMat.envMapIntensity = 1.2;
-            stdMat.needsUpdate = true;
-            continue;
           }
 
           // 2. Normal map softening (spikes *0.35 to prevent noisy spongy appearance)
@@ -257,10 +259,10 @@ export function buildHeroRig(heroId: HeroId): HeroRig | null {
           (stdMat as any).clearcoat = 0;
           (stdMat as any).sheen = 0;
 
-          // 5. Albedo lift for dark heroes (Shadow, Void) — #0a0f1d -> #1a2438 lift, never pure black albedo
+          // 5. Albedo lift for dark heroes (Shadow, Void) — base #1a2438 (never pure black albedo)
           const hsl = { h: 0, s: 0, l: 0 };
           stdMat.color.getHSL(hsl);
-          if (hsl.l < 0.18) {
+          if (hsl.l < 0.22) {
             stdMat.color.setHex(0x1a2438);
           } else if (hsl.l < 0.40) {
             stdMat.color.setHSL(hsl.h, Math.min(1.0, hsl.s * 1.1), Math.max(0.35, hsl.l * 1.5));
@@ -274,21 +276,25 @@ export function buildHeroRig(heroId: HeroId): HeroRig | null {
 
           if (isVisor) {
             stdMat.emissive = new THREE.Color(0x00f0ff);
-            stdMat.emissiveIntensity = 2.0; // visor *2.0
+            stdMat.emissiveIntensity = 2.0; // visor 2.0
           } else if (isChest) {
-            if (stdMat.emissive) {
-              stdMat.emissive.copy(heroColor).multiplyScalar(0.20);
-              stdMat.emissiveIntensity = 0.4; // chest cap 0.4
-            }
-          } else if (stdMat.emissive) {
+            stdMat.emissive = heroColor.clone().multiplyScalar(0.20);
+            stdMat.emissiveIntensity = 0.4; // chest cap 0.4
+          } else {
             if (heroId === 'void') {
-              stdMat.emissive.setHex(0x00f0ff).multiplyScalar(0.50);
-              stdMat.emissiveIntensity = 1.2; // veins *1.2
+              stdMat.emissive = new THREE.Color(0x00f0ff).multiplyScalar(0.50);
+              stdMat.emissiveIntensity = 1.2; // veins 1.2
             } else {
-              stdMat.emissive.copy(heroColor).multiplyScalar(0.40);
-              stdMat.emissiveIntensity = 1.2; // veins *1.2
+              stdMat.emissive = heroColor.clone().multiplyScalar(0.40);
+              stdMat.emissiveIntensity = 1.2; // veins 1.2
             }
           }
+
+          // Cap emissive channels at 245/255 to prevent pure white bloom clip
+          const cap = 245 / 255;
+          stdMat.emissive.r = Math.min(stdMat.emissive.r, cap);
+          stdMat.emissive.g = Math.min(stdMat.emissive.g, cap);
+          stdMat.emissive.b = Math.min(stdMat.emissive.b, cap);
 
           stdMat.needsUpdate = true;
         }

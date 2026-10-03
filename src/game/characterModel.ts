@@ -103,40 +103,40 @@ function createCyberPhantomBoard(): THREE.Group {
     metalness: 0.85,
   });
 
-  // Stringer magenta 0.04 emissive 1.4
+  // Stringer magenta 0.04 emissive 1.2
   const stringerMat = new THREE.MeshStandardMaterial({
-    color: 0xff00aa,
-    emissive: new THREE.Color(0xff00aa),
-    emissiveIntensity: 1.4,
-    roughness: 0.2,
+    color: 0xe60099,
+    emissive: new THREE.Color(0xe60099),
+    emissiveIntensity: 1.2,
+    roughness: 0.25,
     metalness: 0.8,
   });
 
-  // Rails cyan tubes emissive 1.2
+  // Rails cyan tubes emissive 1.1
   const cyanRailMat = new THREE.MeshStandardMaterial({
+    color: 0x00c4d4,
+    emissive: new THREE.Color(0x00c4d4),
+    emissiveIntensity: 1.1,
+    roughness: 0.25,
+    metalness: 0.8,
+  });
+
+  // Nose ring torus 0.18 cyan emissive 1.2
+  const noseRingMat = new THREE.MeshStandardMaterial({
     color: 0x00d2e0,
     emissive: new THREE.Color(0x00d2e0),
     emissiveIntensity: 1.2,
-    roughness: 0.2,
+    roughness: 0.25,
     metalness: 0.8,
   });
 
-  // Nose ring torus 0.18 cyan emissive 1.4
-  const noseRingMat = new THREE.MeshStandardMaterial({
-    color: 0x00f0ff,
-    emissive: new THREE.Color(0x00f0ff),
+  // 2 Side pods cyan emissive 1.4 (capped, no pure white blowout)
+  const thrusterGlowMat = new THREE.MeshStandardMaterial({
+    color: 0x00e5ff,
+    emissive: new THREE.Color(0x00d2e0),
     emissiveIntensity: 1.4,
     roughness: 0.2,
     metalness: 0.8,
-  });
-
-  // 2 Side pods cyan-white emissive 2.5
-  const thrusterGlowMat = new THREE.MeshStandardMaterial({
-    color: 0xa0f8ff,
-    emissive: new THREE.Color(0x00ffff),
-    emissiveIntensity: 2.5,
-    roughness: 0.1,
-    metalness: 0.9,
   });
 
   // 1. Center / Main Deck: 0.38 x 0.024 x 0.90 #0a0f1d (centered at z = 0, spans z = -0.45 to +0.45)
@@ -882,8 +882,8 @@ export function createPlayerCharacter(heroId?: HeroId): PlayerCharacter {
           }
           rootGroup.add(rig.root);
           spineGroup.visible = false;
-          // Hide procedural board when using custom model since it already has its own board
-          playerChar.board.visible = (targetHeroId !== 'custom');
+          // All characters use the unified horizontal cyber hoverboard
+          playerChar.board.visible = true;
           playerChar.syncBones = rig.syncBones;
           playerChar.heroRig = rig;
           playerChar.activeHeroId = targetHeroId;
