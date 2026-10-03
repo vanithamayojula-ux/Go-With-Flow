@@ -424,13 +424,8 @@ export function buildHeroRig(heroId: HeroId): HeroRig | null {
             stdMat.emissive = heroColor.clone().multiplyScalar(0.20);
             stdMat.emissiveIntensity = 0.4; // chest cap 0.4
           } else {
-            if (heroId === 'void') {
-              stdMat.emissive = new THREE.Color(0x00f0ff).multiplyScalar(0.50);
-              stdMat.emissiveIntensity = 1.2; // veins 1.2
-            } else {
-              stdMat.emissive = heroColor.clone().multiplyScalar(0.40);
-              stdMat.emissiveIntensity = 1.2; // veins 1.2
-            }
+            stdMat.emissive = heroColor.clone().multiplyScalar(0.40);
+            stdMat.emissiveIntensity = 1.2; // veins 1.2
           }
 
           // Cap emissive channels at 245/255 to prevent pure white bloom clip
