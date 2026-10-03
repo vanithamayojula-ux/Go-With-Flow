@@ -882,6 +882,8 @@ export function createPlayerCharacter(heroId?: HeroId): PlayerCharacter {
           }
           rootGroup.add(rig.root);
           spineGroup.visible = false;
+          // Hide procedural board when using custom model since it already has its own board
+          playerChar.board.visible = (targetHeroId !== 'custom');
           playerChar.syncBones = rig.syncBones;
           playerChar.heroRig = rig;
           playerChar.activeHeroId = targetHeroId;
@@ -895,6 +897,7 @@ export function createPlayerCharacter(heroId?: HeroId): PlayerCharacter {
       rootGroup.remove(playerChar.heroRig.root);
     }
     spineGroup.visible = true;
+    playerChar.board.visible = true;
     playerChar.syncBones = undefined;
     playerChar.heroRig = undefined;
     playerChar.activeHeroId = undefined;

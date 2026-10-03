@@ -1,5 +1,6 @@
 import * as THREE from 'three';
 import { GLTFLoader } from 'three/examples/jsm/loaders/GLTFLoader.js';
+import { MeshoptDecoder } from 'three/examples/jsm/libs/meshopt_decoder.module.js';
 import { HeroId } from '../types';
 import { heroById } from './heroes';
 
@@ -60,6 +61,7 @@ export interface HeroRig {
 
 const cache = new Map<HeroId, Promise<LoadedHeroData | null> | LoadedHeroData>();
 const loader = new GLTFLoader();
+loader.setMeshoptDecoder(MeshoptDecoder);
 
 export async function loadHeroModel(heroId: HeroId): Promise<LoadedHeroData | null> {
   const cached = cache.get(heroId);
@@ -223,6 +225,13 @@ export function buildHeroRig(heroId: HeroId): HeroRig | null {
             stdMat.map.generateMipmaps = true;
             stdMat.map.minFilter = THREE.LinearMipmapLinearFilter;
             stdMat.map.needsUpdate = true;
+            stdMat.color.setHex(0xffffff); // Keep pure white so texture is unclouded
+            stdMat.emissive.setHex(0x000000); // No cyan bloom blowout over texture
+            stdMat.emissiveIntensity = 0.0;
+            stdMat.roughness = 0.45;
+            stdMat.metalness = 0.25;
+            stdMat.needsUpdate = true;
+            continue;
           }
 
           // 2. Normal map softening (spikes *0.35 to prevent noisy spongy appearance)
@@ -339,11 +348,10 @@ export function buildHeroRig(heroId: HeroId): HeroRig | null {
     // Auto-fit to hoverboard deck
     const box = new THREE.Box3().setFromObject(scene);
     const size = box.getSize(new THREE.Vector3());
-    const maxDim = Math.max(size.x, size.y, size.z);
 
-    if (maxDim > 0.001) {
-      const targetHeight = 1.6; // standard skater height
-      const scale = targetHeight / maxDim;
+    if (size.z > 0.001) {
+      const targetLength = 1.70; // 1.70m standard hoverboard deck length matching game scale
+      const scale = targetLength / size.z;
       scene.scale.setScalar(scale);
 
       const scaledBox = new THREE.Box3().setFromObject(scene);

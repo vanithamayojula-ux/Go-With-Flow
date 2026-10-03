@@ -1,6 +1,7 @@
 import * as THREE from 'three';
 import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
 import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
+import { MeshoptDecoder } from 'three/addons/libs/meshopt_decoder.module.js';
 
 // 1. Scene Setup with Black Background
 const scene = new THREE.Scene();
@@ -44,6 +45,7 @@ scene.add(fillDirectionalLight);
 
 // 6. Model Loading using GLTFLoader from "/model.glb"
 const loader = new GLTFLoader();
+loader.setMeshoptDecoder(MeshoptDecoder);
 const statusOverlay = document.getElementById('status-overlay');
 
 loader.load(

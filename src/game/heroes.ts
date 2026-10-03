@@ -29,7 +29,7 @@ export const HEROES: HeroDef[] = [
     blurb: 'Custom 3D model loaded from public/model.glb directly onto your hoverboard!',
     modelUrl: '/model.glb',
     previewUrl: '/player_sprite.jpg',
-    yawOffset: 0,
+    yawOffset: Math.PI,
     ult: { type: 'dash', duration: 2.5, speedMul: 2.0 },
   },
   {
