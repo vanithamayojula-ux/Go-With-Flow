@@ -80,6 +80,7 @@ export interface ShaderParams {
   slopeWarmth: number;
   filmGrainIntensity: number;
   bloomIntensity: number;
+  bloomStrength?: number;
   colorLift: number;
   highSpeedBlur: number;
   speedLineIntensity?: number;

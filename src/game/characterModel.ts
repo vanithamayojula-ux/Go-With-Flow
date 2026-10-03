@@ -887,6 +887,11 @@ export function createPlayerCharacter(heroId?: HeroId): PlayerCharacter {
             Object.values(boards).forEach((b) => {
               b.visible = false;
             });
+          } else {
+            const hasVisible = Object.values(boards).some((b) => b.visible);
+            if (!hasVisible && boards['cyber-phantom']) {
+              boards['cyber-phantom'].visible = true;
+            }
           }
           playerChar.board.visible = true;
           playerChar.syncBones = rig.syncBones;

@@ -305,9 +305,20 @@ export function buildHeroRig(heroId: HeroId): HeroRig | null {
         rightFoot: dummyJoint,
       },
       syncBones: () => {
-        // Dynamic surfing carve lean into turns
-        bodyGroup.rotation.z = spineDriver.rotation.z * 0.35;
-        bodyGroup.rotation.x = spineDriver.rotation.x * 0.25;
+        // Option B: Multi-layer whole-body kinematics for rigid/unskinned cyber rider
+        // 1. Vertical dynamic weight-shift: rhythmic riding bob, jump airtime lift, slide tuck
+        const dy = (hipsDriver.position.y || 0.52) - 0.52;
+        bodyGroup.position.y = dy;
+
+        // 2. Lateral carving bank into lane-shifts & curves
+        bodyGroup.rotation.z = spineDriver.rotation.z * 0.55;
+
+        // 3. Longitudinal pitch lean & trick flips
+        const pitchLean = ((spineDriver.rotation.x || 0.30) - 0.30) * 0.45;
+        bodyGroup.rotation.x = pitchLean + (hipsDriver.rotation.x || 0);
+
+        // 4. Aerial trick yaw spin (360° corkscrews)
+        bodyGroup.rotation.y = spineDriver.rotation.y || 0;
       },
       skinned: false,
       hipsRestY: 0,
