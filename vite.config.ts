@@ -12,11 +12,26 @@ export default defineConfig(() => {
       },
     },
     build: {
+      chunkSizeWarningLimit: 800,
       rollupOptions: {
         input: {
           main: path.resolve(__dirname, 'index.html'),
           heroLab: path.resolve(__dirname, 'hero-lab.html'),
           viewer: path.resolve(__dirname, 'viewer.html'),
+        },
+        output: {
+          manualChunks(id) {
+            if (id.includes('node_modules/three')) {
+              return 'three';
+            }
+            if (
+              id.includes('node_modules/react') ||
+              id.includes('node_modules/react-dom') ||
+              id.includes('node_modules/lucide-react')
+            ) {
+              return 'vendor';
+            }
+          },
         },
       },
     },

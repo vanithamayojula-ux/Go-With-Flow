@@ -80,6 +80,18 @@ export const HEROES: HeroDef[] = [
     yawOffset: 0,
     ult: { type: 'freeze', duration: 5, timeMul: 0.5 },
   },
+  {
+    id: 'void',
+    name: 'Void Walker',
+    color: 0x6b5a9c,
+    trail: 0xb98bff,
+    cost: 0,
+    blurb: 'Phase shift — becomes untouchable and drinks the abyss.',
+    modelUrl: '/models/void.glb',
+    previewUrl: '/hero-previews/void.jpg',
+    yawOffset: 0,
+    ult: { type: 'phase', duration: 6 },
+  },
 ];
 
 export const heroById = (id?: string): HeroDef =>

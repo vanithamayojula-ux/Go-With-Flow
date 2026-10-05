@@ -986,6 +986,7 @@ export class PlayerManager {
       activeTrick: this.activeTrick,
       turnVelocity: this.carveAngle * 10,
       nearestObstacleDist: nearestObsDist,
+      dt: effectiveDt,
     });
 
     // Continuous Carve Roll & Unified Bank Tilt (Syncing surfboard and character roll)

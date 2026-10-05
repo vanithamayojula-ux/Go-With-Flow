@@ -838,7 +838,9 @@ export const OpeningScreen: React.FC<OpeningScreenProps> = ({
               <div className="flex items-center justify-between">
                 <span className="text-white/60">VFX (BLOOM/CA):</span>
                 <span className="font-mono text-white/80">
-                  {(shaderParams?.bloomStrength ?? shaderParams?.bloomIntensity) !== undefined ? `${(shaderParams.bloomStrength ?? shaderParams.bloomIntensity).toFixed(1)}X` : 'ON'} ·{' '}
+                  {((shaderParams?.bloomStrength ?? shaderParams?.bloomIntensity) !== undefined)
+                    ? `${(shaderParams?.bloomStrength ?? shaderParams?.bloomIntensity ?? 0).toFixed(1)}X`
+                    : 'ON'} ·{' '}
                   {shaderParams?.chromaticAberration !== undefined ? `${shaderParams.chromaticAberration.toFixed(2)}` : '0.05'}
                 </span>
               </div>

@@ -118,7 +118,7 @@ async function initLab() {
         isGrounded: pose !== 'jump' && !activeTrick,
         isSliding: pose === 'slide',
         isGrinding: pose === 'grind',
-        isBoosting: false,
+        isBoosting: pose === 'boost',
         stumbleTimer: 0,
         activeTrickName: activeTrick,
         activeTrick: activeTrick,

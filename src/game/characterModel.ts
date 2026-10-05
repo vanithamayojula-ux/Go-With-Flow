@@ -928,6 +928,18 @@ export function createProceduralCharacter(): PlayerCharacter {
 }
 
 /**
+ * Exponential approach, framerate-independent.
+ * Smooths current towards target over dt without snapping.
+ * Guarantees smooth easing over ~0.15-0.20s without single-frame jumps (>0.15 rad).
+ */
+export function approachAngle(current: number, target: number, dt: number, rate = 8.0): number {
+  const step = (target - current) * (1 - Math.exp(-rate * dt));
+  const maxStep = 7.5 * dt; // Max 7.5 rad/s (~0.125 rad/frame at 60fps)
+  const clampedStep = THREE.MathUtils.clamp(step, -maxStep, maxStep);
+  return current + clampedStep;
+}
+
+/**
  * Skeletal Animation & Procedural Motion Engine
  */
 export function animatePlayerCharacter(
@@ -944,33 +956,16 @@ export function animatePlayerCharacter(
     activeTrick: TrickType | null;
     turnVelocity: number;
     nearestObstacleDist: number;
+    dt?: number;
   }
 ): void {
   const { isSliding, isGrinding, isBoosting, stumbleTimer, activeTrick, turnVelocity } = state;
+  const dt = Math.min(0.08, Math.max(0.001, state.dt ?? (1 / 60)));
 
   // A. Hero Rig Animation (Skinned GLTF Mesh)
   if (pc.heroRig) {
     const b = pc.heroRig.drivers;
     const hipsBaseY = pc.heroRig.hipsRestY ?? 0.885;
-
-    // Reset default driver rotations
-    b.hips.rotation.set(0, 0, 0);
-    b.spine.rotation.set(0, 0, 0);
-    b.chest.rotation.set(0, 0, 0);
-    b.neck.rotation.set(0, 0, 0);
-    b.head.rotation.set(0, 0, 0);
-
-    b.leftThigh.rotation.set(0, 0, 0);
-    b.leftShin.rotation.set(0, 0, 0);
-    b.leftFoot.rotation.set(0, 0, 0);
-    b.rightThigh.rotation.set(0, 0, 0);
-    b.rightShin.rotation.set(0, 0, 0);
-    b.rightFoot.rotation.set(0, 0, 0);
-
-    b.leftArm.rotation.set(0, 0, 0);
-    b.leftForearm.rotation.set(0, 0, 0);
-    b.rightArm.rotation.set(0, 0, 0);
-    b.rightForearm.rotation.set(0, 0, 0);
 
     // 1. Continuous Micro-Movement & Idle Bounce Loop (Character NEVER static)
     // 4Hz riding bounce loop + breathing motion
@@ -984,168 +979,280 @@ export function animatePlayerCharacter(
     const carvePhase = time * (2.0 + speedFactor * 0.8);
     const isSpecialAction = isSliding || isGrinding || !state.isGrounded;
     const carveBlend = speedFactor === 0 ? 0 : (isSpecialAction ? 0.20 : 1.0);
-
-    b.hips.position.y = hipsBaseY - 0.06 + bounce;
-    b.hips.rotation.set(
-      0.08,
-      0.55 + leanRatio * 0.25, // Regular stance yaw with dynamic lane-cut yaw
-      Math.sin(carvePhase) * 0.03 * carveBlend + leanRatio * 0.45
-    );
-
-    // Spine: forward lean + breathing expansion + lean follow-through
-    b.spine.rotation.set(
-      0.15 + breathe + Math.sin(carvePhase * 2.0) * 0.015 * carveBlend,
-      0,
-      Math.sin(carvePhase + 0.35) * 0.02 * carveBlend + leanRatio * 0.35
-    );
-    b.chest.rotation.set(breathe * 0.5, 0, -leanRatio * 0.15);
-
-    // Head stably oriented forward down track
-    b.head.rotation.set(
-      0.10,
-      -0.45 - leanRatio * 0.35,
-      -Math.sin(carvePhase) * 0.01 * carveBlend
-    );
-
-    // Arms: Exaggerated Arcade Silhouette
-    // When leaning LEFT (turnVelocity < 0, leanRatio < 0): RIGHT ARM EXTENDS HIGH ACROSS BODY
-    // When leaning RIGHT (turnVelocity > 0, leanRatio > 0): LEFT ARM EXTENDS HIGH ACROSS BODY
     const armSway = Math.sin(carvePhase) * 0.04 * carveBlend;
-    if (leanRatio < -0.05) {
-      // Hard Left Lean: Right arm extended high across body, left arm tucked
-      const ext = Math.min(1.0, -leanRatio * 1.8);
-      b.rightArm.rotation.set(-0.85 * ext, 0, 0.95 * ext);
-      b.rightForearm.rotation.set(0.35, 0, 0);
-      b.leftArm.rotation.set(0.65 * ext, 0, -0.65 * ext);
-      b.leftForearm.rotation.set(1.20, 0, 0);
-    } else if (leanRatio > 0.05) {
-      // Hard Right Lean: Left arm extended high across body, right arm tucked
-      const ext = Math.min(1.0, leanRatio * 1.8);
-      b.leftArm.rotation.set(0.85 * ext, 0, -0.95 * ext);
-      b.leftForearm.rotation.set(0.35, 0, 0);
-      b.rightArm.rotation.set(-0.65 * ext, 0, 0.65 * ext);
-      b.rightForearm.rotation.set(1.20, 0, 0);
-    } else {
-      // Balanced surfing counter-balance with continuous micro-motion
-      b.leftArm.rotation.set(0.50 + armSway + idleSway, 0, -0.35 - breathe);
-      b.leftForearm.rotation.set(0.85, 0, 0);
-      b.rightArm.rotation.set(-0.45 - armSway - idleSway, 0, 0.25 + breathe);
-      b.rightForearm.rotation.set(0.70, 0, 0);
-    }
+
+    // Target poses computed continuously (no discontinuous thresholds)
+    let targetHipsY = hipsBaseY - 0.06 + bounce;
+    let targetHipsZ = 0;
+    let targetHipsRotX = 0.08;
+    let targetHipsRotY = 0.55 + leanRatio * 0.25; // Regular stance yaw with dynamic lane-cut yaw
+    let targetHipsRotZ = Math.sin(carvePhase) * 0.03 * carveBlend + leanRatio * 0.45;
+
+    // Spine target
+    let targetSpineRotX = 0.15 + breathe + Math.sin(carvePhase * 2.0) * 0.015 * carveBlend;
+    let targetSpineRotY = 0;
+    let targetSpineRotZ = Math.sin(carvePhase + 0.35) * 0.02 * carveBlend + leanRatio * 0.35;
+
+    // Chest target
+    let targetChestRotX = breathe * 0.5;
+    let targetChestRotY = 0;
+    let targetChestRotZ = -leanRatio * 0.15;
+
+    // Head target stably oriented forward down track
+    let targetHeadRotX = 0.10;
+    let targetHeadRotY = -0.45 - leanRatio * 0.35;
+    let targetHeadRotZ = -Math.sin(carvePhase) * 0.01 * carveBlend;
 
     // Legs: Natural athletic knee bend with micro bounce
     const legShift = Math.sin(carvePhase) * 0.02 * carveBlend;
-    b.leftThigh.rotation.set(-0.35 + legShift + bounce * 5.0, 0, 0.02);
-    b.leftShin.rotation.set(0.58 - legShift * 0.5 - bounce * 6.0, 0, 0);
+    let targetLeftThighRotX = -0.35 + legShift + bounce * 5.0;
+    let targetLeftThighRotY = 0;
+    let targetLeftThighRotZ = 0.02;
 
-    b.rightThigh.rotation.set(-0.30 - legShift - bounce * 5.0, 0, -0.02);
-    b.rightShin.rotation.set(0.52 + legShift * 0.5 + bounce * 6.0, 0, 0);
+    let targetLeftShinRotX = 0.58 - legShift * 0.5 - bounce * 6.0;
+    let targetLeftShinRotY = 0;
+    let targetLeftShinRotZ = 0;
 
-    // 2. Movement States
+    let targetRightThighRotX = -0.30 - legShift - bounce * 5.0;
+    let targetRightThighRotY = 0;
+    let targetRightThighRotZ = -0.02;
+
+    let targetRightShinRotX = 0.52 + legShift * 0.5 + bounce * 6.0;
+    let targetRightShinRotY = 0;
+    let targetRightShinRotZ = 0;
+
+    // Arms: Exaggerated Arcade Silhouette
+    // Continuous formulation across leanRatio - smooth blend across zero, NO threshold branch snapping
+    const neutralLeftArmX = 0.50 + armSway + idleSway;
+    const neutralLeftArmZ = -0.35 - breathe;
+    const neutralLeftForearmX = 0.85;
+
+    const neutralRightArmX = -0.45 - armSway - idleSway;
+    const neutralRightArmZ = 0.25 + breathe;
+    const neutralRightForearmX = 0.70;
+
+    let targetLeftArmRotX = neutralLeftArmX;
+    let targetLeftArmRotY = 0;
+    let targetLeftArmRotZ = neutralLeftArmZ;
+    let targetLeftForearmRotX = neutralLeftForearmX;
+    let targetLeftForearmRotY = 0;
+    let targetLeftForearmRotZ = 0;
+
+    let targetRightArmRotX = neutralRightArmX;
+    let targetRightArmRotY = 0;
+    let targetRightArmRotZ = neutralRightArmZ;
+    let targetRightForearmRotX = neutralRightForearmX;
+    let targetRightForearmRotY = 0;
+    let targetRightForearmRotZ = 0;
+
+    if (leanRatio > 0) {
+      // Right lean: Left arm extended high across body, right arm tucked
+      const ext = Math.min(1.0, leanRatio * 1.8);
+      targetLeftArmRotX = THREE.MathUtils.lerp(neutralLeftArmX, 0.85, ext);
+      targetLeftArmRotZ = THREE.MathUtils.lerp(neutralLeftArmZ, -0.95, ext);
+      targetLeftForearmRotX = THREE.MathUtils.lerp(neutralLeftForearmX, 0.35, ext);
+
+      targetRightArmRotX = THREE.MathUtils.lerp(neutralRightArmX, -0.65, ext);
+      targetRightArmRotZ = THREE.MathUtils.lerp(neutralRightArmZ, 0.65, ext);
+      targetRightForearmRotX = THREE.MathUtils.lerp(neutralRightForearmX, 1.20, ext);
+    } else if (leanRatio < 0) {
+      // Left lean: Right arm extended high across body, left arm tucked
+      const ext = Math.min(1.0, -leanRatio * 1.8);
+      targetRightArmRotX = THREE.MathUtils.lerp(neutralRightArmX, -0.85, ext);
+      targetRightArmRotZ = THREE.MathUtils.lerp(neutralRightArmZ, 0.95, ext);
+      targetRightForearmRotX = THREE.MathUtils.lerp(neutralRightForearmX, 0.35, ext);
+
+      targetLeftArmRotX = THREE.MathUtils.lerp(neutralLeftArmX, 0.65, ext);
+      targetLeftArmRotZ = THREE.MathUtils.lerp(neutralLeftArmZ, -0.65, ext);
+      targetLeftForearmRotX = THREE.MathUtils.lerp(neutralLeftForearmX, 1.20, ext);
+    }
+
+    // 2. Movement States Targets
     if (isBoosting) {
       // BOOST MODE: Lower crouch, arms pulled back like jet wings, aggressive forward lean
       const shiver = Math.sin(time * 60) * 0.006;
-      b.hips.position.y = hipsBaseY - 0.22 + shiver;
-      b.spine.rotation.set(0.48, 0, leanRatio * 0.35);
-      b.head.rotation.set(-0.20, -0.45, 0); // Head looks up through brow
-      b.leftArm.rotation.set(-0.75, 0, -0.55);
-      b.leftForearm.rotation.set(0.35, 0, 0);
-      b.rightArm.rotation.set(-0.75, 0, 0.55);
-      b.rightForearm.rotation.set(0.35, 0, 0);
-      b.leftThigh.rotation.set(-0.75, 0, 0);
-      b.leftShin.rotation.set(1.10, 0, 0);
-      b.rightThigh.rotation.set(-0.70, 0, 0);
-      b.rightShin.rotation.set(1.05, 0, 0);
+      targetHipsY = hipsBaseY - 0.22 + shiver;
+      targetSpineRotX = 0.48;
+      targetSpineRotZ = leanRatio * 0.35;
+      targetHeadRotX = -0.20;
+      targetHeadRotY = -0.45;
+      targetHeadRotZ = 0;
+      targetLeftArmRotX = -0.75;
+      targetLeftArmRotZ = -0.55;
+      targetLeftForearmRotX = 0.35;
+      targetRightArmRotX = -0.75;
+      targetRightArmRotZ = 0.55;
+      targetRightForearmRotX = 0.35;
+      targetLeftThighRotX = -0.75;
+      targetLeftShinRotX = 1.10;
+      targetRightThighRotX = -0.70;
+      targetRightShinRotX = 1.05;
     } else if (isSliding) {
       // RAIL SLIDE: Low friction crouch
-      b.hips.position.y = hipsBaseY - 0.28;
-      b.spine.rotation.set(0.40, 0, -turnVelocity * 0.05);
-      b.head.rotation.set(-0.15, -0.45, 0);
-      b.leftThigh.rotation.set(-0.70, 0, 0);
-      b.rightThigh.rotation.set(-0.70, 0, 0);
-      b.leftShin.rotation.set(1.05, 0, 0);
-      b.rightShin.rotation.set(1.05, 0, 0);
-      b.leftArm.rotation.set(0.25, 0, -0.20);
-      b.rightArm.rotation.set(0.25, 0, 0.20);
+      targetHipsY = hipsBaseY - 0.28;
+      targetSpineRotX = 0.40;
+      targetSpineRotZ = -turnVelocity * 0.05;
+      targetHeadRotX = -0.15;
+      targetHeadRotY = -0.45;
+      targetHeadRotZ = 0;
+      targetLeftThighRotX = -0.70;
+      targetRightThighRotX = -0.70;
+      targetLeftShinRotX = 1.05;
+      targetRightShinRotX = 1.05;
+      targetLeftArmRotX = 0.25;
+      targetLeftArmRotZ = -0.20;
+      targetRightArmRotX = 0.25;
+      targetRightArmRotZ = 0.20;
     } else if (isGrinding) {
-      b.hips.position.y = hipsBaseY - 0.04 + bounce;
-      b.leftArm.rotation.set(0.35, 0, -0.45);
-      b.rightArm.rotation.set(-0.30, 0, 0.45);
-      b.leftForearm.rotation.set(0.45, 0, 0);
-      b.rightForearm.rotation.set(0.45, 0, 0);
-      b.spine.rotation.z = Math.sin(time * 12) * 0.03 - leanRatio * 0.15;
+      targetHipsY = hipsBaseY - 0.04 + bounce;
+      targetLeftArmRotX = 0.35;
+      targetLeftArmRotZ = -0.45;
+      targetRightArmRotX = -0.30;
+      targetRightArmRotZ = 0.45;
+      targetLeftForearmRotX = 0.45;
+      targetRightForearmRotX = 0.45;
+      targetSpineRotZ = Math.sin(time * 12) * 0.03 - leanRatio * 0.15;
     } else if (!state.isGrounded) {
       // JUMP: Stylized Subway Surfers air pose (knees pulled up to chest, arms spread)
-      b.hips.position.y = hipsBaseY + 0.18;
-      b.spine.rotation.set(0.12, 0, -leanRatio * 0.15);
-      b.leftThigh.rotation.set(-0.75, 0, 0);
-      b.rightThigh.rotation.set(-0.75, 0, 0);
-      b.leftShin.rotation.set(1.15, 0, 0);
-      b.rightShin.rotation.set(1.15, 0, 0);
-      // Stylized spread arms
-      b.leftArm.rotation.set(0.15, 0, -0.75);
-      b.leftForearm.rotation.set(0.25, 0, 0);
-      b.rightArm.rotation.set(-0.15, 0, 0.75);
-      b.rightForearm.rotation.set(0.25, 0, 0);
+      targetHipsY = hipsBaseY + 0.18;
+      targetSpineRotX = 0.12;
+      targetSpineRotZ = -leanRatio * 0.15;
+      targetLeftThighRotX = -0.75;
+      targetRightThighRotX = -0.75;
+      targetLeftShinRotX = 1.15;
+      targetRightShinRotX = 1.15;
+      targetLeftArmRotX = 0.15;
+      targetLeftArmRotZ = -0.75;
+      targetLeftForearmRotX = 0.25;
+      targetRightArmRotX = -0.15;
+      targetRightArmRotZ = 0.75;
+      targetRightForearmRotX = 0.25;
     }
 
     // 3. Stylized Arcade Tricks (Exaggerated & Dynamic)
     if (activeTrick === 'spin' || state.activeTrickName?.includes('Spin')) {
-      // TRICK 2: Board Spin 360° (Rider airborne corkscrews hips while board spins)
-      b.hips.position.y = hipsBaseY + 0.22;
-      b.spine.rotation.y = time * 24.0;
-      b.leftThigh.rotation.set(-0.65, 0, 0);
-      b.rightThigh.rotation.set(-0.65, 0, 0);
-      b.leftShin.rotation.set(1.0, 0, 0);
-      b.rightShin.rotation.set(1.0, 0, 0);
+      targetHipsY = hipsBaseY + 0.22;
+      targetSpineRotY = time * 24.0;
+      targetLeftThighRotX = -0.65;
+      targetRightThighRotX = -0.65;
+      targetLeftShinRotX = 1.0;
+      targetRightShinRotX = 1.0;
     } else if (activeTrick === 'flip' || state.activeTrickName?.includes('Balance')) {
-      // TRICK 1: One-Leg Balance (Front foot locked to kicktail, back leg and arm kicked out in diagonal karate pose)
-      b.hips.position.y = hipsBaseY + 0.15;
-      b.hips.rotation.set(0.12, 0.75, 0.25);
-      b.leftThigh.rotation.set(-0.45, 0, 0);
-      b.leftShin.rotation.set(0.75, 0, 0);
-      b.rightThigh.rotation.set(-1.25, 0, -0.75);
-      b.rightShin.rotation.set(0.25, 0, 0);
-      b.rightArm.rotation.set(-1.10, 0, 1.25);
-      b.leftArm.rotation.set(0.40, 0, -0.45);
+      targetHipsY = hipsBaseY + 0.15;
+      targetHipsRotX = 0.12;
+      targetHipsRotY = 0.75;
+      targetHipsRotZ = 0.25;
+      targetLeftThighRotX = -0.45;
+      targetLeftShinRotX = 0.75;
+      targetRightThighRotX = -1.25;
+      targetRightThighRotZ = -0.75;
+      targetRightShinRotX = 0.25;
+      targetRightArmRotX = -1.10;
+      targetRightArmRotZ = 1.25;
+      targetLeftArmRotX = 0.40;
+      targetLeftArmRotZ = -0.45;
     } else if (activeTrick === 'grab' || state.activeTrickName?.includes('Side Kick')) {
-      // TRICK 3: Side Kick Pose (Grab board rail with left hand, launch exaggerated side kick)
-      b.hips.position.y = hipsBaseY + 0.18;
-      b.hips.rotation.set(0.18, -0.45, -0.35);
-      b.leftArm.rotation.set(1.10, 0, -0.75);
-      b.leftForearm.rotation.set(1.45, 0, 0);
-      b.rightThigh.rotation.set(-1.45, 0, 1.10);
-      b.rightShin.rotation.set(0.18, 0, 0);
-      b.leftThigh.rotation.set(-0.60, 0, 0);
-      b.leftShin.rotation.set(0.95, 0, 0);
+      targetHipsY = hipsBaseY + 0.18;
+      targetHipsRotX = 0.18;
+      targetHipsRotY = -0.45;
+      targetHipsRotZ = -0.35;
+      targetLeftArmRotX = 1.10;
+      targetLeftArmRotZ = -0.75;
+      targetLeftForearmRotX = 1.45;
+      targetRightThighRotX = -1.45;
+      targetRightThighRotZ = 1.10;
+      targetRightShinRotX = 0.18;
+      targetLeftThighRotX = -0.60;
+      targetLeftShinRotX = 0.95;
     } else if (activeTrick === 'pose' || state.activeTrickName?.includes('Glide')) {
-      b.leftArm.rotation.set(0.25, 0, -0.65);
-      b.rightArm.rotation.set(-0.25, 0, 0.65);
-      b.leftForearm.rotation.set(-0.15, 0, 0);
-      b.rightForearm.rotation.set(-0.15, 0, 0);
-      b.chest.rotation.x = -0.15;
+      targetLeftArmRotX = 0.25;
+      targetLeftArmRotZ = -0.65;
+      targetRightArmRotX = -0.25;
+      targetRightArmRotZ = 0.65;
+      targetLeftForearmRotX = -0.15;
+      targetRightForearmRotX = -0.15;
+      targetChestRotX = -0.15;
     }
 
     // 4. Hit / Collision (Sudden backward jerk, flailing arms, instant 0.25s recovery)
     if (stumbleTimer > 0) {
       const recoilNorm = Math.min(1.0, stumbleTimer / 0.35);
       const recoil = Math.sin(stumbleTimer * 22.0) * recoilNorm;
-      b.hips.position.y = hipsBaseY - 0.12 * recoilNorm;
-      b.hips.position.z = -0.15 * recoilNorm;
-      b.spine.rotation.x = -0.65 * recoil;
-      b.head.rotation.x = -0.75 * recoil; // Head snaps back violently
-      b.leftArm.rotation.set(0.80 * recoil, 0, -1.25 * recoil);
-      b.rightArm.rotation.set(-0.80 * recoil, 0, 1.25 * recoil);
-    } else {
-      b.hips.position.z = 0;
+      targetHipsY = hipsBaseY - 0.12 * recoilNorm;
+      targetHipsZ = -0.15 * recoilNorm;
+      targetSpineRotX -= 0.65 * recoil;
+      targetHeadRotX -= 0.75 * recoil;
+      targetLeftArmRotX += 0.80 * recoil;
+      targetLeftArmRotZ -= 1.25 * recoil;
+      targetRightArmRotX -= 0.80 * recoil;
+      targetRightArmRotZ += 1.25 * recoil;
     }
 
     // 5. Head Look-Ahead
     if (state.nearestObstacleDist < 35) {
       const lookIntensity = (1.0 - state.nearestObstacleDist / 35) * 0.25;
-      b.head.rotation.y += Math.sin(time * 8) * lookIntensity;
-      b.neck.rotation.x = 0.1 * lookIntensity;
+      targetHeadRotY += Math.sin(time * 8) * lookIntensity;
+      b.neck.rotation.x = approachAngle(b.neck.rotation.x, 0.1 * lookIntensity, dt, 14);
+    } else {
+      b.neck.rotation.x = approachAngle(b.neck.rotation.x, 0, dt, 14);
     }
+
+    // Smooth all driver channels using approachAngle (exponential blend, ~0.1-0.15s ease)
+    const rate = 14;
+    b.hips.position.y = approachAngle(b.hips.position.y, targetHipsY, dt, rate);
+    b.hips.position.z = approachAngle(b.hips.position.z, targetHipsZ, dt, rate);
+
+    b.hips.rotation.x = approachAngle(b.hips.rotation.x, targetHipsRotX, dt, rate);
+    b.hips.rotation.y = approachAngle(b.hips.rotation.y, targetHipsRotY, dt, rate);
+    b.hips.rotation.z = approachAngle(b.hips.rotation.z, targetHipsRotZ, dt, rate);
+
+    b.spine.rotation.x = approachAngle(b.spine.rotation.x, targetSpineRotX, dt, rate);
+    if (activeTrick === 'spin' || state.activeTrickName?.includes('Spin')) {
+      b.spine.rotation.y = targetSpineRotY;
+    } else {
+      b.spine.rotation.y = approachAngle(b.spine.rotation.y, targetSpineRotY, dt, rate);
+    }
+    b.spine.rotation.z = approachAngle(b.spine.rotation.z, targetSpineRotZ, dt, rate);
+
+    b.chest.rotation.x = approachAngle(b.chest.rotation.x, targetChestRotX, dt, rate);
+    b.chest.rotation.y = approachAngle(b.chest.rotation.y, targetChestRotY, dt, rate);
+    b.chest.rotation.z = approachAngle(b.chest.rotation.z, targetChestRotZ, dt, rate);
+
+    b.head.rotation.x = approachAngle(b.head.rotation.x, targetHeadRotX, dt, rate);
+    b.head.rotation.y = approachAngle(b.head.rotation.y, targetHeadRotY, dt, rate);
+    b.head.rotation.z = approachAngle(b.head.rotation.z, targetHeadRotZ, dt, rate);
+
+    b.leftArm.rotation.x = approachAngle(b.leftArm.rotation.x, targetLeftArmRotX, dt, rate);
+    b.leftArm.rotation.y = approachAngle(b.leftArm.rotation.y, targetLeftArmRotY, dt, rate);
+    b.leftArm.rotation.z = approachAngle(b.leftArm.rotation.z, targetLeftArmRotZ, dt, rate);
+
+    b.leftForearm.rotation.x = approachAngle(b.leftForearm.rotation.x, targetLeftForearmRotX, dt, rate);
+    b.leftForearm.rotation.y = approachAngle(b.leftForearm.rotation.y, targetLeftForearmRotY, dt, rate);
+    b.leftForearm.rotation.z = approachAngle(b.leftForearm.rotation.z, targetLeftForearmRotZ, dt, rate);
+
+    b.rightArm.rotation.x = approachAngle(b.rightArm.rotation.x, targetRightArmRotX, dt, rate);
+    b.rightArm.rotation.y = approachAngle(b.rightArm.rotation.y, targetRightArmRotY, dt, rate);
+    b.rightArm.rotation.z = approachAngle(b.rightArm.rotation.z, targetRightArmRotZ, dt, rate);
+
+    b.rightForearm.rotation.x = approachAngle(b.rightForearm.rotation.x, targetRightForearmRotX, dt, rate);
+    b.rightForearm.rotation.y = approachAngle(b.rightForearm.rotation.y, targetRightForearmRotY, dt, rate);
+    b.rightForearm.rotation.z = approachAngle(b.rightForearm.rotation.z, targetRightForearmRotZ, dt, rate);
+
+    b.leftThigh.rotation.x = approachAngle(b.leftThigh.rotation.x, targetLeftThighRotX, dt, rate);
+    b.leftThigh.rotation.y = approachAngle(b.leftThigh.rotation.y, targetLeftThighRotY, dt, rate);
+    b.leftThigh.rotation.z = approachAngle(b.leftThigh.rotation.z, targetLeftThighRotZ, dt, rate);
+
+    b.leftShin.rotation.x = approachAngle(b.leftShin.rotation.x, targetLeftShinRotX, dt, rate);
+    b.leftShin.rotation.y = approachAngle(b.leftShin.rotation.y, targetLeftShinRotY, dt, rate);
+    b.leftShin.rotation.z = approachAngle(b.leftShin.rotation.z, targetLeftShinRotZ, dt, rate);
+
+    b.rightThigh.rotation.x = approachAngle(b.rightThigh.rotation.x, targetRightThighRotX, dt, rate);
+    b.rightThigh.rotation.y = approachAngle(b.rightThigh.rotation.y, targetRightThighRotY, dt, rate);
+    b.rightThigh.rotation.z = approachAngle(b.rightThigh.rotation.z, targetRightThighRotZ, dt, rate);
+
+    b.rightShin.rotation.x = approachAngle(b.rightShin.rotation.x, targetRightShinRotX, dt, rate);
+    b.rightShin.rotation.y = approachAngle(b.rightShin.rotation.y, targetRightShinRotY, dt, rate);
+    b.rightShin.rotation.z = approachAngle(b.rightShin.rotation.z, targetRightShinRotZ, dt, rate);
 
     // Synchronize GLTF Hero Skeleton Bones
     pc.syncBones?.();
@@ -1160,65 +1267,78 @@ export function animatePlayerCharacter(
 
     pc.spineGroup.rotation.y = 0.66; // regular stance yaw ONCE
 
+    const rate = 14;
+    let targetSpineY = 0.52 + idleBob;
+    let targetSpineRotX = 0.18 + Math.sin(carvePhase * 2.0) * 0.02;
+    let targetSpineRotZ = Math.sin(carvePhase) * 0.04 - turnVelocity * 0.08;
+
     if (isSliding) {
-      pc.spineGroup.position.y = 0.32 + idleBob * 0.5;
-      pc.spineGroup.rotation.x = 0.65;
-      pc.spineGroup.rotation.z = turnVelocity * 0.05;
+      targetSpineY = 0.32 + idleBob * 0.5;
+      targetSpineRotX = 0.65;
+      targetSpineRotZ = turnVelocity * 0.05;
     } else if (stumbleTimer > 0) {
-      pc.spineGroup.position.y = 0.45;
-      pc.spineGroup.rotation.x = -0.35;
-      pc.spineGroup.rotation.z = Math.sin(time * 24.0) * 0.15;
+      targetSpineY = 0.45;
+      targetSpineRotX = -0.35;
+      targetSpineRotZ = Math.sin(time * 24.0) * 0.15;
     } else if (isBoosting) {
-      pc.spineGroup.position.y = 0.48 + idleBob;
-      pc.spineGroup.rotation.x = 0.28;
-      pc.spineGroup.rotation.z = Math.sin(carvePhase) * 0.04 - turnVelocity * 0.08;
-    } else {
-      pc.spineGroup.position.y = 0.52 + idleBob;
-      pc.spineGroup.rotation.x = 0.18 + Math.sin(carvePhase * 2.0) * 0.02;
-      pc.spineGroup.rotation.z = Math.sin(carvePhase) * 0.04 - turnVelocity * 0.08;
+      targetSpineY = 0.48 + idleBob;
+      targetSpineRotX = 0.28;
+      targetSpineRotZ = Math.sin(carvePhase) * 0.04 - turnVelocity * 0.08;
     }
 
+    pc.spineGroup.position.y = approachAngle(pc.spineGroup.position.y, targetSpineY, dt, rate);
+    pc.spineGroup.rotation.x = approachAngle(pc.spineGroup.rotation.x, targetSpineRotX, dt, rate);
+    pc.spineGroup.rotation.z = approachAngle(pc.spineGroup.rotation.z, targetSpineRotZ, dt, rate);
+
     if (pc.headGroup) {
-      pc.headGroup.rotation.y = -0.55 - turnVelocity * 0.06;
-      pc.headGroup.rotation.x = isSliding ? -0.4 : 0.25;
-      pc.headGroup.rotation.z = -Math.sin(carvePhase) * 0.02;
+      const targetHeadY = -0.55 - turnVelocity * 0.06;
+      const targetHeadX = isSliding ? -0.4 : 0.25;
+      const targetHeadZ = -Math.sin(carvePhase) * 0.02;
+      pc.headGroup.rotation.y = approachAngle(pc.headGroup.rotation.y, targetHeadY, dt, rate);
+      pc.headGroup.rotation.x = approachAngle(pc.headGroup.rotation.x, targetHeadX, dt, rate);
+      pc.headGroup.rotation.z = approachAngle(pc.headGroup.rotation.z, targetHeadZ, dt, rate);
     }
 
     if (pc.leftArmGroup && pc.rightArmGroup) {
+      const armSway = Math.sin(carvePhase) * 0.04;
+      let tArmLX = 0.80 + armSway;
+      let tArmLZ = -0.50 - turnVelocity * 0.05;
+      let tArmRX = -0.70 - armSway;
+      let tArmRZ = 0.35 + turnVelocity * 0.05;
+
       if (isSliding) {
-        pc.leftArmGroup.rotation.x = -0.9;
-        pc.leftArmGroup.rotation.z = -0.2;
-        pc.rightArmGroup.rotation.x = -0.9;
-        pc.rightArmGroup.rotation.z = 0.2;
+        tArmLX = -0.9;
+        tArmLZ = -0.2;
+        tArmRX = -0.9;
+        tArmRZ = 0.2;
       } else if (isGrinding) {
-        pc.leftArmGroup.rotation.z = 0.8 + Math.sin(time * 8.0) * 0.1;
-        pc.rightArmGroup.rotation.z = -0.8 - Math.sin(time * 8.0) * 0.1;
-        pc.leftArmGroup.rotation.x = 0;
-        pc.rightArmGroup.rotation.x = 0;
+        tArmLZ = 0.8 + Math.sin(time * 8.0) * 0.1;
+        tArmRZ = -0.8 - Math.sin(time * 8.0) * 0.1;
+        tArmLX = 0;
+        tArmRX = 0;
       } else if (activeTrick === 'grab') {
-        pc.leftArmGroup.rotation.x = 1.2;
-        pc.leftArmGroup.rotation.z = -0.4;
-        pc.rightArmGroup.rotation.x = -0.5;
-        pc.rightArmGroup.rotation.z = 0.5;
-      } else {
-        const armSway = Math.sin(carvePhase) * 0.04;
-        pc.leftArmGroup.rotation.x = 0.80 + armSway;
-        pc.leftArmGroup.rotation.z = -0.50 - turnVelocity * 0.05;
-        pc.rightArmGroup.rotation.x = -0.70 - armSway;
-        pc.rightArmGroup.rotation.z = 0.35 + turnVelocity * 0.05;
+        tArmLX = 1.2;
+        tArmLZ = -0.4;
+        tArmRX = -0.5;
+        tArmRZ = 0.5;
       }
+
+      pc.leftArmGroup.rotation.x = approachAngle(pc.leftArmGroup.rotation.x, tArmLX, dt, rate);
+      pc.leftArmGroup.rotation.z = approachAngle(pc.leftArmGroup.rotation.z, tArmLZ, dt, rate);
+      pc.rightArmGroup.rotation.x = approachAngle(pc.rightArmGroup.rotation.x, tArmRX, dt, rate);
+      pc.rightArmGroup.rotation.z = approachAngle(pc.rightArmGroup.rotation.z, tArmRZ, dt, rate);
     }
 
     if (pc.leftLegGroup && pc.rightLegGroup) {
-      pc.leftLegGroup.rotation.x = -0.45;
-      pc.rightLegGroup.rotation.x = 0.45;
+      pc.leftLegGroup.rotation.x = approachAngle(pc.leftLegGroup.rotation.x, -0.45, dt, rate);
+      pc.rightLegGroup.rotation.x = approachAngle(pc.rightLegGroup.rotation.x, 0.45, dt, rate);
     }
 
     if (pc.capeMesh) {
       const flutterSpeed = 12.0 + speedFactor * 14.0;
       const flutter = Math.sin(time * flutterSpeed) * 0.25 + 0.35 + (isBoosting ? 0.3 : 0);
-      pc.capeMesh.rotation.x = flutter;
-      pc.capeMesh.rotation.z = Math.cos(time * flutterSpeed * 0.7) * 0.12 - turnVelocity * 0.05;
+      pc.capeMesh.rotation.x = approachAngle(pc.capeMesh.rotation.x, flutter, dt, rate);
+      pc.capeMesh.rotation.z = approachAngle(pc.capeMesh.rotation.z, Math.cos(time * flutterSpeed * 0.7) * 0.12 - turnVelocity * 0.05, dt, rate);
     }
   }
 }
