@@ -173,7 +173,7 @@ export function buildHeroRig(heroId: HeroId): HeroRig | null {
   if (!entry || entry instanceof Promise) return null;
 
   const heroDef = heroById(heroId);
-  const isCustomGlb = heroDef.modelUrl.includes('model.glb') || entry.skinned.length === 0;
+  const isCustomGlb = heroDef.modelUrl.includes('model') || entry.skinned.length === 0;
 
   const root = new THREE.Group();
   root.name = `HeroRig_${heroId}`;
@@ -202,14 +202,17 @@ export function buildHeroRig(heroId: HeroId): HeroRig | null {
     scene.scale.setScalar(scaleFactor);
     scene.updateMatrixWorld(true);
 
-    // 3. Align bottom of the hoverboard exactly on ground plane (y = 0) and center on X/Z
+    // 3. Align bottom of the character/board exactly on ground plane (y = 0) and center on X/Z with pivot
     const scaledBox = new THREE.Box3().setFromObject(scene);
     const scaledCenter = scaledBox.getCenter(new THREE.Vector3());
+    const modelPivot = new THREE.Group();
+    modelPivot.name = 'ModelPivot';
+    modelPivot.add(scene);
     scene.position.x = -scaledCenter.x;
     scene.position.z = -scaledCenter.z;
     scene.position.y = -scaledBox.min.y;
-    scene.rotation.set(0, heroDef.yawOffset || 0, 0); // Faces forward (+Z) along track
-    bodyGroup.add(scene);
+    modelPivot.rotation.set(0, heroDef.yawOffset || 0, 0); // Faces forward (+Z) along track
+    bodyGroup.add(modelPivot);
 
     // 4. Preserve authentic PBR textures & materials (never overwrite color with dark #1a2438 or add blown-out emissive)
     scene.traverse((o: THREE.Object3D) => {

@@ -1,7 +1,20 @@
 import * as THREE from 'three';
+import { GLTFLoader } from 'three/examples/jsm/loaders/GLTFLoader.js';
 import { BiomeType, LaneIndex, PowerUpType } from '../types';
 import { getTerrainHeight, getBiomeAt } from './terrain';
 import { LANE_WIDTH, laneToWorldX } from './trackConfig';
+
+export interface Obstacle3DTemplate {
+  id: string;
+  name: string;
+  url: string;
+  targetHeight: number;
+  yaw: number;
+  pivot: THREE.Group;
+  width: number;
+  height: number;
+  depth: number;
+}
 
 export function getLaneX(lane: LaneIndex): number {
   return laneToWorldX(lane);
@@ -521,6 +534,117 @@ export class ObstacleManager {
   private coinGeom = new THREE.OctahedronGeometry(0.24);
   private powerUpGeom = new THREE.DodecahedronGeometry(0.35);
 
+  // 3D Creature Obstacle Base & Platform
+  private basePlateGeom = new THREE.CylinderGeometry(1.25, 1.3, 0.08, 16);
+  private basePlateMat = new THREE.MeshStandardMaterial({
+    color: 0x0a0f1d,
+    metalness: 0.85,
+    roughness: 0.25,
+  });
+  private baseRingGeom: THREE.RingGeometry;
+
+  // Cached 3D obstacle models (Preloaded once and cloned on spawn)
+  static cachedTemplates: Obstacle3DTemplate[] = [];
+  static isPreloading = false;
+  static preloadPromise: Promise<void> | null = null;
+  static pendingSpawnCallbacks: (() => void)[] = [];
+
+  static preloadObstacleModels(): Promise<void> {
+    if (ObstacleManager.preloadPromise) {
+      return ObstacleManager.preloadPromise;
+    }
+    ObstacleManager.isPreloading = true;
+
+    const defs = [
+      { id: 'sentinel', name: 'Cyber Sentinel', url: '/obstacle01.glb', targetHeight: 2.2, yaw: -Math.PI / 2 },
+      { id: 'frost-drake', name: 'Frost Drake', url: '/0bstacle02.glb', targetHeight: 2.2, yaw: -Math.PI / 2 },
+      { id: 'bio-predator', name: 'Bio Predator', url: '/obstacle03.glb', targetHeight: 2.2, yaw: -Math.PI / 2 },
+      { id: 'xenobeast', name: 'Cyber Beast', url: '/obstacle04.glb', targetHeight: 2.1, yaw: -Math.PI / 2 },
+    ];
+
+    const loader = new GLTFLoader();
+
+    ObstacleManager.preloadPromise = (async () => {
+      for (const def of defs) {
+        try {
+          let gltf;
+          try {
+            gltf = await loader.loadAsync(def.url);
+          } catch (loadErr) {
+            if (def.fallbackUrl) {
+              gltf = await loader.loadAsync(def.fallbackUrl);
+            } else {
+              throw loadErr;
+            }
+          }
+
+          const rawScene = gltf.scene;
+          const rawBox = new THREE.Box3().setFromObject(rawScene);
+          const rawSize = rawBox.getSize(new THREE.Vector3());
+          const rawCenter = rawBox.getCenter(new THREE.Vector3());
+
+          const scale = def.targetHeight / Math.max(rawSize.y, 0.001);
+          rawScene.scale.set(scale, scale, scale);
+
+          rawScene.traverse(child => {
+            if ((child as THREE.Mesh).isMesh) {
+              const m = child as THREE.Mesh;
+              m.castShadow = true;
+              m.receiveShadow = true;
+              if (m.material) {
+                const mat = m.material as THREE.MeshStandardMaterial;
+                if (mat.roughness !== undefined) {
+                  mat.roughness = Math.max(0.2, Math.min(0.85, mat.roughness));
+                }
+                if (mat.metalness !== undefined) {
+                  mat.metalness = Math.max(0.1, Math.min(0.9, mat.metalness));
+                }
+              }
+            }
+          });
+
+          const pivot = new THREE.Group();
+          pivot.name = `Obstacle3D_${def.id}`;
+          rawScene.position.set(
+            -rawCenter.x * scale,
+            -rawBox.min.y * scale,
+            -rawCenter.z * scale
+          );
+          pivot.add(rawScene);
+          pivot.rotation.y = def.yaw;
+
+          const scaledW = rawSize.x * scale;
+          const scaledH = def.targetHeight;
+          const scaledD = rawSize.z * scale;
+
+          ObstacleManager.cachedTemplates.push({
+            id: def.id,
+            name: def.name,
+            url: def.url,
+            targetHeight: def.targetHeight,
+            yaw: def.yaw,
+            pivot,
+            width: scaledW,
+            height: scaledH,
+            depth: scaledD,
+          });
+        } catch (err) {
+          console.warn(`[ObstacleManager] Failed to load 3D obstacle model ${def.url}:`, err);
+        }
+      }
+
+      // Notify and upgrade any waiting obstacles
+      while (ObstacleManager.pendingSpawnCallbacks.length > 0) {
+        const cb = ObstacleManager.pendingSpawnCallbacks.shift();
+        if (cb) {
+          try { cb(); } catch {}
+        }
+      }
+    })();
+
+    return ObstacleManager.preloadPromise;
+  }
+
   constructor(scene: THREE.Scene, seed = 1337) {
     this.scene = scene;
     this.group = new THREE.Group();
@@ -539,7 +663,12 @@ export class ObstacleManager {
     otGeom.rotateX(-Math.PI / 2);
     this.overheadTelegraphGeom = otGeom;
 
+    const brGeom = new THREE.RingGeometry(1.05, 1.25, 24);
+    brGeom.rotateX(-Math.PI / 2);
+    this.baseRingGeom = brGeom;
+
     this.genState = new ObstacleGeneratorState(seed);
+    ObstacleManager.preloadObstacleModels();
     this.spawnInitialObstacles();
   }
 
@@ -690,24 +819,61 @@ export class ObstacleManager {
     const blockGroup = new THREE.Group();
     blockGroup.position.set(x, groundH, z);
 
-    // Main solid cyber barrier (fits 2.6m lane)
-    const mainMesh = new THREE.Mesh(this.solidMainGeom, this.barrierMat);
-    mainMesh.position.set(0, 1.1, 0);
-    blockGroup.add(mainMesh);
-
-    // High-visibility neon magenta hazard perimeter & warning edge
-    const edgeMesh = new THREE.Mesh(this.solidEdgeGeom, this.laserHazardMat);
-    edgeMesh.position.set(0, 2.15, 0);
-    blockGroup.add(edgeMesh);
-
-    const edgeMesh2 = new THREE.Mesh(this.solidEdgeGeom, this.laserHazardMat);
-    edgeMesh2.position.set(0, 0.15, 0);
-    blockGroup.add(edgeMesh2);
-
     // Ground Warning Telegraph Strip (projected on road ahead)
     const telegraphMesh = new THREE.Mesh(this.solidTelegraphGeom, this.telegraphMat);
     telegraphMesh.position.set(0, 0.05, -3.0);
     blockGroup.add(telegraphMesh);
+
+    // High-tech holographic hazard base plate & neon perimeter
+    const basePlate = new THREE.Mesh(this.basePlateGeom, this.basePlateMat);
+    basePlate.position.set(0, 0.04, 0);
+    blockGroup.add(basePlate);
+
+    const baseRing = new THREE.Mesh(this.baseRingGeom, this.laserHazardMat);
+    baseRing.position.set(0, 0.09, 0);
+    blockGroup.add(baseRing);
+
+    const modelContainer = new THREE.Group();
+    modelContainer.name = `SolidObstacleBody_${z}_${lane}`;
+    blockGroup.add(modelContainer);
+
+    const applyModel = () => {
+      // Clear previous children in container
+      while (modelContainer.children.length > 0) {
+        modelContainer.remove(modelContainer.children[0]);
+      }
+
+      if (ObstacleManager.cachedTemplates.length > 0) {
+        // Cycle deterministically across the 4 3D obstacle models based on Z
+        const templateIdx = Math.abs(Math.floor(z / 18)) % ObstacleManager.cachedTemplates.length;
+        const template = ObstacleManager.cachedTemplates[templateIdx];
+        const clonedPivot = template.pivot.clone(true);
+        clonedPivot.position.set(0, 0, 0);
+        modelContainer.add(clonedPivot);
+      } else {
+        // Fallback procedural barrier while GLBs are downloading
+        const mainMesh = new THREE.Mesh(this.solidMainGeom, this.barrierMat);
+        mainMesh.position.set(0, 1.1, 0);
+        modelContainer.add(mainMesh);
+
+        const edgeMesh = new THREE.Mesh(this.solidEdgeGeom, this.laserHazardMat);
+        edgeMesh.position.set(0, 2.15, 0);
+        modelContainer.add(edgeMesh);
+
+        const edgeMesh2 = new THREE.Mesh(this.solidEdgeGeom, this.laserHazardMat);
+        edgeMesh2.position.set(0, 0.15, 0);
+        modelContainer.add(edgeMesh2);
+
+        // Queue callback to upgrade to 3D model once loaded
+        ObstacleManager.pendingSpawnCallbacks.push(() => {
+          if (blockGroup.parent) {
+            applyModel();
+          }
+        });
+      }
+    };
+
+    applyModel();
 
     blockGroup.frustumCulled = false;
     this.group.add(blockGroup);
@@ -722,7 +888,7 @@ export class ObstacleManager {
       z,
       width: 2.45,
       height: 2.2,
-      depth: 0.8,
+      depth: 1.2,
       mesh: blockGroup,
       canDuck: false,
       canJump: false,
@@ -908,13 +1074,23 @@ export class ObstacleManager {
       }
     }
 
-    // 2. Animate telegraph pulse on approaching obstacles
+    // 2. Animate telegraph pulse on approaching obstacles & creature idle bob
     for (const obs of this.obstacles) {
       if (obs.telegraphMesh) {
         const dist = obs.z - playerZ;
         if (dist > 0 && dist < 50) {
           const pulse = Math.sin(timeSeconds * 12.0) * 0.15 + 0.5;
           (obs.telegraphMesh.material as THREE.MeshBasicMaterial).opacity = pulse;
+        }
+      }
+
+      // Creature idle breathing/bob within active horizon
+      if (obs.category === 'solid' && obs.mesh) {
+        const dist = obs.z - playerZ;
+        if (dist > -10 && dist < 120) {
+          const idleBob = Math.sin(timeSeconds * 2.5 + obs.z * 0.4) * 0.035;
+          const gH = getTerrainHeight(obs.x, obs.z);
+          obs.mesh.position.y = gH + idleBob;
         }
       }
     }
@@ -1143,6 +1319,8 @@ export class ObstacleManager {
     this.railPostGeom.dispose();
     this.boostPillarGeom.dispose();
     this.boostTopGeom.dispose();
+    this.basePlateGeom.dispose();
+    this.baseRingGeom.dispose();
 
     // Dispose materials
     this.barrierMat.dispose();
@@ -1155,5 +1333,11 @@ export class ObstacleManager {
     this.railMat.dispose();
     this.railPostMat.dispose();
     this.boostMat.dispose();
+    this.basePlateMat.dispose();
   }
 }
+
+// Background preload 3D obstacle models on module import
+ObstacleManager.preloadObstacleModels().catch(err => {
+  console.warn('[ObstacleManager] Background preload warning:', err);
+});

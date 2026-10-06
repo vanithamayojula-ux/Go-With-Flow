@@ -1,0 +1,42 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Obstacle Lab</title>
+  <style>
+    body {
+      margin: 0;
+      overflow: hidden;
+      background: #0d1117;
+      font-family: monospace;
+      color: #00d2e0;
+    }
+    #canvas-container {
+      width: 100vw;
+      height: 100vh;
+      display: block;
+    }
+    #info-overlay {
+      position: absolute;
+      top: 10px;
+      left: 10px;
+      background: rgba(0, 0, 0, 0.85);
+      padding: 12px 16px;
+      border-radius: 8px;
+      border: 1px solid #00d2e0;
+      font-size: 13px;
+      line-height: 1.5;
+      pointer-events: none;
+    }
+  </style>
+</head>
+<body>
+  <div id="info-overlay">
+    <div style="font-weight: bold; font-size: 15px; color: #ff0055;">Obstacle 3D Models Lab</div>
+    <div id="status">Loading obstacle models...</div>
+  </div>
+  <div id="canvas-container"></div>
+  <script type="module" src="/src/obstacleLab.ts"></script>
+</body>
+</html>
