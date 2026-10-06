@@ -271,39 +271,43 @@ export function buildHeroRig(heroId: HeroId): HeroRig | null {
     cyanRim.position.set(0, 1.2, -0.5);
     bodyGroup.add(cyanRim);
 
-    // Dummy bone drivers so animation calls never crash
-    const dummyJoint = new THREE.Object3D();
-    const hipsDriver = new THREE.Object3D();
-    const spineDriver = new THREE.Object3D();
+    // Dedicated bone drivers so animation calls never crash or cross-talk
+    const createJoint = (order: THREE.EulerOrder = 'YXZ') => {
+      const obj = new THREE.Object3D();
+      obj.rotation.order = order;
+      return obj;
+    };
+    const hipsDriver = createJoint('YXZ');
+    const spineDriver = createJoint('YXZ');
 
     return {
       root,
       bodyGroup,
       scene,
       body: scene,
-      head: dummyJoint,
-      armL: dummyJoint,
-      armR: dummyJoint,
-      legL: dummyJoint,
-      legR: dummyJoint,
+      head: createJoint('YXZ'),
+      armL: createJoint('ZYX'),
+      armR: createJoint('ZYX'),
+      legL: createJoint('YXZ'),
+      legR: createJoint('YXZ'),
       drivers: {
         hips: hipsDriver,
         spine: spineDriver,
-        chest: dummyJoint,
-        neck: dummyJoint,
-        head: dummyJoint,
-        leftShoulder: dummyJoint,
-        leftArm: dummyJoint,
-        leftForearm: dummyJoint,
-        rightShoulder: dummyJoint,
-        rightArm: dummyJoint,
-        rightForearm: dummyJoint,
-        leftThigh: dummyJoint,
-        leftShin: dummyJoint,
-        leftFoot: dummyJoint,
-        rightThigh: dummyJoint,
-        rightShin: dummyJoint,
-        rightFoot: dummyJoint,
+        chest: createJoint('YXZ'),
+        neck: createJoint('YXZ'),
+        head: createJoint('YXZ'),
+        leftShoulder: createJoint('ZYX'),
+        leftArm: createJoint('ZYX'),
+        leftForearm: createJoint('ZYX'),
+        rightShoulder: createJoint('ZYX'),
+        rightArm: createJoint('ZYX'),
+        rightForearm: createJoint('ZYX'),
+        leftThigh: createJoint('YXZ'),
+        leftShin: createJoint('YXZ'),
+        leftFoot: createJoint('YXZ'),
+        rightThigh: createJoint('YXZ'),
+        rightShin: createJoint('YXZ'),
+        rightFoot: createJoint('YXZ'),
       },
       syncBones: () => {
         // Option B: Multi-layer whole-body kinematics for rigid/unskinned cyber rider

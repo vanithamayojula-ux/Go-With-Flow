@@ -8,6 +8,9 @@ declare global {
   interface Window {
     __labInfo?: any;
     __labReady?: boolean;
+    __pc?: any;
+    __runFrameDeltaTrace?: (heroId: HeroId) => Promise<any>;
+    __setHeroAndPose?: (heroId: HeroId, pose: string) => Promise<boolean>;
   }
 }
 
@@ -15,7 +18,7 @@ async function initLab() {
   const params = new URLSearchParams(window.location.search);
   const heroId = (params.get('hero') || 'flame') as HeroId;
   const view = params.get('view') || 'three'; // 'front' | 'side' | 'back' | 'three'
-  const pose = params.get('pose') || 'bind';  // 'bind' | 'idle' | 'run' | 'slide' | 'jump'
+  let pose = params.get('pose') || 'bind';  // 'bind' | 'idle' | 'run' | 'slide' | 'jump'
   const time = parseFloat(params.get('time') || '0');
 
   const titleEl = document.getElementById('hero-title');
@@ -158,6 +161,165 @@ async function initLab() {
     view,
     bones: boneInfo,
   };
+  window.__pc = pc;
+
+  window.__runFrameDeltaTrace = async (targetHeroId: HeroId) => {
+    await pc.setHero?.(targetHeroId);
+    const dt = 1 / 60;
+    let simTime = 0;
+    const history: any[] = [];
+    let maxDelta = 0;
+    let maxDeltaFrame = 0;
+    let maxDeltaBone = '';
+
+    for (let f = 0; f < 15; f++) {
+      simTime += dt;
+      animatePlayerCharacter(pc, simTime, 1.0, {
+        isGrounded: true,
+        isSliding: false,
+        isGrinding: false,
+        isBoosting: false,
+        stumbleTimer: 0,
+        activeTrickName: null,
+        activeTrick: null,
+        turnVelocity: 0,
+        nearestObstacleDist: 999,
+        dt,
+      });
+    }
+
+    function readAngles(): Record<string, number> {
+      const angles: Record<string, number> = {};
+      if (pc.heroRig) {
+        const d = pc.heroRig.drivers;
+        angles['leftArmX'] = d.leftArm.rotation.x;
+        angles['leftArmZ'] = d.leftArm.rotation.z;
+        angles['rightArmX'] = d.rightArm.rotation.x;
+        angles['rightArmZ'] = d.rightArm.rotation.z;
+        angles['spineX'] = d.spine.rotation.x;
+        angles['spineZ'] = d.spine.rotation.z;
+        angles['hipsY'] = d.hips.position.y;
+        angles['hipsRotY'] = d.hips.rotation.y;
+        angles['hipsRotZ'] = d.hips.rotation.z;
+      } else if (pc.spineGroup) {
+        angles['spineY'] = pc.spineGroup.position.y;
+        angles['spineX'] = pc.spineGroup.rotation.x;
+        angles['spineZ'] = pc.spineGroup.rotation.z;
+        if (pc.leftArmGroup && pc.rightArmGroup) {
+          angles['leftArmX'] = pc.leftArmGroup.rotation.x;
+          angles['leftArmZ'] = pc.leftArmGroup.rotation.z;
+          angles['rightArmX'] = pc.rightArmGroup.rotation.x;
+          angles['rightArmZ'] = pc.rightArmGroup.rotation.z;
+        }
+      }
+      return angles;
+    }
+
+    let prevAngles = readAngles();
+
+    for (let f = 0; f < 200; f++) {
+      simTime += dt;
+      let turnVel = 0;
+      let boosting = false;
+
+      if (f >= 30 && f < 60) {
+        const progress = (f - 30) / 30;
+        turnVel = -5.0 * Math.sin(progress * Math.PI * 0.5);
+      } else if (f >= 60 && f < 100) {
+        const progress = (f - 60) / 40;
+        turnVel = -5.0 + 10.0 * progress;
+      } else if (f >= 100 && f < 120) {
+        const progress = (f - 100) / 20;
+        turnVel = 5.0 * (1 - progress);
+      } else if (f >= 120 && f < 170) {
+        boosting = true;
+      }
+
+      animatePlayerCharacter(pc, simTime, 1.0, {
+        isGrounded: true,
+        isSliding: false,
+        isGrinding: false,
+        isBoosting: boosting,
+        stumbleTimer: 0,
+        activeTrickName: null,
+        activeTrick: null,
+        turnVelocity: turnVel,
+        nearestObstacleDist: 999,
+        dt,
+      });
+
+      const currAngles = readAngles();
+      const deltas: Record<string, number> = {};
+      for (const [k, v] of Object.entries(currAngles)) {
+        const d = Math.abs(v - (prevAngles[k] ?? v));
+        deltas[k] = parseFloat(d.toFixed(6));
+        if (d > maxDelta) {
+          maxDelta = d;
+          maxDeltaFrame = f;
+          maxDeltaBone = k;
+        }
+      }
+
+      history.push({
+        frame: f,
+        time: parseFloat(simTime.toFixed(4)),
+        turnVelocity: parseFloat(turnVel.toFixed(3)),
+        leanRatio: parseFloat((turnVel * 0.12).toFixed(3)),
+        isBoosting: boosting,
+        angles: currAngles,
+        deltas,
+      });
+
+      prevAngles = currAngles;
+    }
+
+    return {
+      heroId: targetHeroId,
+      totalFrames: 200,
+      dt,
+      maxDelta: parseFloat(maxDelta.toFixed(5)),
+      maxDeltaFrame,
+      maxDeltaBone,
+      passedThreshold: maxDelta <= 0.15,
+      laneCrossSamples: history.slice(75, 85),
+      boostEnterSamples: history.slice(118, 126),
+      boostExitSamples: history.slice(168, 176),
+    };
+  };
+
+  window.__setHeroAndPose = async (targetHeroId: HeroId, targetPose: string): Promise<boolean> => {
+    if (pc.activeHeroId !== targetHeroId) {
+      await pc.setHero?.(targetHeroId);
+    }
+    pose = targetPose;
+    let turnVelocity = 0;
+    if (targetPose === 'lane_left') turnVelocity = -5.0;
+    else if (targetPose === 'lane_right') turnVelocity = 5.0;
+
+    const animState = {
+      isGrounded: targetPose !== 'jump',
+      isSliding: targetPose === 'slide',
+      isGrinding: targetPose === 'grind',
+      isBoosting: targetPose === 'boost',
+      stumbleTimer: 0,
+      activeTrickName: null,
+      activeTrick: null,
+      turnVelocity,
+      nearestObstacleDist: 999,
+      dt: 0.016,
+    };
+    const speedFactor = targetPose === 'idle' ? 0 : 1.0;
+
+    for (let i = 0; i < 25; i++) {
+      animatePlayerCharacter(pc, 1.0 + i * 0.016, speedFactor, animState);
+    }
+    const titleEl = document.getElementById('hero-title');
+    const poseEl = document.getElementById('pose-title');
+    if (titleEl) titleEl.innerText = `Hero: ${targetHeroId.toUpperCase()} (${heroById(targetHeroId).name})`;
+    if (poseEl) poseEl.innerText = `Pose: ${targetPose.toUpperCase()} | View: ${view.toUpperCase()}`;
+    renderer.render(scene, camera);
+    return true;
+  };
 
   renderer.render(scene, camera);
   window.__labReady = true;
@@ -181,7 +343,7 @@ async function initLab() {
         isGrounded: pose !== 'jump' && !activeTrick,
         isSliding: pose === 'slide',
         isGrinding: pose === 'grind',
-        isBoosting: false,
+        isBoosting: pose === 'boost',
         stumbleTimer: 0,
         activeTrickName: activeTrick,
         activeTrick: activeTrick,
