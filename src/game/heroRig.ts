@@ -5,6 +5,10 @@ import * as SkeletonUtils from 'three/examples/jsm/utils/SkeletonUtils.js';
 import { HeroId } from '../types';
 import { heroById } from './heroes';
 
+if (typeof globalThis !== 'undefined' && typeof (globalThis as any).self === 'undefined') {
+  (globalThis as any).self = globalThis;
+}
+
 export const BONE_NAMES = {
   hips: 'hips',
   spine: 'spine',

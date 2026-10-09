@@ -11,8 +11,15 @@ import { PauseModal } from './components/PauseModal';
 import { OpeningScreen } from './components/OpeningScreen';
 import { HowToPlayModal } from './components/HowToPlayModal';
 import { SettingsModal } from './components/SettingsModal';
+import { ProgressionModal } from './components/ProgressionModal';
+import { GameModesModal } from './components/GameModesModal';
+import { CompetitiveModal } from './components/CompetitiveModal';
 import { AudioManager } from './game/audio';
 import { HEROES } from './game/heroes';
+import { ProgressionManager } from './game/progression';
+import { CosmeticManager } from './game/cosmetics';
+import { GameModeManager } from './game/modes';
+import { SocialManager } from './game/social';
 import {
   CosmeticsConfig,
   GraphicsConfig,
@@ -101,7 +108,15 @@ const DEFAULT_MISSIONS: SessionGoal[] = [
 ];
 
 export default function App() {
-  const [graphicsConfig, setGraphicsConfig] = useState<GraphicsConfig>(DEFAULT_GRAPHICS_CONFIG);
+  const [graphicsConfig, setGraphicsConfig] = useState<GraphicsConfig>(() => {
+    try {
+      const saved = localStorage.getItem('skyflow_graphics_config');
+      return saved ? { ...DEFAULT_GRAPHICS_CONFIG, ...JSON.parse(saved) } : DEFAULT_GRAPHICS_CONFIG;
+    } catch {
+      return DEFAULT_GRAPHICS_CONFIG;
+    }
+  });
+  const bankedThisRunRef = useRef<number>(0);
   const [lightingMode, setLightingMode] = useState<LightingMode>('midnight-cyan');
   const [shaderParams, setShaderParams] = useState<ShaderParams>(DEFAULT_SHADER_PARAMS);
   const [cosmeticsConfig, setCosmeticsConfig] = useState<CosmeticsConfig>(() => {
@@ -179,6 +194,7 @@ export default function App() {
   const [isGraphicsDrawerOpen, setIsGraphicsDrawerOpen] = useState(false);
   const [isDeliverablesOpen, setIsDeliverablesOpen] = useState(false);
   const [isCosmeticsOpen, setIsCosmeticsOpen] = useState(false);
+  const [isProgressionOpen, setIsProgressionOpen] = useState(false);
   const [cosmeticsInitialTab, setCosmeticsInitialTab] = useState<'upgrades' | 'loadout'>('upgrades');
   const [isHowToOpen, setIsHowToOpen] = useState(false);
   const [isSettingsOpen, setIsSettingsOpen] = useState(false);
@@ -186,6 +202,34 @@ export default function App() {
   const [activeMobileTrick, setActiveMobileTrick] = useState<TrickType | null>(null);
   const [notification, setNotification] = useState<string | null>(null);
   const [isUprightMode, setIsUprightMode] = useState<boolean>(true);
+
+  // Phase 13 Progression System Instance
+  const progressionMgrRef = useRef<ProgressionManager | null>(null);
+  if (!progressionMgrRef.current) {
+    progressionMgrRef.current = new ProgressionManager();
+  }
+  const [playerLevel, setPlayerLevel] = useState<number>(() => progressionMgrRef.current?.getLevel() || 1);
+
+  // Phase 14 Cosmetic System Instance
+  const cosmeticMgrRef = useRef<CosmeticManager | null>(null);
+  if (!cosmeticMgrRef.current) {
+    cosmeticMgrRef.current = new CosmeticManager();
+  }
+
+  // Phase 15 Game Mode System Instance
+  const gameModeMgrRef = useRef<GameModeManager | null>(null);
+  if (!gameModeMgrRef.current) {
+    gameModeMgrRef.current = new GameModeManager();
+  }
+  const [isModesOpen, setIsModesOpen] = useState(false);
+  const [activeModeName, setActiveModeName] = useState<string>(() => gameModeMgrRef.current?.activeMode.name || 'Standard Run');
+
+  // Phase 16 Social & Competitive System Instance
+  const socialMgrRef = useRef<SocialManager | null>(null);
+  if (!socialMgrRef.current) {
+    socialMgrRef.current = new SocialManager();
+  }
+  const [isCompetitiveOpen, setIsCompetitiveOpen] = useState(false);
 
   // Cyber Navigation State
   const [isGameOver, setIsGameOver] = useState(false);
@@ -247,49 +291,76 @@ export default function App() {
     gameState: 'playing',
   });
 
-  const [fps, setFps] = useState(60);
+  const statsRef = useRef<PlayerStats>(stats);
+  statsRef.current = stats;
+
+  const highScoreRef = useRef(highScore);
+  highScoreRef.current = highScore;
+
+  const bestDistanceRef = useRef(bestDistance);
+  bestDistanceRef.current = bestDistance;
+
+  const fps = 60;
+  const [currentFpsDisplay, setCurrentFpsDisplay] = useState(60);
   const [drawCalls, setDrawCalls] = useState(45);
   const [instanceCount, setInstanceCount] = useState(850);
 
   const audioManagerRef = useRef<AudioManager | null>(null);
   const notifTimeoutRef = useRef<number | null>(null);
 
+  const triggerNotification = useCallback((msg: string) => {
+    setNotification(msg);
+    if (notifTimeoutRef.current) clearTimeout(notifTimeoutRef.current);
+    notifTimeoutRef.current = window.setTimeout(() => {
+      setNotification(null);
+    }, 2400);
+  }, []);
+
   const handleClaimMission = useCallback((missionId: string) => {
+    let rewardToGrant = 0;
+    let nextMissions: SessionGoal[] | null = null;
+
     setMissions(prev => {
-      const updated = prev.map(m => {
-        if (m.id === missionId && m.completed && !m.claimed) {
-          const newBanked = bankedShards + m.rewardShards;
-          setBankedShards(newBanked);
-          try {
-            localStorage.setItem('skyflow_banked_shards', String(newBanked));
-          } catch {}
-          return { ...m, claimed: true };
-        }
-        return m;
-      });
-      try {
-        localStorage.setItem('skyflow_missions', JSON.stringify(updated));
-      } catch {}
+      const match = prev.find(m => m.id === missionId && m.completed && !m.claimed);
+      if (!match) return prev;
+      rewardToGrant = match.rewardShards;
+      const updated = prev.map(m => m.id === missionId ? { ...m, claimed: true } : m);
+      nextMissions = updated;
       return updated;
     });
-  }, [bankedShards]);
+
+    if (nextMissions) {
+      try {
+        localStorage.setItem('skyflow_missions', JSON.stringify(nextMissions));
+      } catch {}
+    }
+
+    if (rewardToGrant > 0) {
+      setBankedShards(prev => {
+        const next = prev + rewardToGrant;
+        try {
+          localStorage.setItem('skyflow_banked_shards', String(next));
+        } catch {}
+        return next;
+      });
+      triggerNotification(`🎉 +${rewardToGrant} Shards Mission Reward Claimed!`);
+    }
+  }, [triggerNotification]);
 
   const handleStatsUpdate = useCallback((newStats: PlayerStats, currentFps: number, calls: number, instances: number) => {
-    if (newStats.score > highScore) {
+    statsRef.current = newStats;
+
+    if (newStats.score > highScoreRef.current) {
+      highScoreRef.current = newStats.score;
       setHighScore(newStats.score);
-      try {
-        localStorage.setItem('skyflow_high_score', String(newStats.score));
-      } catch {}
     }
-    if (newStats.distance > bestDistance) {
+    if (newStats.distance > bestDistanceRef.current) {
+      bestDistanceRef.current = newStats.distance;
       setBestDistance(newStats.distance);
-      try {
-        localStorage.setItem('skyflow_best_distance', String(newStats.distance));
-      } catch {}
     }
-    newStats.highScore = Math.max(newStats.highScore, highScore, newStats.score);
+    newStats.highScore = Math.max(newStats.highScore, highScoreRef.current, newStats.score);
     setStats({ ...newStats });
-    setFps(currentFps);
+    setCurrentFpsDisplay(currentFps);
     setDrawCalls(calls);
     setInstanceCount(instances);
 
@@ -319,21 +390,17 @@ export default function App() {
       }
       return prev;
     });
-  }, [highScore]);
-
-  const triggerNotification = useCallback((msg: string) => {
-    setNotification(msg);
-    if (notifTimeoutRef.current) clearTimeout(notifTimeoutRef.current);
-    notifTimeoutRef.current = window.setTimeout(() => {
-      setNotification(null);
-    }, 2400);
   }, []);
 
+
   const handleToggleMute = useCallback(() => {
-    if (audioManagerRef.current) {
-      const muted = audioManagerRef.current.toggleMute();
-      setIsMuted(muted);
-    }
+    setIsMuted(prev => {
+      const next = !prev;
+      if (audioManagerRef.current) {
+        audioManagerRef.current.setMuted(next);
+      }
+      return next;
+    });
   }, []);
 
   const handleUpdateConfig = useCallback((newConfig: Partial<GraphicsConfig>) => {
@@ -354,6 +421,9 @@ export default function App() {
           updated.enableShadows = false;
         }
       }
+      try {
+        localStorage.setItem('skyflow_graphics_config', JSON.stringify(updated));
+      } catch {}
       return updated;
     });
   }, []);
@@ -364,6 +434,9 @@ export default function App() {
 
   const handleResetDefaults = useCallback(() => {
     setGraphicsConfig(DEFAULT_GRAPHICS_CONFIG);
+    try {
+      localStorage.removeItem('skyflow_graphics_config');
+    } catch {}
     setShaderParams(DEFAULT_SHADER_PARAMS);
     setLightingMode('midnight-cyan');
     triggerNotification('Settings reset to defaults');
@@ -435,39 +508,77 @@ export default function App() {
   // System Crash / Game Over Handler: Bank run harvest into persistent wallet
   const handleGameOver = useCallback(() => {
     setIsGameOver(true);
-    const runShards = stats.dataShardsCollected || stats.windOrbsCollected || 0;
-    if (runShards > 0) {
+    const finalStats = statsRef.current;
+    const runShards = finalStats.dataShardsCollected || 0;
+    const unbankedShards = Math.max(0, runShards - bankedThisRunRef.current);
+
+    // Persist run end checkpoints to localStorage
+    try {
+      if (finalStats.score > 0) {
+        localStorage.setItem('skyflow_high_score', String(Math.max(highScoreRef.current, finalStats.score)));
+      }
+      if (finalStats.distance > 0) {
+        localStorage.setItem('skyflow_best_distance', String(Math.max(bestDistanceRef.current, finalStats.distance)));
+      }
+    } catch {}
+
+    if (unbankedShards > 0) {
+      bankedThisRunRef.current = runShards;
       setBankedShards(prev => {
-        const next = prev + runShards;
+        const next = prev + unbankedShards;
         try {
           localStorage.setItem('skyflow_banked_shards', String(next));
         } catch {}
         return next;
       });
-      triggerNotification(`💾 +${runShards} Data Shards Banked!`);
+      triggerNotification(`💾 +${unbankedShards} Data Shards Banked!`);
     }
-  }, [stats.dataShardsCollected, stats.windOrbsCollected, triggerNotification]);
 
-  // Emergency Revive Handler
+    // Submit to Social & Competitive Leaderboards
+    if (socialMgrRef.current && gameModeMgrRef.current) {
+      const lastSummary = gameModeMgrRef.current.getLastSummary();
+      if (lastSummary) {
+        socialMgrRef.current.submitRunSummary(lastSummary, progressionMgrRef.current || undefined);
+      }
+    }
+  }, [triggerNotification]);
+
+  // Emergency Revive Handler: Deducts exactly 15 units of persistent currency
   const handleRevive = useCallback(() => {
-    if (bankedShards >= 15) {
-      const nextBank = bankedShards - 15;
+    let currentBanked = 0;
+    try {
+      const saved = localStorage.getItem('skyflow_banked_shards');
+      currentBanked = saved !== null ? parseInt(saved, 10) || 0 : 0;
+    } catch {}
+
+    if (currentBanked >= 15) {
+      const nextBank = currentBanked - 15;
       setBankedShards(nextBank);
       try {
         localStorage.setItem('skyflow_banked_shards', String(nextBank));
       } catch {}
       setIsGameOver(false);
       setReviveCount(c => c + 1);
-    } else if ((stats.dataShardsCollected || stats.windOrbsCollected || 0) >= 15) {
-      setStats(prev => ({
-        ...prev,
-        dataShardsCollected: Math.max(0, (prev.dataShardsCollected || 0) - 15),
-        windOrbsCollected: Math.max(0, (prev.windOrbsCollected || 0) - 15),
-      }));
-      setIsGameOver(false);
-      setReviveCount(c => c + 1);
+      triggerNotification('🌸 Emergency Revive! -15 Banked Shards');
+    } else {
+      const runShards = statsRef.current.dataShardsCollected || 0;
+      if (runShards >= 15) {
+        const remaining = runShards - 15;
+        statsRef.current.dataShardsCollected = remaining;
+        statsRef.current.windOrbsCollected = remaining;
+        setStats(prev => ({
+          ...prev,
+          dataShardsCollected: remaining,
+          windOrbsCollected: remaining,
+        }));
+        setIsGameOver(false);
+        setReviveCount(c => c + 1);
+        triggerNotification('🌸 Emergency Revive! -15 Run Shards');
+      } else {
+        triggerNotification('⚠️ Need 15 Data Shards to revive!');
+      }
     }
-  }, [bankedShards, stats.dataShardsCollected, stats.windOrbsCollected]);
+  }, [triggerNotification]);
 
   // Keyboard shortcut listener for Escape and P to pause/resume
   useEffect(() => {
@@ -522,6 +633,7 @@ export default function App() {
   }, []);
 
   const handleStartGame = useCallback(() => {
+    bankedThisRunRef.current = 0;
     setHasStarted(true);
     setIsGameOver(false);
     setIsPaused(false);
@@ -529,9 +641,14 @@ export default function App() {
   }, []);
 
   const handleQuitToMenu = useCallback(() => {
+    bankedThisRunRef.current = 0;
     setIsPaused(false);
     setIsGameOver(false);
     setHasStarted(false);
+    if (audioManagerRef.current) {
+      audioManagerRef.current.dispose();
+      audioManagerRef.current = null;
+    }
   }, []);
 
   const handleOpenShop = useCallback((tab?: 'heroes' | 'boards' | 'tech') => {
@@ -571,10 +688,15 @@ export default function App() {
           onPlay={handleStartGame}
           onHowTo={() => setIsHowToOpen(true)}
           onSettings={() => setIsSettingsOpen(true)}
+          onOpenModes={() => setIsModesOpen(true)}
+          activeModeName={activeModeName}
+          onOpenCompetitive={() => setIsCompetitiveOpen(true)}
           isMuted={isMuted}
           onToggleMute={handleToggleMute}
           missions={missions}
           onClaimMission={handleClaimMission}
+          onOpenProgression={() => setIsProgressionOpen(true)}
+          playerLevel={playerLevel}
           graphicsConfig={graphicsConfig}
           shaderParams={shaderParams}
         />
@@ -588,6 +710,9 @@ export default function App() {
             shaderParams={shaderParams}
             cosmeticsConfig={cosmeticsConfig}
             upgrades={playerUpgrades}
+            progressionMgr={progressionMgrRef.current || undefined}
+            cosmeticMgr={cosmeticMgrRef.current || undefined}
+            gameModeMgr={gameModeMgrRef.current || undefined}
             activeMobileTrick={activeMobileTrick}
             onClearMobileTrick={() => setActiveMobileTrick(null)}
             onStatsUpdate={handleStatsUpdate}
@@ -606,7 +731,7 @@ export default function App() {
           <GameHUD
             stats={stats}
             bankedShards={bankedShards}
-            fps={fps}
+            fps={currentFpsDisplay}
             drawCalls={drawCalls}
             instanceCount={instanceCount}
             lightingMode={lightingMode}
@@ -627,8 +752,10 @@ export default function App() {
             onOpenGraphicsDrawer={() => setIsGraphicsDrawerOpen(true)}
             onOpenDeliverables={() => setIsDeliverablesOpen(true)}
             onOpenCosmetics={() => handleOpenShop('boards')}
+            onOpenProgression={() => setIsProgressionOpen(true)}
             onOpenDatasetCapture={() => setIsDatasetOpen(true)}
             onPause={() => setIsPaused(prev => !prev)}
+            gameModeMgr={gameModeMgrRef.current || undefined}
             notification={notification}
           />
 
@@ -653,7 +780,7 @@ export default function App() {
         shaderParams={shaderParams}
         onUpdateShaderParams={handleUpdateShaderParams}
         onResetDefaults={handleResetDefaults}
-        fps={fps}
+        fps={currentFpsDisplay}
         drawCalls={drawCalls}
       />
 
@@ -700,6 +827,8 @@ export default function App() {
         unlockedItems={unlockedItems}
         onUnlockItem={handleUnlockItem}
         initialTab={cosmeticsInitialTab}
+        cosmeticMgr={cosmeticMgrRef.current || undefined}
+        progressionMgr={progressionMgrRef.current || undefined}
       />
 
       {/* Game Paused Modal */}
@@ -708,6 +837,7 @@ export default function App() {
           isOpen={isPaused}
           onResume={() => setIsPaused(false)}
           onRestart={() => {
+            bankedThisRunRef.current = 0;
             setIsPaused(false);
             setRestartCount(c => c + 1);
           }}
@@ -734,8 +864,14 @@ export default function App() {
           stats={stats}
           bankedShards={bankedShards}
           missions={missions}
+          progressionMgr={progressionMgrRef.current || undefined}
+          gameModeMgr={gameModeMgrRef.current || undefined}
+          socialMgr={socialMgrRef.current || undefined}
+          onOpenProgression={() => setIsProgressionOpen(true)}
+          onOpenCompetitive={() => setIsCompetitiveOpen(true)}
           onClaimMission={handleClaimMission}
           onRestart={() => {
+            bankedThisRunRef.current = 0;
             setIsGameOver(false);
             setRestartCount(c => c + 1);
           }}
@@ -745,6 +881,66 @@ export default function App() {
             handleOpenShop('boards');
           }}
           onMainMenu={handleQuitToMenu}
+        />
+      )}
+
+      {/* Pilot Progression Modal */}
+      {isProgressionOpen && progressionMgrRef.current && (
+        <ProgressionModal
+          progressionMgr={progressionMgrRef.current}
+          onClose={() => {
+            setIsProgressionOpen(false);
+            if (progressionMgrRef.current) {
+              setPlayerLevel(progressionMgrRef.current.getLevel());
+            }
+          }}
+          onClaimChallenge={(id) => {
+            if (progressionMgrRef.current) {
+              setPlayerLevel(progressionMgrRef.current.getLevel());
+              const totalShards = progressionMgrRef.current.getData().walletShards;
+              setBankedShards(totalShards);
+            }
+          }}
+          onClaimAchievement={(id) => {
+            if (progressionMgrRef.current) {
+              setPlayerLevel(progressionMgrRef.current.getLevel());
+              const totalShards = progressionMgrRef.current.getData().walletShards;
+              setBankedShards(totalShards);
+            }
+          }}
+        />
+      )}
+
+      {/* Flight Operations & Game Modes Modal (Phase 15) */}
+      {isModesOpen && gameModeMgrRef.current && (
+        <GameModesModal
+          gameModeMgr={gameModeMgrRef.current}
+          onClose={() => setIsModesOpen(false)}
+          onSelectAndPlay={(modeId, challengeId) => {
+            if (gameModeMgrRef.current) {
+              gameModeMgrRef.current.setMode(modeId, challengeId);
+              setActiveModeName(gameModeMgrRef.current.activeMode.name);
+              triggerNotification(`Engaged Mode: ${gameModeMgrRef.current.activeMode.name}`);
+            }
+            setIsModesOpen(false);
+          }}
+        />
+      )}
+
+      {/* Social, Leaderboards & Competitive Replay Modal (Phase 16) */}
+      {isCompetitiveOpen && socialMgrRef.current && (
+        <CompetitiveModal
+          socialMgr={socialMgrRef.current}
+          progressionMgr={progressionMgrRef.current || undefined}
+          onClose={() => setIsCompetitiveOpen(false)}
+          onLaunchFriendChallenge={(chalId) => {
+            if (gameModeMgrRef.current) {
+              gameModeMgrRef.current.setMode('score-attack');
+              setActiveModeName('Score Attack');
+              triggerNotification('Accepted Friend Challenge: Score Attack');
+            }
+            setIsCompetitiveOpen(false);
+          }}
         />
       )}
     </div>

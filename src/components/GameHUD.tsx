@@ -1,6 +1,50 @@
 import React, { useState } from 'react';
 import { Volume2, VolumeX, Sliders, Eye, Palette, Smartphone, Monitor, Shield, Trophy, Zap, Radio, Terminal, Pause, Camera } from 'lucide-react';
 import { BiomeType, LightingMode, PlayerStats } from '../types';
+import { WorldIntroBanner } from './WorldIntroBanner';
+
+const WORLD_SECTOR_INFO: Record<string, { sector: number; name: string; icon: string; border: string; text: string; bg: string }> = {
+  'sky-isles': {
+    sector: 1,
+    name: 'SKY ISLES',
+    icon: '☁️',
+    border: 'border-cyan-400/60 shadow-cyan-950/30',
+    text: 'text-cyan-300',
+    bg: 'bg-cyan-950/40',
+  },
+  'verdant-wilds': {
+    sector: 2,
+    name: 'VERDANT WILDS',
+    icon: '🌿',
+    border: 'border-emerald-400/60 shadow-emerald-950/30',
+    text: 'text-emerald-300',
+    bg: 'bg-emerald-950/40',
+  },
+  'crimson-dunes': {
+    sector: 3,
+    name: 'CRIMSON DUNES',
+    icon: '🏜️',
+    border: 'border-amber-400/60 shadow-amber-950/30',
+    text: 'text-amber-300',
+    bg: 'bg-amber-950/40',
+  },
+  'crystal-heights': {
+    sector: 4,
+    name: 'CRYSTAL HEIGHTS',
+    icon: '💎',
+    border: 'border-purple-400/60 shadow-purple-950/30',
+    text: 'text-purple-300',
+    bg: 'bg-purple-950/40',
+  },
+  'obsidian-core': {
+    sector: 5,
+    name: 'OBSIDIAN CORE',
+    icon: '🌋',
+    border: 'border-rose-500/60 shadow-rose-950/30',
+    text: 'text-rose-300',
+    bg: 'bg-rose-950/40',
+  },
+};
 
 interface GameHUDProps {
   stats: PlayerStats;
@@ -20,8 +64,10 @@ interface GameHUDProps {
   onOpenGraphicsDrawer: () => void;
   onOpenDeliverables: () => void;
   onOpenCosmetics: () => void;
+  onOpenProgression?: () => void;
   onOpenDatasetCapture?: () => void;
   onPause?: () => void;
+  gameModeMgr?: import('../game/modes').GameModeManager;
   notification: string | null;
 }
 
@@ -43,8 +89,10 @@ export const GameHUD: React.FC<GameHUDProps> = ({
   onOpenGraphicsDrawer,
   onOpenDeliverables,
   onOpenCosmetics,
+  onOpenProgression,
   onOpenDatasetCapture,
   onPause,
+  gameModeMgr,
   notification,
 }) => {
   const [showDevInspector, setShowDevInspector] = useState(false);
@@ -153,6 +201,9 @@ export const GameHUD: React.FC<GameHUDProps> = ({
 
   return (
     <div id="game-hud-root" className="pointer-events-none absolute inset-0 z-20 flex flex-col justify-between p-3 sm:p-5 select-none font-mono">
+      {/* Subtle Cinematic World Introduction Banner */}
+      <WorldIntroBanner worldId={stats.currentWorldId || 'sky-isles'} />
+
       {/* Top Telemetry & Cyber Status Bar */}
       <div className="flex items-start justify-between w-full">
         {/* Left: Cyberpunk In-World Telemetry */}
@@ -167,11 +218,22 @@ export const GameHUD: React.FC<GameHUDProps> = ({
               </span>
             </div>
 
-            {/* Zone Tag */}
-            <div className={`px-2.5 py-1.5 rounded-lg bg-black/75 backdrop-blur-md border text-xs font-bold flex items-center space-x-1.5 shadow-md ${biomeBadge.color}`}>
-              <span className="text-[10px] bg-white/10 px-1 py-0.5 rounded font-black">{biomeBadge.tag}</span>
-              <span>{biomeBadge.name}</span>
-            </div>
+            {/* World Sector Indicator */}
+            {stats.currentWorldId && WORLD_SECTOR_INFO[stats.currentWorldId] ? (
+              <div
+                className={`px-2.5 py-1.5 rounded-lg bg-black/80 backdrop-blur-md border text-xs font-bold flex items-center space-x-1.5 shadow-md ${WORLD_SECTOR_INFO[stats.currentWorldId].border} ${WORLD_SECTOR_INFO[stats.currentWorldId].text}`}
+              >
+                <span className="text-[10px] bg-white/10 px-1 py-0.5 rounded font-black">
+                  {WORLD_SECTOR_INFO[stats.currentWorldId].icon} SECTOR {WORLD_SECTOR_INFO[stats.currentWorldId].sector}/5
+                </span>
+                <span>{WORLD_SECTOR_INFO[stats.currentWorldId].name}</span>
+              </div>
+            ) : (
+              <div className={`px-2.5 py-1.5 rounded-lg bg-black/75 backdrop-blur-md border text-xs font-bold flex items-center space-x-1.5 shadow-md ${biomeBadge.color}`}>
+                <span className="text-[10px] bg-white/10 px-1 py-0.5 rounded font-black">{biomeBadge.tag}</span>
+                <span>{biomeBadge.name}</span>
+              </div>
+            )}
 
             {/* Next World Preview Swatch */}
             <div className="px-2.5 py-1.5 rounded-lg bg-black/75 backdrop-blur-md border border-slate-700 text-xs font-bold flex items-center space-x-1.5 shadow-md">
@@ -180,6 +242,20 @@ export const GameHUD: React.FC<GameHUDProps> = ({
               <span className="text-slate-200">{nextThemeInfo.name}</span>
             </div>
 
+            {/* Active Game Mode Badge */}
+            {gameModeMgr && gameModeMgr.activeModeId !== 'standard-run' && (
+              <div className="px-2.5 py-1.5 rounded-lg bg-amber-950/70 backdrop-blur-md border border-amber-400 text-amber-300 text-xs font-bold flex items-center space-x-1.5 shadow-md shadow-amber-950/40">
+                <span className="text-[10px] bg-amber-400/20 px-1 py-0.5 rounded font-black text-amber-200 uppercase">
+                  {gameModeMgr.activeMode.name}
+                </span>
+                {gameModeMgr.activeMode.getHudMetrics().statusBadge && (
+                  <span className="text-[10px] text-amber-300 font-mono">
+                    [{gameModeMgr.activeMode.getHudMetrics().statusBadge}]
+                  </span>
+                )}
+              </div>
+            )}
+
             {stats.isGrinding && (
               <div className="px-2.5 py-1 rounded-lg bg-fuchsia-600/90 border border-fuchsia-300 text-white text-xs font-black tracking-wider shadow-lg shadow-fuchsia-500/40 animate-pulse flex items-center space-x-1">
                 <Zap className="w-3.5 h-3.5 text-yellow-300" />
@@ -187,6 +263,29 @@ export const GameHUD: React.FC<GameHUDProps> = ({
               </div>
             )}
           </div>
+
+          {/* Mode-Specific Telemetry Override (Phase 15 Section 18) */}
+          {gameModeMgr && gameModeMgr.activeModeId !== 'standard-run' && (() => {
+            const m = gameModeMgr.activeMode.getHudMetrics();
+            return (
+              <div className="flex items-center space-x-2 pointer-events-auto flex-wrap gap-y-1.5">
+                <div className="px-3 py-1.5 rounded-lg bg-slate-950/90 backdrop-blur-md border border-amber-500/40 text-amber-300 flex items-center space-x-2 shadow-sm">
+                  <span className="text-[9px] text-amber-400 font-bold uppercase tracking-wider">{m.primaryLabel}</span>
+                  <span className="text-base font-black font-mono tracking-tight text-white">{m.primaryValue}</span>
+                </div>
+                <div className="px-3 py-1.5 rounded-lg bg-slate-950/90 backdrop-blur-md border border-cyan-500/40 text-cyan-300 flex items-center space-x-2 shadow-sm">
+                  <span className="text-[9px] text-cyan-400 font-bold uppercase tracking-wider">{m.secondaryLabel}</span>
+                  <span className="text-sm font-bold font-mono tracking-tight text-white">{m.secondaryValue}</span>
+                </div>
+                {m.tertiaryLabel && m.tertiaryValue && (
+                  <div className="px-2.5 py-1.5 rounded-lg bg-slate-950/90 backdrop-blur-md border border-slate-700 text-slate-300 flex items-center space-x-1 shadow-sm">
+                    <span className="text-[10px] text-slate-400 font-bold uppercase">{m.tertiaryLabel}:</span>
+                    <span className="text-xs font-bold font-mono text-white">{m.tertiaryValue}</span>
+                  </div>
+                )}
+              </div>
+            );
+          })()}
 
           {/* Core Metrics: Speed, Score, Shards, Distance */}
           <div className="flex items-center space-x-2 pointer-events-auto flex-wrap gap-y-1.5">
@@ -450,6 +549,17 @@ export const GameHUD: React.FC<GameHUDProps> = ({
           >
             <Palette className="w-4 h-4" />
           </button>
+
+          {/* Pilot Progression / Directives */}
+          {onOpenProgression && (
+            <button
+              onClick={onOpenProgression}
+              className="p-2 rounded-lg bg-black/60 border border-slate-700 text-slate-300 hover:text-amber-300 backdrop-blur-md active:scale-95"
+              title="Pilot Progression, Daily Directives & Achievements"
+            >
+              <Trophy className="w-4 h-4 text-amber-400" />
+            </button>
+          )}
 
           {/* Dataset Capture & Visual Engineering */}
           {onOpenDatasetCapture && (

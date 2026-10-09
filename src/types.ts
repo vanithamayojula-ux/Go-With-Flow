@@ -181,6 +181,7 @@ export interface PlayerStats {
   isBiomeTransitioning?: boolean;
   warpTimer?: number;
   weather?: 'clear' | 'light-rain' | 'pollen-drift';
+  currentWorldId?: 'sky-isles' | 'verdant-wilds' | 'crimson-dunes' | 'crystal-heights' | 'obsidian-core';
 
   // Cyber Navigation & Rail Grinding
   currentLane: LaneIndex;
@@ -193,6 +194,7 @@ export interface PlayerStats {
   scoreMultiplier: number;
   gameState: GameState;
   stumbleTimer?: number;
+  stumbles?: number;
   nearMissCount?: number;
   bankedShards?: number;
 }

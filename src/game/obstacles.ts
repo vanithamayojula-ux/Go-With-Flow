@@ -555,7 +555,7 @@ export class ObstacleManager {
     }
     ObstacleManager.isPreloading = true;
 
-    const defs = [
+    const defs: { id: string; name: string; url: string; targetHeight: number; yaw: number; fallbackUrl?: string }[] = [
       { id: 'sentinel', name: 'Cyber Sentinel', url: '/obstacle01.glb', targetHeight: 2.2, yaw: -Math.PI / 2 },
       { id: 'frost-drake', name: 'Frost Drake', url: '/0bstacle02.glb', targetHeight: 2.2, yaw: -Math.PI / 2 },
       { id: 'bio-predator', name: 'Bio Predator', url: '/obstacle03.glb', targetHeight: 2.2, yaw: -Math.PI / 2 },
@@ -572,11 +572,16 @@ export class ObstacleManager {
             gltf = await loader.loadAsync(def.url);
           } catch (loadErr) {
             if (def.fallbackUrl) {
-              gltf = await loader.loadAsync(def.fallbackUrl);
+              try {
+                gltf = await loader.loadAsync(def.fallbackUrl);
+              } catch {
+                continue;
+              }
             } else {
-              throw loadErr;
+              continue;
             }
           }
+          if (!gltf || !gltf.scene) continue;
 
           const rawScene = gltf.scene;
           const rawBox = new THREE.Box3().setFromObject(rawScene);

@@ -484,11 +484,44 @@ export class SkyManager {
     this.scene.fog = new THREE.FogExp2(fogCol, fogDensity);
   }
 
+  applyBlendedLighting(
+    skyTop: THREE.Color,
+    skyBottom: THREE.Color,
+    fogColor: THREE.Color,
+    fogDensity: number,
+    ambientColor: THREE.Color,
+    ambientIntensity: number,
+    sunColor: THREE.Color,
+    sunIntensity: number
+  ) {
+    this.skyMaterial.uniforms.uSkyTop.value.copy(skyTop);
+    this.skyMaterial.uniforms.uSkyHorizon.value.copy(skyBottom);
+    this.skyMaterial.uniforms.uSunColor.value.copy(sunColor);
+
+    this.dirLight.color.copy(sunColor);
+    this.dirLight.intensity = sunIntensity;
+
+    this.ambientLight.color.copy(ambientColor);
+    this.ambientLight.intensity = ambientIntensity;
+
+    if (!this.scene.fog || !(this.scene.fog instanceof THREE.FogExp2)) {
+      this.scene.fog = new THREE.FogExp2(fogColor, fogDensity);
+    } else {
+      this.scene.fog.color.copy(fogColor);
+      this.scene.fog.density = fogDensity;
+    }
+  }
+
   setGridMode(gridMode: number) {
     if (this.skyMaterial.uniforms.uGridMode) {
       this.skyMaterial.uniforms.uGridMode.value = gridMode;
     }
   }
+
+  setShadowsEnabled(enabled: boolean) {
+    this.dirLight.castShadow = enabled;
+  }
+
 
   update(playerPos: THREE.Vector3, playerVelocityZ: number, time: number, playerSpeed = 20) {
     // Skybox follows player camera
@@ -521,5 +554,8 @@ export class SkyManager {
     this.skyMesh.geometry.dispose();
     this.skyMaterial.dispose();
     this.holoRingMesh.geometry.dispose();
+    (this.holoRingMesh.material as THREE.Material)?.dispose();
+    this.beaconLightMesh.geometry.dispose();
+    (this.beaconLightMesh.material as THREE.Material)?.dispose();
   }
 }

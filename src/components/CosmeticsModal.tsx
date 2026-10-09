@@ -18,6 +18,14 @@ import {
 } from 'lucide-react';
 import { CosmeticsConfig, PlayerUpgrades } from '../types';
 import { HEROES } from '../game/heroes';
+import {
+  CosmeticManager,
+  CosmeticCategory,
+  CosmeticItem,
+  ALL_COSMETICS,
+  getCosmeticsByCategory,
+} from '../game/cosmetics';
+import { ProgressionManager } from '../game/progression';
 
 interface CosmeticsModalProps {
   isOpen: boolean;
@@ -29,7 +37,9 @@ interface CosmeticsModalProps {
   onUpgrade?: (upgradeKey: keyof PlayerUpgrades, cost: number) => void;
   unlockedItems?: string[];
   onUnlockItem?: (itemId: string, cost: number) => boolean | void;
-  initialTab?: 'upgrades' | 'loadout';
+  initialTab?: 'upgrades' | 'loadout' | 'customization';
+  cosmeticMgr?: CosmeticManager;
+  progressionMgr?: ProgressionManager;
 }
 
 export const CosmeticsModal: React.FC<CosmeticsModalProps> = ({
@@ -43,8 +53,12 @@ export const CosmeticsModal: React.FC<CosmeticsModalProps> = ({
   unlockedItems = ['shadow', 'cyber-phantom', 'electric-cyan', 'carbon-fiber'],
   onUnlockItem,
   initialTab = 'upgrades',
+  cosmeticMgr,
+  progressionMgr,
 }) => {
-  const [activeTab, setActiveTab] = useState<'upgrades' | 'loadout'>(initialTab);
+  const [activeTab, setActiveTab] = useState<'upgrades' | 'loadout' | 'customization'>(initialTab);
+  const [selectedCategory, setSelectedCategory] = useState<CosmeticCategory>('player');
+  const [previewItem, setPreviewItem] = useState<CosmeticItem | null>(null);
 
   React.useEffect(() => {
     if (isOpen && initialTab) {
@@ -266,28 +280,39 @@ export const CosmeticsModal: React.FC<CosmeticsModalProps> = ({
         </div>
 
         {/* Tab Navigation */}
-        <div className="grid grid-cols-2 gap-2 mt-4 pb-2 border-b border-white/10">
+        <div className="grid grid-cols-3 gap-2 mt-4 pb-2 border-b border-white/10">
           <button
-            onClick={() => setActiveTab('upgrades')}
-            className={`py-2 px-3 rounded-lg text-xs font-black uppercase tracking-wider flex items-center justify-center space-x-2 transition-all ${
-              activeTab === 'upgrades'
-                ? 'bg-cyan-500 text-black shadow-[0_0_15px_rgba(0,240,255,0.3)]'
+            onClick={() => setActiveTab('customization')}
+            className={`py-2 px-2.5 rounded-lg text-xs font-black uppercase tracking-wider flex items-center justify-center space-x-1.5 transition-all ${
+              activeTab === 'customization'
+                ? 'bg-amber-500 text-black shadow-[0_0_15px_rgba(245,158,11,0.3)]'
                 : 'bg-white/5 text-white/70 hover:bg-white/10 hover:text-white'
             }`}
           >
-            <BatteryCharging className="w-4 h-4" />
-            <span>AUGMENTS & UPGRADES</span>
+            <Palette className="w-4 h-4" />
+            <span className="truncate">CUSTOMIZE</span>
           </button>
           <button
             onClick={() => setActiveTab('loadout')}
-            className={`py-2 px-3 rounded-lg text-xs font-black uppercase tracking-wider flex items-center justify-center space-x-2 transition-all ${
+            className={`py-2 px-2.5 rounded-lg text-xs font-black uppercase tracking-wider flex items-center justify-center space-x-1.5 transition-all ${
               activeTab === 'loadout'
                 ? 'bg-cyan-500 text-black shadow-[0_0_15px_rgba(0,240,255,0.3)]'
                 : 'bg-white/5 text-white/70 hover:bg-white/10 hover:text-white'
             }`}
           >
             <Zap className="w-4 h-4" />
-            <span>BOARDS & LOADOUT</span>
+            <span className="truncate">LOADOUT</span>
+          </button>
+          <button
+            onClick={() => setActiveTab('upgrades')}
+            className={`py-2 px-2.5 rounded-lg text-xs font-black uppercase tracking-wider flex items-center justify-center space-x-1.5 transition-all ${
+              activeTab === 'upgrades'
+                ? 'bg-emerald-500 text-black shadow-[0_0_15px_rgba(16,185,129,0.3)]'
+                : 'bg-white/5 text-white/70 hover:bg-white/10 hover:text-white'
+            }`}
+          >
+            <BatteryCharging className="w-4 h-4" />
+            <span className="truncate">UPGRADES</span>
           </button>
         </div>
 
@@ -377,6 +402,229 @@ export const CosmeticsModal: React.FC<CosmeticsModalProps> = ({
                   );
                 })}
               </div>
+            </div>
+          ) : activeTab === 'customization' ? (
+            /* Tab 3: Phase 14 Customization, Preview & Collection Vault */
+            <div className="space-y-5">
+              {/* Collection Tracker Overview Bar */}
+              {cosmeticMgr && (() => {
+                const stats = cosmeticMgr.getCollectionStats();
+                return (
+                  <div className="p-4 rounded-xl bg-slate-950/80 border border-amber-500/30 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+                    <div>
+                      <div className="text-xs font-black uppercase tracking-wider text-amber-300 flex items-center space-x-1.5">
+                        <Sparkles className="w-3.5 h-3.5 text-amber-400" />
+                        <span>COLLECTION VAULT</span>
+                      </div>
+                      <p className="text-[11px] text-white/60 mt-0.5">
+                        {stats.totalCurrent} / {stats.totalAvailable} Items Unlocked ({stats.percent}%)
+                      </p>
+                    </div>
+                    {/* Category Micro-Pills */}
+                    <div className="flex items-center space-x-2 text-[10px] font-mono">
+                      {stats.categories.map(c => (
+                        <div key={c.category} className="px-2 py-1 rounded bg-black/60 border border-white/10 text-white/80">
+                          <span className="text-amber-400 font-bold">{c.label.split(' ')[0]}:</span> {c.current}/{c.total}
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                );
+              })()}
+
+              {/* Category Filter Chips */}
+              <div className="flex items-center space-x-2 overflow-x-auto pb-1">
+                {(['player', 'trail', 'energy-effect', 'ui-theme'] as CosmeticCategory[]).map(cat => {
+                  const labels: Record<CosmeticCategory, string> = {
+                    player: 'Player Outfits',
+                    trail: 'Trails',
+                    'energy-effect': 'Energy Sparks',
+                    'ui-theme': 'UI Themes',
+                  };
+                  const isCur = selectedCategory === cat;
+                  return (
+                    <button
+                      key={cat}
+                      onClick={() => {
+                        setSelectedCategory(cat);
+                        setPreviewItem(null);
+                      }}
+                      className={`px-3 py-1.5 rounded-lg text-xs font-black uppercase tracking-wider whitespace-nowrap transition-all cursor-pointer ${
+                        isCur
+                          ? 'bg-amber-500 text-black shadow-[0_0_12px_rgba(245,158,11,0.3)]'
+                          : 'bg-white/5 text-white/60 hover:bg-white/10 hover:text-white'
+                      }`}
+                    >
+                      {labels[cat]}
+                    </button>
+                  );
+                })}
+              </div>
+
+              {/* Interactive Item Showcase Grid */}
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                {getCosmeticsByCategory(selectedCategory).map(item => {
+                  const isUnlocked = cosmeticMgr ? cosmeticMgr.isUnlocked(item.id) : true;
+                  const equippedId = cosmeticMgr ? cosmeticMgr.getEquippedItem(item.category).id : '';
+                  const isEquipped = equippedId === item.id;
+                  const prog = cosmeticMgr ? cosmeticMgr.getRequirementProgress(item, progressionMgr) : { current: 1, target: 1, percent: 100, label: 'Unlocked' };
+
+                  return (
+                    <div
+                      key={item.id}
+                      onClick={() => setPreviewItem(item)}
+                      className={`p-3.5 rounded-xl border text-left transition-all relative flex flex-col justify-between cursor-pointer ${
+                        previewItem?.id === item.id
+                          ? 'border-amber-400 bg-amber-950/30 shadow-[0_0_15px_rgba(245,158,11,0.2)]'
+                          : isEquipped
+                          ? 'bg-cyan-950/40 border-cyan-400'
+                          : isUnlocked
+                          ? 'bg-white/5 border-white/10 hover:border-white/30'
+                          : 'bg-black/60 border-white/5 opacity-75'
+                      }`}
+                    >
+                      <div>
+                        <div className="flex items-start justify-between">
+                          <div className="flex items-center space-x-2.5">
+                            <span className="text-2xl">{item.icon}</span>
+                            <div>
+                              <div className="flex items-center space-x-1.5">
+                                <h4 className="font-bold text-sm text-white">{item.name}</h4>
+                                <span className={`text-[9px] px-1.5 py-0.2 rounded font-black uppercase ${
+                                  item.rarity === 'Legendary'
+                                    ? 'bg-amber-500/20 text-amber-300 border border-amber-500/40'
+                                    : item.rarity === 'Epic'
+                                    ? 'bg-purple-500/20 text-purple-300 border border-purple-500/40'
+                                    : item.rarity === 'Rare'
+                                    ? 'bg-blue-500/20 text-blue-300 border border-blue-500/40'
+                                    : 'bg-white/10 text-white/60'
+                                }`}>
+                                  {item.rarity}
+                                </span>
+                              </div>
+                              <p className="text-xs text-white/60 mt-0.5 line-clamp-2">{item.description}</p>
+                            </div>
+                          </div>
+                        </div>
+
+                        {/* Lock / Unlock Requirement Status */}
+                        {!isUnlocked && (
+                          <div className="mt-2 p-2 rounded-lg bg-black/70 border border-white/5 text-[11px]">
+                            <div className="flex justify-between items-center text-amber-300/80 mb-1">
+                              <span className="flex items-center space-x-1">
+                                <Lock className="w-3 h-3 text-amber-400" />
+                                <span>{item.unlockRequirement.description}</span>
+                              </span>
+                              <span className="font-mono text-[10px]">{prog.label}</span>
+                            </div>
+                            <div className="w-full bg-slate-900 rounded-full h-1 overflow-hidden">
+                              <div
+                                className="h-full bg-amber-400 transition-all duration-300"
+                                style={{ width: `${prog.percent}%` }}
+                              />
+                            </div>
+                          </div>
+                        )}
+                      </div>
+
+                      {/* Equip / Status Action Row */}
+                      <div className="mt-3 pt-2 border-t border-white/10 flex items-center justify-between">
+                        <span className="text-[10px] text-white/40 font-mono">
+                          {item.worldAffinity ? item.worldAffinity.toUpperCase().replace('-', ' ') : 'UNIVERSAL'}
+                        </span>
+
+                        {isUnlocked ? (
+                          isEquipped ? (
+                            <span className="text-[10px] font-black text-cyan-400 uppercase tracking-widest flex items-center gap-1">
+                              <Check className="w-3.5 h-3.5" />
+                              EQUIPPED
+                            </span>
+                          ) : (
+                            <button
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                if (cosmeticMgr) {
+                                  cosmeticMgr.equipCosmetic(item.id);
+                                  // Update active game cosmetics config
+                                  if (item.category === 'player') {
+                                    onUpdateCosmetics({
+                                      ...cosmetics,
+                                      characterStyle: item.visualData.characterStyle as any,
+                                      armorVariant: item.visualData.armorVariant as any,
+                                      visorColor: item.visualData.visorColor,
+                                      capeColor: item.visualData.capeColor,
+                                      boardId: (item.visualData.boardId as any) || cosmetics.boardId,
+                                    });
+                                  } else if (item.category === 'trail') {
+                                    onUpdateCosmetics({
+                                      ...cosmetics,
+                                      trailId: item.id as any,
+                                    });
+                                  }
+                                }
+                              }}
+                              className="px-3 py-1 rounded bg-amber-500 hover:bg-amber-400 text-black text-[10px] font-black uppercase tracking-wider transition-all cursor-pointer shadow-sm"
+                            >
+                              EQUIP
+                            </button>
+                          )
+                        ) : (
+                          <span className="text-[10px] text-white/40 font-mono flex items-center space-x-1">
+                            <Lock className="w-3 h-3" />
+                            <span>LOCKED</span>
+                          </span>
+                        )}
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+
+              {/* Preview Dock */}
+              {previewItem && (
+                <div className="p-4 rounded-xl bg-slate-950 border border-amber-400/50 flex items-center justify-between shadow-lg">
+                  <div className="flex items-center space-x-3">
+                    <span className="text-3xl">{previewItem.icon}</span>
+                    <div>
+                      <div className="text-xs font-bold text-white uppercase">{previewItem.name} // PREVIEW</div>
+                      <p className="text-[11px] text-white/60">{previewItem.description}</p>
+                    </div>
+                  </div>
+                  <div className="flex items-center space-x-2">
+                    {cosmeticMgr?.isUnlocked(previewItem.id) ? (
+                      <button
+                        onClick={() => {
+                          if (cosmeticMgr) {
+                            cosmeticMgr.equipCosmetic(previewItem.id);
+                            if (previewItem.category === 'player') {
+                              onUpdateCosmetics({
+                                ...cosmetics,
+                                characterStyle: previewItem.visualData.characterStyle as any,
+                                armorVariant: previewItem.visualData.armorVariant as any,
+                                visorColor: previewItem.visualData.visorColor,
+                                capeColor: previewItem.visualData.capeColor,
+                                boardId: (previewItem.visualData.boardId as any) || cosmetics.boardId,
+                              });
+                            } else if (previewItem.category === 'trail') {
+                              onUpdateCosmetics({
+                                ...cosmetics,
+                                trailId: previewItem.id as any,
+                              });
+                            }
+                          }
+                        }}
+                        className="px-4 py-1.5 rounded-lg bg-emerald-500 hover:bg-emerald-400 text-black text-xs font-black uppercase tracking-wider transition-all cursor-pointer"
+                      >
+                        EQUIP ITEM
+                      </button>
+                    ) : (
+                      <span className="text-xs text-amber-400 font-bold font-mono">
+                        {previewItem.unlockRequirement.description}
+                      </span>
+                    )}
+                  </div>
+                </div>
+              )}
             </div>
           ) : (
             /* Tab 2: Boards & Loadout */

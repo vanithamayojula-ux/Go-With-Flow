@@ -57,6 +57,7 @@ export class PlayerManager {
   cameraPos = new THREE.Vector3();
   cameraLookAt = new THREE.Vector3();
   cameraTilt = 0;
+  landingImpulseY = 0;
   biomeTransitionTimer = 0;
 
   triggerBiomePullBack() {
@@ -189,8 +190,8 @@ export class PlayerManager {
 
   dustParticles: { mesh: THREE.Sprite; vel: THREE.Vector3; life: number; maxLife: number }[] = [];
   petalParticles: { mesh: THREE.Sprite; vel: THREE.Vector3; life: number; maxLife: number; rotSpeed: number }[] = [];
-  dustTexture!: THREE.CanvasTexture;
-  petalTexture!: THREE.CanvasTexture;
+  dustTexture!: THREE.Texture;
+  petalTexture!: THREE.Texture;
 
   constructor(scene: THREE.Scene, initialCosmetics?: CosmeticsConfig) {
     this.scene = scene;
@@ -516,6 +517,14 @@ export class PlayerManager {
       'hot-magenta': { a: '#FF007F', b: '#FF0033' },
       'acid-green': { a: '#00FF66', b: '#39FF14' },
       'plasma-rainbow': { a: '#FF00AA', b: '#00F0FF' },
+      // Phase 14 Five-World Trails
+      'trail_basic_cyan': { a: '#00D2E0', b: '#0066FF' },
+      'trail_sky_breeze': { a: '#e0f2fe', b: '#38bdf8' },
+      'trail_forest_canopy': { a: '#10b981', b: '#34d399' },
+      'trail_crimson_ember': { a: '#f59e0b', b: '#ef4444' },
+      'trail_crystal_aurora': { a: '#c084fc', b: '#38bdf8' },
+      'trail_obsidian_magma': { a: '#ff2200', b: '#ff6600' },
+      'trail_plasma_rainbow': { a: '#ec4899', b: '#06b6d4' },
     };
     const hero = heroById(config.heroId);
     let colorA = '#00D2E0';
@@ -709,7 +718,7 @@ export class PlayerManager {
     this.setGrinding(false);
   }
 
-  revive() {
+  revive(audioManager?: AudioManager | null) {
     this.gameState = 'playing';
     this.stats.gameState = 'playing';
     this.velocity.set(0, 0, 26);
@@ -717,12 +726,16 @@ export class PlayerManager {
     this.isGrounded = true;
     this.isSliding = false;
     this.slideTimer = 0;
-    this.activateHoverboardShield();
+    this.activateHoverboardShield(audioManager);
+    this.emitSparks(this.position, 16, 0x00ffaa);
+    if (audioManager && typeof audioManager.playReviveSound === 'function') {
+      audioManager.playReviveSound();
+    }
   }
 
   addCoins(amount: number) {
     this.stats.dataShardsCollected += amount;
-    this.stats.windOrbsCollected += amount;
+    this.stats.windOrbsCollected = this.stats.dataShardsCollected;
     this.stats.score += amount * 120 * this.scoreMultiplier;
     const odMultiplier = 1.0 + (this.upgrades.overdriveLevel - 1) * 0.2;
     this.overdriveMeter = Math.min(100, this.overdriveMeter + amount * 3.5 * odMultiplier);
@@ -948,6 +961,7 @@ export class PlayerManager {
       if (wereAirborne && this.jumpVelocity < -2.0) {
         if (audioManager) audioManager.playLanding();
         this.emitJumpDust(this.position, 5);
+        this.landingImpulseY = -0.16;
       }
       this.jumpVelocity = 0;
       this.isGrounded = true;
@@ -1111,15 +1125,22 @@ export class PlayerManager {
     this.updateTrailRibbon(effectiveDt);
     this.updateParticles(effectiveDt);
 
+    // Dynamic landing camera impulse decay
+    this.landingImpulseY = THREE.MathUtils.lerp(this.landingImpulseY, 0, 16.0 * effectiveDt);
+
+    // Subtle speed sensation: slightly back and elevated at high speeds
+    const speedCamBack = Math.min(1.0, this.velocity.z / 35.0) * 0.45;
+    const speedCamUp = Math.min(1.0, this.velocity.z / 35.0) * 0.15;
+
     // Camera ONE preset: pos x*0.58 y+2.6 z-5.2 look y+1.6 FOV 62
     this.cameraPos.set(
       this.position.x * 0.58,
-      this.position.y + 2.6,
-      this.position.z - 5.2
+      this.position.y + 2.6 + speedCamUp + this.landingImpulseY,
+      this.position.z - 5.2 - speedCamBack
     );
     this.cameraLookAt.set(
       this.position.x * 0.58,
-      this.position.y + 1.6,
+      this.position.y + 1.6 + this.landingImpulseY * 0.5,
       this.position.z + 12.0
     );
   }
@@ -1268,7 +1289,7 @@ export class PlayerManager {
           orb.collected = true;
           if (orb.mesh) orb.mesh.visible = false;
           this.stats.dataShardsCollected += 1;
-          this.stats.windOrbsCollected += 1;
+          this.stats.windOrbsCollected = this.stats.dataShardsCollected;
           this.stats.score += 200;
           this.overdriveMeter = Math.min(100, this.overdriveMeter + 10);
           this.emitJumpDust(new THREE.Vector3(orb.x, orb.y, orb.z), 5);
@@ -1290,8 +1311,14 @@ export class PlayerManager {
         this.shieldMesh.material.dispose();
       }
     }
-    this.dustParticles.forEach(p => this.scene.remove(p.mesh));
-    this.petalParticles.forEach(p => this.scene.remove(p.mesh));
+    this.dustParticles.forEach(p => {
+      this.scene.remove(p.mesh);
+      (p.mesh.material as THREE.Material).dispose();
+    });
+    this.petalParticles.forEach(p => {
+      this.scene.remove(p.mesh);
+      (p.mesh.material as THREE.Material).dispose();
+    });
     this.trailGeometry.dispose();
     this.trailMaterial.dispose();
     this.dustTexture.dispose();
@@ -1303,7 +1330,10 @@ function sinPulse(x: number): number {
   return Math.sin(x) * 0.5 + 0.5;
 }
 
-function createDustParticleTexture(): THREE.CanvasTexture {
+function createDustParticleTexture(): THREE.Texture {
+  if (typeof document === 'undefined') {
+    return new THREE.Texture();
+  }
   const canvas = document.createElement('canvas');
   canvas.width = 64;
   canvas.height = 64;
@@ -1321,7 +1351,10 @@ function createDustParticleTexture(): THREE.CanvasTexture {
   return new THREE.CanvasTexture(canvas);
 }
 
-function createPetalParticleTexture(): THREE.CanvasTexture {
+function createPetalParticleTexture(): THREE.Texture {
+  if (typeof document === 'undefined') {
+    return new THREE.Texture();
+  }
   const canvas = document.createElement('canvas');
   canvas.width = 64;
   canvas.height = 64;

@@ -1,11 +1,18 @@
 import React from 'react';
 import { RotateCcw, Zap, Trophy, Cpu, ShieldAlert, Radio, ShoppingBag, Coins } from 'lucide-react';
 import { PlayerStats, SessionGoal } from '../types';
+import { ProgressionManager } from '../game/progression';
+import { getXPProgress } from '../game/progression/progressionConfig';
 
 interface GameOverModalProps {
   stats: PlayerStats;
   bankedShards?: number;
   missions?: SessionGoal[];
+  progressionMgr?: ProgressionManager;
+  gameModeMgr?: import('../game/modes').GameModeManager;
+  socialMgr?: import('../game/social').SocialManager;
+  onOpenProgression?: () => void;
+  onOpenCompetitive?: () => void;
   onClaimMission?: (id: string) => void;
   onRestart: () => void;
   onRevive: () => void;
@@ -17,6 +24,11 @@ export const GameOverModal: React.FC<GameOverModalProps> = ({
   stats,
   bankedShards = 0,
   missions = [],
+  progressionMgr,
+  gameModeMgr,
+  socialMgr,
+  onOpenProgression,
+  onOpenCompetitive,
   onClaimMission,
   onRestart,
   onRevive,
@@ -27,6 +39,18 @@ export const GameOverModal: React.FC<GameOverModalProps> = ({
   const runShards = stats.dataShardsCollected || stats.windOrbsCollected || 0;
   const totalAvailableShards = Math.max(bankedShards, runShards);
   const canRevive = totalAvailableShards >= 15;
+
+  const worldNameMap: Record<string, string> = {
+    'sky-isles': '☁️ Sky Isles (Sector 1)',
+    'verdant-wilds': '🌿 Verdant Wilds (Sector 2)',
+    'crimson-dunes': '🏜️ Crimson Dunes (Sector 3)',
+    'crystal-heights': '💎 Crystal Heights (Sector 4)',
+    'obsidian-core': '🌋 Obsidian Core (Sector 5)',
+  };
+  const reachedWorld = stats.currentWorldId ? (worldNameMap[stats.currentWorldId] || 'Sky Isles') : 'Sky Isles';
+
+  const progressionData = progressionMgr ? progressionMgr.getData() : null;
+  const xpProg = progressionData ? getXPProgress(progressionData.xp, progressionData.level) : null;
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/85 backdrop-blur-xl animate-fade-in font-mono">
@@ -44,9 +68,49 @@ export const GameOverModal: React.FC<GameOverModalProps> = ({
         <h2 className="text-3xl sm:text-4xl font-black text-transparent bg-clip-text bg-gradient-to-r from-cyan-400 via-pink-400 to-amber-300 tracking-tight mb-1 uppercase">
           SYSTEM CRASH
         </h2>
-        <p className="text-xs text-white/60 mb-5">
+        <p className="text-xs text-white/60 mb-3">
           PHYSICAL IMPACT COLLISION // TELEMETRY LINK SEVERED
         </p>
+
+        {/* World Sector Reached Banner */}
+        <div className="mb-2 px-3.5 py-1.5 rounded-lg bg-white/5 border border-white/10 flex items-center justify-between text-xs">
+          <span className="text-[10px] text-white/50 uppercase tracking-widest font-bold">REACHED:</span>
+          <span className="font-bold text-white tracking-wide">{reachedWorld}</span>
+        </div>
+
+        {/* Mode Summary Card (Phase 15 Section 19) */}
+        {gameModeMgr && (() => {
+          const summary = gameModeMgr.getLastSummary();
+          const modeDef = gameModeMgr.activeMode;
+          if (!summary) return null;
+          return (
+            <div className="mb-3 p-3 rounded-xl bg-amber-950/40 border border-amber-500/40 text-left">
+              <div className="flex items-center justify-between text-xs font-bold mb-1.5">
+                <span className="text-amber-300 font-black flex items-center space-x-1">
+                  <span>{modeDef.name.toUpperCase()}</span>
+                </span>
+                <span className={`text-[10px] px-2 py-0.5 rounded font-black ${
+                  summary.isCompleted ? 'bg-emerald-500 text-black' : 'bg-white/10 text-white/70'
+                }`}>
+                  {summary.isCompleted ? 'TRIAL COMPLETE' : 'SESSION RECORDED'}
+                </span>
+              </div>
+              <div className="space-y-1 text-[11px] font-mono">
+                {summary.breakdown.map((b, idx) => (
+                  <div key={idx} className="flex justify-between text-white/80">
+                    <span className="text-white/60">{b.label}:</span>
+                    <span className="font-bold text-amber-200">{String(b.value)}</span>
+                  </div>
+                ))}
+              </div>
+              {summary.isNewRecord && (
+                <div className="mt-2 text-center text-xs font-black text-amber-300 animate-pulse border-t border-amber-500/30 pt-1">
+                  ⚡ NEW PERSONAL RECORD ESTABLISHED!
+                </div>
+              )}
+            </div>
+          );
+        })()}
 
         {/* Score Showcase Terminal Card */}
         <div className="bg-slate-950/90 border border-cyan-500/30 rounded-xl p-4 sm:p-5 mb-4 shadow-inner">
@@ -90,6 +154,34 @@ export const GameOverModal: React.FC<GameOverModalProps> = ({
             </span>
           </div>
         </div>
+
+        {/* Level Progression Progress Bar */}
+        {xpProg && (
+          <div
+            onClick={onOpenProgression}
+            className="mb-3 p-3 rounded-xl bg-slate-950/90 border border-cyan-500/30 hover:border-cyan-400/60 cursor-pointer transition-all text-left"
+          >
+            <div className="flex items-center justify-between text-xs mb-1 font-bold">
+              <div className="flex items-center space-x-1.5 text-cyan-300">
+                <Zap className="w-3.5 h-3.5 text-cyan-400" />
+                <span>PILOT RANK {xpProg.currentLevel}</span>
+              </div>
+              <span className="text-[10px] font-mono text-cyan-400">
+                {xpProg.currentLevelXP}/{xpProg.nextLevelXPRequired} XP ({xpProg.percent}%)
+              </span>
+            </div>
+            <div className="w-full bg-slate-900 rounded-full h-1.5 overflow-hidden border border-white/5">
+              <div
+                className="h-full bg-gradient-to-r from-cyan-400 to-emerald-400 rounded-full transition-all duration-300"
+                style={{ width: `${xpProg.percent}%` }}
+              />
+            </div>
+            <div className="flex justify-between items-center text-[9px] text-white/40 mt-1 font-mono">
+              <span>VIEW MISSIONS & UNLOCKS</span>
+              <span className="text-cyan-400 font-bold">OPEN PROTOCOL →</span>
+            </div>
+          </div>
+        )}
 
         {/* Daily Missions Panel */}
         {missions.length > 0 && (
@@ -152,7 +244,7 @@ export const GameOverModal: React.FC<GameOverModalProps> = ({
         {/* Action Buttons */}
         <div className="flex flex-col space-y-2.5">
           {/* Emergency Reboot */}
-          {canRevive && (
+          {canRevive && (!gameModeMgr || gameModeMgr.isReviveAllowed()) && (
             <button
               onClick={onRevive}
               className="w-full py-3.5 px-4 rounded-xl bg-gradient-to-r from-emerald-500 to-teal-500 text-black font-black text-xs uppercase tracking-widest shadow-[0_0_20px_rgba(0,255,102,0.4)] hover:brightness-110 active:scale-[0.98] transition-all flex items-center justify-center space-x-2"
@@ -160,6 +252,12 @@ export const GameOverModal: React.FC<GameOverModalProps> = ({
               <Zap className="w-4 h-4 fill-current" />
               <span>EMERGENCY REBOOT (-15 SHARDS)</span>
             </button>
+          )}
+
+          {gameModeMgr && !gameModeMgr.isReviveAllowed() && (
+            <div className="py-2 px-3 rounded-lg bg-red-950/40 border border-red-500/30 text-red-400 text-xs font-bold text-center">
+              ⚠️ REVIVES DISABLED FOR {gameModeMgr.activeMode.name.toUpperCase()}
+            </div>
           )}
 
           {/* Reboot Run Button */}
@@ -170,6 +268,31 @@ export const GameOverModal: React.FC<GameOverModalProps> = ({
             <RotateCcw className="w-4 h-4" />
             <span>REBOOT NEURAL LINK (RELAUNCH)</span>
           </button>
+
+          {/* Share Result & Leaderboard Actions (Phase 16) */}
+          <div className="grid grid-cols-2 gap-2">
+            {socialMgr && gameModeMgr?.getLastSummary() && (
+              <button
+                onClick={() => {
+                  const summary = gameModeMgr.getLastSummary();
+                  if (summary) socialMgr.copyShareCardToClipboard(summary);
+                }}
+                className="py-2.5 px-3 rounded-xl bg-purple-950/60 border border-purple-500/40 text-purple-300 hover:text-white font-bold text-xs uppercase tracking-wider transition-all flex items-center justify-center space-x-1.5 cursor-pointer active:scale-95"
+              >
+                <span>📋 SHARE CARD</span>
+              </button>
+            )}
+
+            {onOpenCompetitive && (
+              <button
+                onClick={onOpenCompetitive}
+                className="py-2.5 px-3 rounded-xl bg-amber-950/60 border border-amber-500/40 text-amber-300 hover:text-white font-bold text-xs uppercase tracking-wider transition-all flex items-center justify-center space-x-1.5 cursor-pointer active:scale-95"
+              >
+                <Trophy className="w-3.5 h-3.5 text-amber-400" />
+                <span>LEADERBOARDS</span>
+              </button>
+            )}
+          </div>
 
           {/* Open Cyber Shop & Upgrades */}
           {onOpenShop && (

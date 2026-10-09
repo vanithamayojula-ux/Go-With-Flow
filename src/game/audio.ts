@@ -24,7 +24,10 @@ export class AudioManager {
   private grindOsc: OscillatorNode | null = null;
   private grindGain: GainNode | null = null;
 
-  constructor() {
+  private unlockListeners: Array<{ type: string; listener: () => void }> = [];
+
+  constructor(initialMuted = false) {
+    this.isMuted = initialMuted;
     // AudioContext lazily starts or resumes on first user interaction
     if (typeof window !== 'undefined') {
       const unlock = () => {
@@ -34,9 +37,11 @@ export class AudioManager {
           this.ctx.resume().catch(() => {});
         }
       };
-      window.addEventListener('pointerdown', unlock, { once: true });
-      window.addEventListener('keydown', unlock, { once: true });
-      window.addEventListener('touchstart', unlock, { once: true });
+      const events = ['pointerdown', 'keydown', 'touchstart'];
+      for (const eventType of events) {
+        window.addEventListener(eventType, unlock, { once: true });
+        this.unlockListeners.push({ type: eventType, listener: unlock });
+      }
     }
   }
 
@@ -50,7 +55,7 @@ export class AudioManager {
 
         // Master output
         this.masterGain = this.ctx.createGain();
-        this.masterGain.gain.value = 0.85;
+        this.masterGain.gain.value = this.isMuted ? 0 : 0.85;
         this.masterGain.connect(this.ctx.destination);
 
         // Bass Sub-bus with modulated resonant filter
@@ -84,11 +89,15 @@ export class AudioManager {
     }
   }
 
-  toggleMute(): boolean {
-    this.isMuted = !this.isMuted;
+  setMuted(muted: boolean) {
+    this.isMuted = muted;
     if (this.masterGain && this.ctx) {
       this.masterGain.gain.setTargetAtTime(this.isMuted ? 0 : 0.85, this.ctx.currentTime, 0.05);
     }
+  }
+
+  toggleMute(): boolean {
+    this.setMuted(!this.isMuted);
     return this.isMuted;
   }
 
@@ -460,28 +469,81 @@ export class AudioManager {
     osc.stop(t + 0.32);
   }
 
-  playBiomeShiftSound(biome: string) {
+  playBiomeShiftSound(worldOrBiome: string) {
     this.init();
     if (!this.ctx || this.isMuted) return;
 
     const t = this.ctx.currentTime;
-    const freqs = [440, 659.25, 880];
+    let freqs: number[] = [440, 659.25, 880];
+    let oscType: OscillatorType = 'triangle';
+    let duration = 0.65;
+
+    if (worldOrBiome === 'sky-isles' || worldOrBiome === 'sky-realm' || worldOrBiome === 'sky-islands') {
+      // Ethereal airy chimes: D5, A5, D6
+      freqs = [587.33, 880.0, 1174.66];
+      oscType = 'sine';
+      duration = 0.85;
+    } else if (worldOrBiome === 'verdant-wilds' || worldOrBiome === 'bioluminescent-jungle' || worldOrBiome === 'forest') {
+      // Lush, organic warm forest major 7th: E4, A4, C#5, E5
+      freqs = [329.63, 440.0, 554.37, 659.25];
+      oscType = 'triangle';
+      duration = 0.9;
+    } else if (worldOrBiome === 'crimson-dunes' || worldOrBiome === 'dune-nomad' || worldOrBiome === 'quantum-desert') {
+      // Mystic resonant desert fifths: D4, A4, D5
+      freqs = [293.66, 440.0, 587.33];
+      oscType = 'sawtooth';
+      duration = 0.75;
+    } else if (worldOrBiome === 'crystal-heights' || worldOrBiome === 'aurora-frost' || worldOrBiome === 'crystal-glacier') {
+      // Sparkling celestial bell harmonics: A5, E6, A6, C7
+      freqs = [880.0, 1318.51, 1760.0, 2093.0];
+      oscType = 'sine';
+      duration = 1.0;
+    } else if (worldOrBiome === 'obsidian-core' || worldOrBiome === 'ember-core' || worldOrBiome === 'volcanic-forge') {
+      // Deep volcanic subterranean rumble: A1, E2, A2
+      freqs = [55.0, 82.41, 110.0];
+      oscType = 'sawtooth';
+      duration = 0.95;
+    }
+
     freqs.forEach((f, idx) => {
       const osc = this.ctx!.createOscillator();
       const gain = this.ctx!.createGain();
 
-      osc.type = 'triangle';
-      osc.frequency.setValueAtTime(f, t + idx * 0.06);
+      osc.type = oscType;
+      osc.frequency.setValueAtTime(f, t + idx * 0.08);
 
-      gain.gain.setValueAtTime(0.1, t + idx * 0.06);
-      gain.gain.exponentialRampToValueAtTime(0.001, t + idx * 0.06 + 0.6);
+      const peakGain = worldOrBiome === 'obsidian-core' ? 0.22 : 0.09;
+      gain.gain.setValueAtTime(peakGain, t + idx * 0.08);
+      gain.gain.exponentialRampToValueAtTime(0.001, t + idx * 0.08 + duration);
 
       osc.connect(gain);
       gain.connect(this.ctx!.destination);
 
-      osc.start(t + idx * 0.06);
-      osc.stop(t + idx * 0.06 + 0.6);
+      osc.start(t + idx * 0.08);
+      osc.stop(t + idx * 0.08 + duration);
     });
+  }
+
+  playReviveSound() {
+    this.init();
+    if (!this.ctx || this.isMuted) return;
+
+    const t = this.ctx.currentTime;
+    const osc = this.ctx.createOscillator();
+    const gain = this.ctx.createGain();
+
+    osc.type = 'sine';
+    osc.frequency.setValueAtTime(220, t);
+    osc.frequency.exponentialRampToValueAtTime(880, t + 0.45);
+
+    gain.gain.setValueAtTime(0.24, t);
+    gain.gain.exponentialRampToValueAtTime(0.001, t + 0.5);
+
+    osc.connect(gain);
+    gain.connect(this.ctx.destination);
+
+    osc.start(t);
+    osc.stop(t + 0.5);
   }
 
   playNearMissSound() {
@@ -510,9 +572,44 @@ export class AudioManager {
   }
 
   dispose() {
-    if (this.sequencerTimer) clearTimeout(this.sequencerTimer);
+    if (typeof window !== 'undefined') {
+      for (const item of this.unlockListeners) {
+        window.removeEventListener(item.type, item.listener);
+      }
+    }
+    this.unlockListeners = [];
+
+    if (this.sequencerTimer !== null) {
+      clearTimeout(this.sequencerTimer);
+      this.sequencerTimer = null;
+    }
+
+    if (this.grindOsc) {
+      try {
+        this.grindOsc.stop();
+        this.grindOsc.disconnect();
+      } catch {}
+      this.grindOsc = null;
+    }
+    if (this.grindGain) {
+      try {
+        this.grindGain.disconnect();
+      } catch {}
+      this.grindGain = null;
+    }
+
+    if (this.masterGain) {
+      try {
+        this.masterGain.disconnect();
+      } catch {}
+      this.masterGain = null;
+    }
+
     if (this.ctx && this.ctx.state !== 'closed') {
-      this.ctx.close();
+      try {
+        this.ctx.close().catch(() => {});
+      } catch {}
+      this.ctx = null;
     }
   }
 }

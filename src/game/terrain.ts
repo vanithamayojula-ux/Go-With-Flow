@@ -40,24 +40,46 @@ const BIOME_ROTATION: BiomeType[] = [
 ];
 
 let activeBiomeOverride: BiomeType | null = null;
-let biomeOffsetIndex = 0;
+let biomeOverrideEndZ = -1;
 
-export function setActiveBiome(biome: BiomeType | null) {
+export function resetBiomeState() {
+  activeBiomeOverride = null;
+  biomeOverrideEndZ = -1;
+}
+
+export function clearBiomeOverride() {
+  activeBiomeOverride = null;
+  biomeOverrideEndZ = -1;
+}
+
+export function getActiveBiomeOverride(): BiomeType | null {
+  return activeBiomeOverride;
+}
+
+export function setActiveBiome(biome: BiomeType | null, currentZ?: number, durationDistance = 450) {
+  if (biome === null) {
+    clearBiomeOverride();
+    return;
+  }
   activeBiomeOverride = biome;
-  if (biome) {
-    const idx = BIOME_ROTATION.indexOf(biome);
-    if (idx !== -1) {
-      biomeOffsetIndex = idx;
-    }
+  if (typeof currentZ === 'number') {
+    biomeOverrideEndZ = currentZ + durationDistance;
+  } else {
+    biomeOverrideEndZ = -1;
   }
 }
 
 export function getBiomeAt(z: number): BiomeType {
   if (activeBiomeOverride) {
-    return activeBiomeOverride;
+    if (biomeOverrideEndZ > 0 && z >= biomeOverrideEndZ) {
+      activeBiomeOverride = null;
+      biomeOverrideEndZ = -1;
+    } else {
+      return activeBiomeOverride;
+    }
   }
   const distancePerBiome = 450;
-  const cycleIndex = Math.floor(Math.max(0, z) / distancePerBiome) + biomeOffsetIndex;
+  const cycleIndex = Math.floor(Math.max(0, z) / distancePerBiome);
   return BIOME_ROTATION[cycleIndex % BIOME_ROTATION.length];
 }
 

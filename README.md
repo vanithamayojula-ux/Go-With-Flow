@@ -106,17 +106,58 @@ Equip unique hoverboards in the **Loadout Bay**:
 
 ---
 
-## 🛠️ Tech Stack & Architecture
+## 🌍 The Five-World Campaign Progression
 
-- **Framework**: [React 19](https://react.dev/) + TypeScript (ES2022 / bundler resolution)
-- **3D Graphics**: [Three.js r0.186](https://threejs.org/) (Imperative scene management, custom GLSL vertex & fragment shaders)
-- **Styling**: [Tailwind CSS v4](https://tailwindcss.com/)
-- **Bundler**: [Vite 8](https://vitejs.dev/)
-- **Audio**: Web Audio API Procedural Synthwave Engine (Real-time 16-step bassline sequencer, 808 drums, FM laser SFX)
+GoWithFlow features a seamless 5-world procedural journey, each spanning a 2,250-meter sector with signature atmospheric lighting, dynamic fog blending, and custom procedural sound signatures:
+
+```text
+☁️ Sector 1: Sky Isles (0m – 2,249m)
+   "The Beginning" — Floating archipelago, ethereal airy synth chimes, high visibility cyan skies.
+      ↓
+🌿 Sector 2: Verdant Wilds (2,250m – 4,499m)
+   "The Living Forest" — Ancient ruins, mossy overgrowth, warm major 7th chord ambience.
+      ↓
+🏜️ Sector 3: Crimson Dunes (4,500m – 6,749m)
+   "The Endless Desert" — Sun-bleached sandstone canyons, golden dunes, mystic fifth acoustic timbre.
+      ↓
+💎 Sector 4: Crystal Heights (6,750m – 8,999m)
+   "The Celestial Realm" — Monolithic crystal spires, harmonic celestial bells, cosmic violet skybox.
+      ↓
+🌋 Sector 5: Obsidian Core (9,000m+)
+   "The Final Challenge" — Basalt columns, magma fissures, volcanic sub-bass drone, high-density obstacles.
+```
+
+- **Transition Corridors**: Seamless 300m crossfade zones (`t = 0.0 -> 1.0` via Hermite smoothstep) with zero loading screens, zero pop-in, and preloaded upcoming assets.
+- **Directionality**: Continuous forward momentum highway runner.
 
 ---
 
-## 🚀 Local Development
+## 🖥️ Graphics Fidelity Presets & Hardware Optimization
+
+Configurable in **Settings & Engine** modal or persisted via `localStorage`:
+
+| Preset | Target FPS | Shadows | Post-Processing | Vegetation Density | Target Hardware |
+| :--- | :--- | :--- | :--- | :--- | :--- |
+| **Ultra (PC)** (`desktop-full`) | 60 FPS | Dynamic Directional | Full (Bloom, Glitch, Aberration) | 100% | Discrete GPUs / High-end Laptops |
+| **Balanced** (`mobile-opt`) | 60 FPS | Disabled | Optimized Screen Pass | 65% | Intel Core i5 / Intel Iris Xe / Mobile |
+| **Economy** (`webgl-min`) | 30–60 FPS | Disabled | Disabled | 40% | Low-spec laptops / Chromebooks |
+
+- **Adaptive DPR Clamping**: Clamped to $\le 1.5$ on desktop and $\le 1.2$ on mobile to prevent fillrate bottlenecks on integrated Intel Iris Xe graphics.
+- **Accessibility (`reducedFlash`)**: Photo-sensitive safe mode that suppresses screen shake, high-frequency glitch artifacts, and sudden flashes.
+
+---
+
+## 🛠️ Tech Stack & Architecture
+
+- **Framework**: [React 19](https://react.dev/) + TypeScript (ES2022 / bundler resolution)
+- **3D Graphics**: [Three.js r0.186](https://threejs.org/) (Imperative scene management, custom GLSL vertex & fragment shaders, instanced meshes)
+- **Styling**: [Tailwind CSS v4](https://tailwindcss.com/)
+- **Bundler**: [Vite 8](https://vitejs.dev/)
+- **Audio**: Web Audio API Procedural Synthwave Engine (Real-time 16-step bassline sequencer, 808 drums, FM laser SFX, world acoustic signatures)
+
+---
+
+## 🚀 Local Development & Verification
 
 ```bash
 # 1. Clone repository
@@ -130,9 +171,15 @@ npm install
 npm run dev
 
 # 4. Type check & build production bundle
-npm run lint    # runs tsc --noEmit
-npm run build   # builds to /dist
-npm run preview # previews production build
+npm run lint    # runs tsc --noEmit (0 errors)
+npm run build   # builds optimized static bundle to /dist
+npm run preview # runs local production preview server
+
+# 5. Automated Verification Suites
+npx tsx scripts/test_phase8_performance.ts # Performance & budget benchmark
+npx tsx scripts/test_phase9_polish.ts      # Game feel & audio audit
+npx tsx scripts/test_phase10_release.ts    # Comprehensive release regression suite
+npx tsx scripts/test_phase12_stability.ts  # Post-launch stability gate & regression checks
 ```
 
 ---

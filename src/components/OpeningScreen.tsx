@@ -32,6 +32,7 @@ import {
   GraphicsConfig,
   ShaderParams,
 } from '../types';
+import { GAME_VERSION } from '../version';
 
 export interface OpeningScreenProps {
   heroes: HeroDef[];
@@ -52,10 +53,15 @@ export interface OpeningScreenProps {
   onPlay: () => void;
   onHowTo: () => void;
   onSettings: () => void;
+  onOpenModes?: () => void;
+  activeModeName?: string;
+  onOpenCompetitive?: () => void;
   isMuted?: boolean;
   onToggleMute?: () => void;
   missions?: SessionGoal[];
   onClaimMission?: (id: string) => void;
+  onOpenProgression?: () => void;
+  playerLevel?: number;
   graphicsConfig?: GraphicsConfig;
   shaderParams?: ShaderParams;
 }
@@ -183,10 +189,15 @@ export const OpeningScreen: React.FC<OpeningScreenProps> = ({
   onPlay,
   onHowTo,
   onSettings,
+  onOpenModes,
+  activeModeName,
+  onOpenCompetitive,
   isMuted = false,
   onToggleMute,
   missions = [],
   onClaimMission,
+  onOpenProgression,
+  playerLevel = 1,
   graphicsConfig,
   shaderParams,
 }) => {
@@ -277,6 +288,18 @@ export const OpeningScreen: React.FC<OpeningScreenProps> = ({
             <span className="text-sm">💎</span>
             <span className="text-xs font-black text-white">{bankedShards.toLocaleString()}</span>
           </div>
+
+          {/* Pilot Level / Progression Button */}
+          {onOpenProgression && (
+            <button
+              onClick={onOpenProgression}
+              className="min-h-[48px] px-3 flex items-center space-x-1.5 rounded-xl bg-gradient-to-r from-cyan-950/80 to-blue-950/80 hover:from-cyan-900/90 hover:to-blue-900/90 border border-cyan-400/50 text-cyan-300 hover:text-white transition-all cursor-pointer shadow-sm"
+              title="View Pilot Progression & Daily Directives"
+            >
+              <Zap className="w-3.5 h-3.5 text-cyan-400" />
+              <span className="text-xs font-black">LVL {playerLevel}</span>
+            </button>
+          )}
 
           {/* High Score */}
           <div
@@ -479,8 +502,26 @@ export const OpeningScreen: React.FC<OpeningScreenProps> = ({
             </div>
           </div>
 
-          {/* Massive Action Section: PLAY BUTTON */}
+          {/* Massive Action Section: PLAY BUTTON & MODES */}
           <div className="relative z-10 space-y-3 max-w-lg mx-auto w-full">
+            {/* Game Mode Selector Button */}
+            {onOpenModes && (
+              <button
+                onClick={onOpenModes}
+                className="w-full py-2.5 px-3 rounded-xl bg-amber-950/50 hover:bg-amber-950/70 border border-amber-500/50 text-amber-300 text-xs font-black uppercase tracking-wider flex items-center justify-between transition-all cursor-pointer shadow-md shadow-amber-950/40 active:scale-95"
+              >
+                <div className="flex items-center space-x-2">
+                  <span className="text-sm">🎯</span>
+                  <span className="text-[10px] text-white/60">ACTIVE MODE:</span>
+                  <span className="text-white font-black">{activeModeName || 'STANDARD RUN'}</span>
+                </div>
+                <div className="flex items-center space-x-1 text-[10px] text-amber-400 font-bold">
+                  <span>CHANGE MODE / TRIALS</span>
+                  <ChevronRight className="w-3.5 h-3.5" />
+                </div>
+              </button>
+            )}
+
             <button
               ref={playButtonRef}
               onClick={onPlay}
@@ -492,32 +533,45 @@ export const OpeningScreen: React.FC<OpeningScreenProps> = ({
             </button>
 
             {/* Secondary Action Row */}
-            <div className="grid grid-cols-3 gap-2">
+            <div className="grid grid-cols-4 gap-1.5 sm:gap-2">
               <button
                 onClick={() => onOpenShop('tech')}
-                className="min-h-[48px] px-2 sm:px-3 py-2 rounded-xl bg-white/5 hover:bg-cyan-950/40 border border-white/10 hover:border-cyan-500/40 text-xs font-bold text-cyan-200 flex items-center justify-center space-x-1.5 transition-all active:scale-95 cursor-pointer focus-visible:ring-2 focus-visible:ring-cyan-400"
+                className="min-h-[48px] px-2 py-2 rounded-xl bg-white/5 hover:bg-cyan-950/40 border border-white/10 hover:border-cyan-500/40 text-xs font-bold text-cyan-200 flex items-center justify-center space-x-1.5 transition-all active:scale-95 cursor-pointer focus-visible:ring-2 focus-visible:ring-cyan-400"
               >
                 <Cpu className="w-4 h-4 text-cyan-400 shrink-0" />
-                <span className="truncate">TECH BAY</span>
+                <span className="truncate hidden sm:inline">TECH BAY</span>
+                <span className="truncate sm:hidden">TECH</span>
               </button>
+
+              {onOpenCompetitive && (
+                <button
+                  onClick={onOpenCompetitive}
+                  className="min-h-[48px] px-2 py-2 rounded-xl bg-amber-950/40 hover:bg-amber-950/60 border border-amber-500/40 hover:border-amber-400 text-xs font-bold text-amber-300 flex items-center justify-center space-x-1.5 transition-all active:scale-95 cursor-pointer focus-visible:ring-2 focus-visible:ring-amber-400"
+                >
+                  <Trophy className="w-4 h-4 text-amber-400 shrink-0" />
+                  <span className="truncate hidden sm:inline">COMPETE</span>
+                  <span className="truncate sm:hidden">RANKS</span>
+                </button>
+              )}
 
               <button
                 onClick={onHowTo}
-                className="min-h-[48px] px-2 sm:px-3 py-2 rounded-xl bg-white/5 hover:bg-cyan-950/40 border border-white/10 hover:border-cyan-500/40 text-xs font-bold text-cyan-200 flex items-center justify-center space-x-1.5 transition-all active:scale-95 cursor-pointer focus-visible:ring-2 focus-visible:ring-cyan-400"
+                className="min-h-[48px] px-2 py-2 rounded-xl bg-white/5 hover:bg-cyan-950/40 border border-white/10 hover:border-cyan-500/40 text-xs font-bold text-cyan-200 flex items-center justify-center space-x-1.5 transition-all active:scale-95 cursor-pointer focus-visible:ring-2 focus-visible:ring-cyan-400"
               >
                 <BookOpen className="w-4 h-4 text-cyan-400 shrink-0" />
-                <span className="truncate">PILOT GUIDE</span>
+                <span className="truncate hidden sm:inline">GUIDE</span>
+                <span className="truncate sm:hidden">GUIDE</span>
               </button>
 
               <a
                 href={`hero-lab.html?hero=${selectedHero}&pose=run&view=three&time=1.0`}
                 target="_blank"
                 rel="noreferrer"
-                className="min-h-[48px] px-2 sm:px-3 py-2 rounded-xl bg-white/5 hover:bg-cyan-950/40 border border-white/10 hover:border-cyan-500/40 text-xs font-bold text-cyan-200 flex items-center justify-center space-x-1.5 transition-all active:scale-95 cursor-pointer focus-visible:ring-2 focus-visible:ring-cyan-400"
+                className="min-h-[48px] px-2 py-2 rounded-xl bg-white/5 hover:bg-cyan-950/40 border border-white/10 hover:border-cyan-500/40 text-xs font-bold text-cyan-200 flex items-center justify-center space-x-1.5 transition-all active:scale-95 cursor-pointer focus-visible:ring-2 focus-visible:ring-cyan-400"
                 title="Inspect 3D Hero in Lab View"
               >
                 <Layers className="w-4 h-4 text-cyan-400 shrink-0" />
-                <span className="truncate">HERO LAB</span>
+                <span className="truncate hidden sm:inline">LAB</span>
                 <ExternalLink className="w-3 h-3 opacity-60 shrink-0" />
               </a>
             </div>
@@ -859,7 +913,7 @@ export const OpeningScreen: React.FC<OpeningScreenProps> = ({
       {/* FOOTER */}
       {/* ------------------------------------------------------------------- */}
       <footer className="text-[11px] opacity-70 text-center pb-20 lg:pb-6 pt-3 border-t border-white/5">
-        <span>NEON DRIFT v2.4.0 · Flowrider Cyber Engine (flowrider.vercel.app) · 60 FPS Target · React 19 + Three.js + Tailwind v4</span>
+        <span>GOWITHFLOW v{GAME_VERSION} · Flowrider Cyber Engine (flowrider.vercel.app) · 60 FPS Target · React 19 + Three.js + Tailwind v4</span>
       </footer>
     </div>
   );
