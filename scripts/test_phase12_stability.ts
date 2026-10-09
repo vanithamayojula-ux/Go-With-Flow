@@ -130,6 +130,8 @@ function runPhase12StabilityGate() {
 
   if (fails > 0) {
     process.exit(1);
+  } else {
+    process.exit(0);
   }
 }
 

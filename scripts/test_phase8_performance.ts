@@ -171,6 +171,7 @@ function runBenchmark() {
   if (allPassed) {
     console.log('🎉 ALL PHASE 8 PERFORMANCE AND STABILITY BENCHMARKS PASSED!');
     console.log('Ready for Intel Iris Xe / integrated graphics deployment.');
+    process.exit(0);
   } else {
     console.error('❌ SOME BENCHMARKS FAILED! Review details above.');
     process.exit(1);

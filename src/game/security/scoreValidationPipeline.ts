@@ -256,7 +256,11 @@ export class ScoreValidationPipeline {
       };
     }
 
-    // Mark fingerprint as processed
+    // Mark fingerprint as processed (bounded FIFO set of 500 items to prevent unbounded memory growth)
+    if (this._processedRunFingerprints.size >= 500) {
+      const oldest = this._processedRunFingerprints.values().next().value;
+      if (oldest) this._processedRunFingerprints.delete(oldest);
+    }
     this._processedRunFingerprints.add(fingerprint);
 
     return {

@@ -9,6 +9,14 @@ export class StorageSanitizer {
    * Deeply cleans an object of prototype pollution vectors and malicious script injections
    */
   public static sanitizeObject<T>(input: unknown): T | null {
+    if (typeof input === 'string') {
+      return input
+        .replace(/<script\b[^<]*(?:(?!<\/script>)<[^<]*)*<\/script>/gi, '')
+        .replace(/javascript:/gi, '')
+        .replace(/onerror=/gi, '')
+        .replace(/onload=/gi, '') as unknown as T;
+    }
+
     if (input === null || typeof input !== 'object') {
       return (input as T) ?? null;
     }

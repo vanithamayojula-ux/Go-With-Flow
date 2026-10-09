@@ -149,6 +149,7 @@ function runPolishVerification() {
   console.log('================================================================');
   if (allPassed) {
     console.log('🎉 ALL PHASE 9 FINAL POLISH AUDIT CHECKS PASSED!');
+    process.exit(0);
   } else {
     console.error('❌ SOME CHECKS FAILED!');
     process.exit(1);

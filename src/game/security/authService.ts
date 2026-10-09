@@ -53,16 +53,27 @@ export class AuthService {
     }
   }
 
+  private getCryptoRandomHex(byteCount: number): string {
+    if (typeof globalThis !== 'undefined' && globalThis.crypto && typeof globalThis.crypto.getRandomValues === 'function') {
+      const bytes = new Uint8Array(byteCount);
+      globalThis.crypto.getRandomValues(bytes);
+      return Array.from(bytes, b => b.toString(16).padStart(2, '0')).join('');
+    }
+    return Math.random().toString(36).substring(2, 12) + Math.random().toString(36).substring(2, 12);
+  }
+
   private generateSecureToken(sessionId: string): string {
-    const randomPart = Math.random().toString(36).substring(2, 12) + Math.random().toString(36).substring(2, 12);
-    return `sk_sess_${sessionId.substring(0, 8)}_${randomPart}`;
+    const randomHex = this.getCryptoRandomHex(16);
+    return `sk_sess_${sessionId.substring(0, 8)}_${randomHex}`;
   }
 
   /**
    * Create an authoritative session for a player with specified role.
+   * Note: In this client architecture, sessions are stored locally in localStorage.
+   * In a full cloud deployment, sessions would be issued and verified by a remote auth service.
    */
   public createSession(playerId: string, username: string, role: UserRole = 'player'): AuthSession {
-    const sessionId = 'sid_' + Date.now().toString(36) + '_' + Math.random().toString(36).substring(2, 8);
+    const sessionId = 'sid_' + Date.now().toString(36) + '_' + this.getCryptoRandomHex(4);
     const token = this.generateSecureToken(sessionId);
     const now = Date.now();
 
@@ -74,7 +85,7 @@ export class AuthService {
       role,
       issuedAt: now,
       expiresAt: now + DEFAULT_SESSION_DURATION_MS,
-      nonce: Math.random().toString(36).substring(2, 10),
+      nonce: this.getCryptoRandomHex(8),
       isRevoked: false,
     };
 
