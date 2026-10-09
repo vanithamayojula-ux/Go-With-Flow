@@ -485,7 +485,7 @@ export const GameCanvas: React.FC<GameCanvasProps> = ({
 
         // Obstacles, Pickups & Collision Loop
         if (playerMgr.gameState === 'playing') {
-        obstacleMgr.update(playerMgr.position.z, timeSeconds, playerMgr.stats.speed);
+        obstacleMgr.update(playerMgr.position.z, timeSeconds, playerMgr.speedUnitsPerSecond);
 
         if (playerMgr.activePowerUps.magnetTimer > 0) {
           const magnetRadius = 26.0 + (playerMgr.upgrades?.magnetLevel ?? 1) * 4.0;
@@ -668,7 +668,7 @@ export const GameCanvas: React.FC<GameCanvasProps> = ({
       audio.updateSpeed(playerMgr.stats.speed, playerMgr.stats.maxSpeed, playerMgr.stats.isBoosting);
 
       // Stream Terrain & Foliage (Passing live player speed for animated motion blur and building pulses)
-      terrainMgr.update(playerMgr.position.z, playerMgr.position.x, 3, timeSeconds, playerMgr.stats.speed);
+      terrainMgr.update(playerMgr.position.z, playerMgr.position.x, 3, timeSeconds, playerMgr.speedUnitsPerSecond);
 
       foliageTimer += dt;
       if (foliageTimer > 0.3) {
@@ -684,7 +684,7 @@ export const GameCanvas: React.FC<GameCanvasProps> = ({
       }
 
       // Update Sky & Deep Galaxy Parallax
-      skyMgr.update(playerMgr.position, playerMgr.velocity.z, timeSeconds, playerMgr.stats.speed);
+      skyMgr.update(playerMgr.position, playerMgr.velocity.z, timeSeconds, playerMgr.speedUnitsPerSecond);
       if (skyMgr.skyMaterial && skyMgr.skyMaterial.uniforms.uGridMode) {
         skyMgr.skyMaterial.uniforms.uGridMode.value = currentBiome === 'the-grid' ? 1.0 : 0.0;
       }

@@ -18,6 +18,7 @@ export default defineConfig(() => {
           main: path.resolve(__dirname, 'index.html'),
           heroLab: path.resolve(__dirname, 'hero-lab.html'),
           viewer: path.resolve(__dirname, 'viewer.html'),
+          obstacleLab: path.resolve(__dirname, 'obstacleLab.html'),
         },
         output: {
           manualChunks(id) {

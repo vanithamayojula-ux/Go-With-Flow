@@ -101,7 +101,9 @@ export const GameHUD: React.FC<GameHUDProps> = ({
       case 'derelict-station':
         return { name: 'DERELICT STATION // HAZARD ZONE', tag: 'WORLD 14', color: 'border-yellow-500 text-yellow-400' };
       case 'meadow':
-        return { name: 'NEON MEADOW // GREEN FIELDS', tag: 'WORLD 15', color: 'border-lime-400 text-lime-300' };
+        return { name: 'NEON MEADOW // GREEN FIELDS', tag: 'VARIANT', color: 'border-lime-400 text-lime-300' };
+      case 'bleach-bypass-steel':
+        return { name: 'BLEACH BYPASS // STEEL COMPLEX', tag: 'VARIANT', color: 'border-slate-300 text-slate-200' };
       default:
         return { name: 'NEON UNDERCITY // SECTOR-01', tag: 'WORLD 1', color: 'border-fuchsia-400 text-fuchsia-300' };
     }
@@ -143,6 +145,9 @@ export const GameHUD: React.FC<GameHUDProps> = ({
       'cyber-forest': 'Cyber Forest',
       'orbital-ring': 'Orbital Ring',
       'the-grid': 'The Grid',
+      'volcanic-forge': 'Volcanic Forge',
+      'crystal-glacier': 'Crystal Glacier',
+      'derelict-station': 'Derelict Station',
     };
     return { name: names[nextId] || 'Next World', swatch: swatchColors[nextId] || 'bg-cyan-400' };
   };
@@ -238,7 +243,7 @@ export const GameHUD: React.FC<GameHUDProps> = ({
             {/* Distance */}
             <div className="px-2.5 py-1.5 rounded-lg bg-slate-950/90 backdrop-blur-md border border-slate-800 text-slate-300 flex items-center space-x-1 shadow-sm">
               <span className="text-[10px] text-slate-500 font-bold">DST</span>
-              <span className="text-xs font-bold font-mono text-slate-200">{stats.distance}M</span>
+              <span className="text-xs font-bold font-mono text-slate-200">{Math.floor(stats.distance)}M</span>
             </div>
           </div>
 

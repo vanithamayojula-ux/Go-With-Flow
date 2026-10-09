@@ -8,7 +8,11 @@
       "destination": "/hero-lab.html"
     },
     {
-      "source": "/((?!assets|models|hero-lab.html|hero-previews|favicon.ico).*)",
+      "source": "/obstacle-lab",
+      "destination": "/obstacleLab.html"
+    },
+    {
+      "source": "/((?!assets|models|hero-lab\\.html|obstacleLab\\.html|viewer\\.html|hero-previews|favicon\\.ico|[^/]+\\.(glb|png|jpg|jpeg|webp|svg|mp3|wav|woff2?)).*)",
       "destination": "/index.html"
     }
   ]

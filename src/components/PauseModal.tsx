@@ -63,7 +63,7 @@ export const PauseModal: React.FC<PauseModalProps> = ({
           </div>
           <div className="flex flex-col items-center">
             <span className="text-[10px] uppercase font-bold text-amber-400">DISTANCE</span>
-            <span className="text-lg font-black text-amber-200">{stats.distance}m</span>
+            <span className="text-lg font-black text-amber-200">{Math.floor(stats.distance)}m</span>
           </div>
         </div>
 

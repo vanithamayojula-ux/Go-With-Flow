@@ -20,6 +20,7 @@ import {
 import { getLaneX } from './obstacles';
 import { heroById } from './heroes';
 
+const COMBO_GRACE_SECONDS = 4.0;
 const CAM_OFFSET_UPRIGHT = new THREE.Vector3(0, 2.6, -5.2);
 const CAM_OFFSET_WIDE = new THREE.Vector3(0, 2.85, -5.8);
 
@@ -53,14 +54,16 @@ export class PlayerManager {
   trickTimer = 0;
   slowMoTimer = 0;
 
+  // Trick combo grace window: combo resets if no trick lands within it
+  comboTimer = 0;
+
   // Camera State & Cinematic Biome Establishing Pull-Back
   cameraPos = new THREE.Vector3();
   cameraLookAt = new THREE.Vector3();
   cameraTilt = 0;
-  biomeTransitionTimer = 0;
 
   triggerBiomePullBack() {
-    this.biomeTransitionTimer = 2.5;
+    // Camera roll is driven per-frame from lane offset in update(); no separate timer needed.
   }
 
   // Cosmetics
@@ -389,6 +392,7 @@ export class PlayerManager {
       this.scene.add(s);
       this.dustParticles.push({ mesh: s, vel: new THREE.Vector3(), life: 0, maxLife: 1 });
     }
+    dustMat.dispose();
 
     const sparkMat = new THREE.SpriteMaterial({
       map: this.petalTexture,
@@ -405,20 +409,18 @@ export class PlayerManager {
       this.scene.add(s);
       this.petalParticles.push({ mesh: s, vel: new THREE.Vector3(), life: 0, maxLife: 1, rotSpeed: 5 });
     }
+    sparkMat.dispose();
   }
 
   async switchHero(heroId?: HeroId) {
     if (!this.playerCharacter) return;
     await this.playerCharacter.setHero?.(heroId);
-    const hero = heroById(heroId);
-    if (hero && this.trailMaterial && this.trailMaterial.uniforms) {
-      const heroColorHex = `#${hero.trail.toString(16).padStart(6, '0')}`;
-      this.trailMaterial.uniforms.uColorA.value.set(heroColorHex);
-    }
+    // Trail colour is owned by updateTrailColors() from the active cosmetics.
+    // Writing it here landed after the GLTF load resolved, clobbering the
+    // player's chosen trail with the hero default depending on load timing.
   }
 
   applyCosmetics(config: CosmeticsConfig) {
-    const prevHeroId = this.currentCosmetics.heroId;
     const nextHeroId = config.heroId || 'shadow';
     this.currentCosmetics = { ...config, heroId: nextHeroId };
 
@@ -428,10 +430,12 @@ export class PlayerManager {
     if (!pc) return;
 
     // 1. Board Model Selection
+    // Decide from the hero definition rather than pc.heroRig: switchHero loads the
+    // GLTF asynchronously, so the rig read here still belonged to the previous hero.
     const bId = config.boardId || 'cyber-phantom';
     const boards = pc.boards;
     if (boards) {
-      const isCustomHero = pc.heroRig && !pc.heroRig.skinned;
+      const isCustomHero = heroById(nextHeroId).modelUrl.length > 0;
       Object.keys(boards).forEach(key => {
         if (boards[key]) boards[key].visible = !isCustomHero && (key === bId);
       });
@@ -533,6 +537,12 @@ export class PlayerManager {
 
   setUpright(upright: boolean) {
     this.isUpright = upright;
+  }
+
+  // Forward speed in world units/sec. stats.speed is km/h for the HUD only;
+  // every simulation consumer needs units/sec.
+  get speedUnitsPerSecond(): number {
+    return this.velocity.z;
   }
 
   // --- Cyber Controls & Subway Surfers Actions ---
@@ -658,6 +668,7 @@ export class PlayerManager {
     this.currentLane = 0;
     this.targetLaneX = 0;
     this.position.set(0, h + this.hoverHeight, 0);
+    this.gameState = 'playing';
     this.velocity.set(0, 0, 6.0);
     this.jumpVelocity = 0;
     this.isGrounded = true;
@@ -687,6 +698,8 @@ export class PlayerManager {
     this.stats.dataShardsCollected = 0;
     this.stats.gameState = 'playing';
     this.stats.combo = 0;
+    this.comboTimer = 0;
+    this.stats.activeTrickName = '';
     this.trailHistoryCount = 0;
     this.group.position.copy(this.position);
   }
@@ -726,7 +739,7 @@ export class PlayerManager {
     this.stats.score += amount * 120 * this.scoreMultiplier;
     const odMultiplier = 1.0 + (this.upgrades.overdriveLevel - 1) * 0.2;
     this.overdriveMeter = Math.min(100, this.overdriveMeter + amount * 3.5 * odMultiplier);
-    this.stats.highScore = Math.max(this.stats.highScore, this.stats.score);
+    this.stats.highScore = Math.max(this.stats.highScore, Math.floor(this.stats.score));
     this.emitSparks(this.position, 4, 0x00f0ff);
   }
 
@@ -751,6 +764,7 @@ export class PlayerManager {
 
     this.stats.activeTrickName = trickNames[trick];
     this.stats.combo = Math.min(8, this.stats.combo + 1);
+    this.comboTimer = COMBO_GRACE_SECONDS;
     this.stats.score += 350 * this.stats.combo;
     this.overdriveMeter = Math.min(100, this.overdriveMeter + 16);
 
@@ -789,14 +803,14 @@ export class PlayerManager {
     this.stats.currentBiome = currentBiome;
     this.stats.currentFriction = friction;
 
-    const effectiveDt = Math.min(dt, 0.05) * (this.stats.slowMoActive ? 0.7 : 1.0);
-
     if (this.slowMoTimer > 0) {
       this.slowMoTimer -= dt;
       this.stats.slowMoActive = true;
     } else {
       this.stats.slowMoActive = false;
     }
+
+    const effectiveDt = Math.min(dt, 0.05) * (this.stats.slowMoActive ? 0.7 : 1.0);
 
     // Boost & Grind Timers
     if (this.boostTimer > 0) {
@@ -832,9 +846,21 @@ export class PlayerManager {
       if (this.slideTimer <= 0) this.isSliding = false;
     }
 
+    // Trick Combo Decay
+    if (this.comboTimer > 0) {
+      this.comboTimer -= effectiveDt;
+      if (this.comboTimer <= 0) {
+        this.stats.combo = 0;
+        this.stats.activeTrickName = '';
+      }
+    }
+
     // Power-Up Timers
     if (this.activePowerUps.magnetTimer > 0) {
       this.activePowerUps.magnetTimer -= effectiveDt;
+    }
+    if (this.activePowerUps.jetpackTimer > 0) {
+      this.activePowerUps.jetpackTimer -= effectiveDt;
     }
     if (this.activePowerUps.multiplierTimer > 0) {
       this.activePowerUps.multiplierTimer -= effectiveDt;
@@ -1091,10 +1117,12 @@ export class PlayerManager {
     this.stats.styleMeter = this.overdriveMeter;
     this.stats.isGrinding = this.isGrinding;
     this.stats.speed = Math.round(this.velocity.z * 3.6); // km/h
-    this.stats.distance += Math.round(this.velocity.z * effectiveDt * 1.5);
-    const grindScoreBonus = this.isGrinding ? 2.0 : 1.0;
-    this.stats.score += Math.round(this.velocity.z * effectiveDt * 4.0 * this.scoreMultiplier * grindScoreBonus);
-    this.stats.highScore = Math.max(this.stats.highScore, this.stats.score);
+    if (this.gameState === 'playing') {
+      this.stats.distance += this.velocity.z * effectiveDt * 1.5;
+      const grindScoreBonus = this.isGrinding ? 2.0 : 1.0;
+      this.stats.score += this.velocity.z * effectiveDt * 4.0 * this.scoreMultiplier * grindScoreBonus;
+      this.stats.highScore = Math.max(this.stats.highScore, Math.floor(this.stats.score));
+    }
     this.stats.currentLane = this.currentLane;
     this.stats.isSliding = this.isSliding;
     this.stats.slideTimer = this.slideTimer;
@@ -1290,17 +1318,19 @@ export class PlayerManager {
         this.shieldMesh.material.dispose();
       }
     }
-    this.dustParticles.forEach(p => this.scene.remove(p.mesh));
-    this.petalParticles.forEach(p => this.scene.remove(p.mesh));
+    this.dustParticles.forEach(p => {
+      this.scene.remove(p.mesh);
+      p.mesh.material.dispose();
+    });
+    this.petalParticles.forEach(p => {
+      this.scene.remove(p.mesh);
+      p.mesh.material.dispose();
+    });
     this.trailGeometry.dispose();
     this.trailMaterial.dispose();
     this.dustTexture.dispose();
     this.petalTexture.dispose();
   }
-}
-
-function sinPulse(x: number): number {
-  return Math.sin(x) * 0.5 + 0.5;
 }
 
 function createDustParticleTexture(): THREE.CanvasTexture {

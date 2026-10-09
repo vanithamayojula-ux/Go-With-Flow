@@ -114,7 +114,9 @@ export async function loadHeroModel(heroId: HeroId): Promise<LoadedHeroData | nu
 
   const heroDef = heroById(heroId);
   const primaryPath = heroDef?.modelUrl || `/models/${heroId}.glb`;
-  const fallbackPath = primaryPath.startsWith('/') ? primaryPath.slice(1) : primaryPath;
+  // Fallback to the per-hero asset in /models/, which actually exists. Stripping
+  // the leading slash produced a relative URL that could never resolve.
+  const fallbackPath = `/models/${heroId}.glb`;
 
   const p = new Promise<LoadedHeroData | null>((resolve) => {
     loader.load(
@@ -314,19 +316,20 @@ export function buildHeroRig(heroId: HeroId): HeroRig | null {
       },
       syncBones: () => {
         // Option B: Multi-layer whole-body kinematics for rigid/unskinned cyber rider
+        // The drivers on this path are never written by animatePlayerCharacter, so
+        // they sit at zero; read them directly rather than through `||` sentinels
+        // that substituted a rest offset and drove the model into the track.
         // 1. Vertical dynamic weight-shift: rhythmic riding bob, jump airtime lift, slide tuck
-        const dy = (hipsDriver.position.y || 0.52) - 0.52;
-        bodyGroup.position.y = dy;
+        bodyGroup.position.y = hipsDriver.position.y;
 
         // 2. Lateral carving bank into lane-shifts & curves
         bodyGroup.rotation.z = spineDriver.rotation.z * 0.55;
 
         // 3. Longitudinal pitch lean & trick flips
-        const pitchLean = ((spineDriver.rotation.x || 0.30) - 0.30) * 0.45;
-        bodyGroup.rotation.x = pitchLean + (hipsDriver.rotation.x || 0);
+        bodyGroup.rotation.x = spineDriver.rotation.x * 0.45 + hipsDriver.rotation.x;
 
         // 4. Aerial trick yaw spin (360° corkscrews)
-        bodyGroup.rotation.y = spineDriver.rotation.y || 0;
+        bodyGroup.rotation.y = spineDriver.rotation.y;
       },
       skinned: false,
       hipsRestY: 0,
@@ -565,6 +568,7 @@ export function buildHeroRig(heroId: HeroId): HeroRig | null {
       syncBones: () => {
         bodyGroup.rotation.z = spineDriver.rotation.z * 0.35;
         bodyGroup.rotation.x = spineDriver.rotation.x * 0.25;
+        bodyGroup.rotation.y = spineDriver.rotation.y;
       },
       skinned: false,
       hipsRestY: 0,

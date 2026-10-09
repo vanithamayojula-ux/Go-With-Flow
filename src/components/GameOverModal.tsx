@@ -86,7 +86,7 @@ export const GameOverModal: React.FC<GameOverModalProps> = ({
               <span className="text-[10px] font-bold uppercase tracking-wider">DISTANCE</span>
             </div>
             <span className="text-xl font-black text-pink-200">
-              {stats.distance}m
+              {Math.floor(stats.distance)}m
             </span>
           </div>
         </div>

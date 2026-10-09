@@ -150,6 +150,53 @@ export const THEME_REGISTRY: Record<string, ThemeDefinition> = {
     skyHorizonColor: 0x241d06,
     sunColor: 0xffbb00,
   },
+  // Biomes reachable via ?biome= and handled in terrain/sky, but previously
+  // absent here, so they silently fell back to neon-undercity.
+  'bleach-bypass-steel': {
+    id: 'bleach-bypass-steel',
+    name: 'Bleach Bypass // Steel Complex',
+    color: '#E8F4FF',
+    secondaryColor: '#7A9CB5',
+    skyTopColor: 0x1a2430,
+    skyHorizonColor: 0x5c7a8f,
+    sunColor: 0xdceaff,
+  },
+  'meadow': {
+    id: 'meadow',
+    name: 'Neon Meadow // Green Fields',
+    color: '#B6FF3D',
+    secondaryColor: '#39FF14',
+    skyTopColor: 0x0a1f05,
+    skyHorizonColor: 0x7ec82a,
+    sunColor: 0xd4ff6b,
+  },
+  'dunes': {
+    id: 'dunes',
+    name: 'Sunlit Dunes // Open Desert',
+    color: '#FFD48A',
+    secondaryColor: '#CC7722',
+    skyTopColor: 0x4a2c0a,
+    skyHorizonColor: 0xffcc77,
+    sunColor: 0xffdd99,
+  },
+  'sky-islands': {
+    id: 'sky-islands',
+    name: 'Sky Islands // Floating Archipelago',
+    color: '#9BE8FF',
+    secondaryColor: '#FFFFFF',
+    skyTopColor: 0x1d4a7a,
+    skyHorizonColor: 0xaee6ff,
+    sunColor: 0xfff4cc,
+  },
+  'forest': {
+    id: 'forest',
+    name: 'Verdant Forest // Deep Canopy',
+    color: '#5CE07A',
+    secondaryColor: '#1E7A3C',
+    skyTopColor: 0x061a0e,
+    skyHorizonColor: 0x2f7d46,
+    sunColor: 0xa8f0b8,
+  },
 };
 
 export class ThemeManager {
