@@ -1,5 +1,5 @@
 import * as THREE from 'three';
-import { TerrainManager, setActiveBiome, resetBiomeState, clearBiomeOverride } from './terrain';
+import { TerrainManager, setActiveBiome, resetBiomeState, clearBiomeOverride, getTerrainHeight } from './terrain';
 import { FoliageManager } from './foliage';
 import { SkyManager, LIGHTING_PRESETS } from './sky';
 import { PlayerManager } from './player';
@@ -131,7 +131,7 @@ export class GameEngine {
   private nearMissSlowMoTimer: number = 0;
   private statsUpdateTimer: number = 0;
   private lastSentGameState: string = 'playing';
-  private lastBiome: BiomeType = 'neon-undercity';
+  private lastBiome: BiomeType = 'sky-realm';
   private lastTier: string = 'Chill';
   private lastTransitionState: string = 'STABLE';
 
@@ -250,8 +250,61 @@ export class GameEngine {
     // Initial check for progression cosmetics
     this.cosmeticMgr.evaluateProgressionUnlocks(this.progressionMgr);
 
-    // Instantiate Sky Isles world environment
-    this.skyIslesWorld = new SkyIslesWorld(this.scene, this.graphicsConfig);
+    // Check URL parameters for starting world/distance jump (for level select & QA testing)
+    let initialWorldId = 'sky-isles';
+    let initialZ = 0;
+    if (typeof window !== 'undefined') {
+      try {
+        const urlParams = new URLSearchParams(window.location.search);
+        const distParam = urlParams.get('distance');
+        const worldParam = urlParams.get('world');
+        const biomeParam = urlParams.get('biome');
+        if (distParam) {
+          initialZ = parseFloat(distParam) || 0;
+        } else if (worldParam) {
+          const worldDistances: Record<string, number> = {
+            'sky-isles': 100,
+            'verdant-wilds': 2400,
+            'crimson-dunes': 4700,
+            'crystal-heights': 6950,
+            'obsidian-core': 9200,
+          };
+          initialZ = worldDistances[worldParam] ?? 0;
+          initialWorldId = worldParam;
+        } else if (biomeParam) {
+          const biomeDistances: Record<string, { z: number; world: string }> = {
+            'sky-realm': { z: 100, world: 'sky-isles' },
+            'sky-islands': { z: 100, world: 'sky-isles' },
+            'bioluminescent-jungle': { z: 2400, world: 'verdant-wilds' },
+            'cyber-forest': { z: 2400, world: 'verdant-wilds' },
+            'dune-nomad': { z: 4700, world: 'crimson-dunes' },
+            'quantum-desert': { z: 4700, world: 'crimson-dunes' },
+            'aurora-frost': { z: 6950, world: 'crystal-heights' },
+            'crystal-glacier': { z: 6950, world: 'crystal-heights' },
+            'ember-core': { z: 9200, world: 'obsidian-core' },
+            'volcanic-forge': { z: 9200, world: 'obsidian-core' },
+          };
+          if (biomeDistances[biomeParam]) {
+            initialZ = biomeDistances[biomeParam].z;
+            initialWorldId = biomeDistances[biomeParam].world;
+          }
+        }
+      } catch {}
+    }
+
+    if (initialZ > 0) {
+      const roadH = getTerrainHeight(0, initialZ);
+      this.playerMgr.position.set(0, roadH + this.playerMgr.hoverHeight, initialZ);
+      this.playerMgr.stats.distance = Math.round(initialZ);
+      this.worldMgr.setWorld(initialWorldId as any);
+      const metrics = this.worldMgr.updateByDistance(initialZ);
+      this.syncActiveWorld(metrics.metrics);
+      this.terrainMgr.rebuildAroundPlayer(initialZ, 0, 3);
+      this.foliageMgr.updateFoliage(this.terrainMgr.chunks, initialZ, 0, this.graphicsConfig.vegetationDensity);
+    } else {
+      // Instantiate Sky Isles world environment
+      this.skyIslesWorld = new SkyIslesWorld(this.scene, this.graphicsConfig);
+    }
 
     // Populate initial chunks & foliage
     this.terrainMgr.update(this.playerMgr.position.z, this.playerMgr.position.x, 3);
@@ -602,6 +655,16 @@ export class GameEngine {
       const transitionResult = this.worldMgr.updateByDistance(playerDistance);
       const { metrics, blended, shouldNotifyNewWorld, worldToAnnounce } = transitionResult;
       this.playerMgr.stats.currentWorldId = metrics.currentWorldId;
+      const worldToBiomeMap: Record<string, BiomeType> = {
+        'sky-isles': 'sky-realm',
+        'verdant-wilds': 'bioluminescent-jungle',
+        'crimson-dunes': 'dune-nomad',
+        'crystal-heights': 'aurora-frost',
+        'obsidian-core': 'ember-core',
+      };
+      if (metrics.currentWorldId && worldToBiomeMap[metrics.currentWorldId]) {
+        this.playerMgr.stats.currentBiome = worldToBiomeMap[metrics.currentWorldId];
+      }
 
       if (metrics.state === 'TRANSITIONING' && this.lastTransitionState !== 'TRANSITIONING') {
         telemetry.startTransition();
@@ -672,7 +735,7 @@ export class GameEngine {
         this.foliageMgr.grassMaterial.uniforms.uPlayerPos.value.copy(this.playerMgr.position);
       }
 
-      // Apply Blended Sky & Atmospheric Lighting smoothly between worlds
+      // Apply Blended Sky, Terrain & Atmospheric Lighting smoothly between worlds
       this.skyMgr.applyBlendedLighting(
         blended.skyTop,
         blended.skyBottom,
@@ -682,6 +745,11 @@ export class GameEngine {
         blended.ambientIntensity,
         blended.sunColor,
         blended.sunIntensity
+      );
+      this.terrainMgr.applyBlendedTerrain(
+        blended.terrainColor,
+        blended.terrainAccentColor,
+        blended.energyColor
       );
       this.skyMgr.update(this.playerMgr.position, this.playerMgr.velocity.z, timeSeconds, this.playerMgr.stats.speed);
       if (this.skyMgr.skyMaterial && this.skyMgr.skyMaterial.uniforms.uGridMode) {
@@ -846,6 +914,10 @@ export class GameEngine {
     }
   }
 
+  public getFps(): number {
+    return this.currentFps;
+  }
+
   // --- Dynamic Synchronization APIs ---
 
   public updateGraphicsConfig(config: GraphicsConfig): void {
@@ -1006,7 +1078,7 @@ export class GameEngine {
 
   public resetRun(): void {
     resetBiomeState();
-    this.lastBiome = 'neon-undercity';
+    this.lastBiome = 'sky-realm';
     this.worldMgr.setWorld('sky-isles');
     this.playerMgr.resetRun();
     this.obstacleMgr.reset();

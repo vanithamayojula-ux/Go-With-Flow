@@ -151,6 +151,9 @@ export const TerrainShader = {
     uniform vec3 uAmbientColor;
     uniform vec3 uCameraPos;
     uniform vec3 uFogColor;
+    uniform vec3 uRoadColor;
+    uniform vec3 uAccentColor;
+    uniform vec3 uEnergyColor;
     uniform float uTime;
     uniform float uSpeed; // Player speed in m/s for animated streaks and pulses
     uniform float uGridMode; // 1.0 = The Grid wireframe
@@ -175,8 +178,8 @@ export const TerrainShader = {
       vec3 N = normalize(vNormal);
       vec3 V = normalize(uCameraPos - vWorldPosition);
 
-      // --- WET CYBERPUNK PAVED STREET WITH CONTROLLED SPECULARITY & DEPTH ---
-      // 1. Rectangular Pavement Slabs & Wet Tile Seams
+      // --- WORLD THEMATIC ROAD SURFACE WITH SPECULAR DEPTH ---
+      // 1. Rectangular Pavement Slabs & Tile Seams
       float tileScaleX = 0.55;
       float tileScaleZ = 0.32;
       vec2 tileCoord = vec2(vWorldPosition.x * tileScaleX, vWorldPosition.z * tileScaleZ);
@@ -185,12 +188,14 @@ export const TerrainShader = {
       float seamZ = smoothstep(0.05, 0.0, tileGrid.y) + smoothstep(0.95, 1.0, tileGrid.y);
       float tileSeam = clamp(seamX + seamZ, 0.0, 1.0);
 
-      // Deep dark asphalt base (contrast > raw brightness)
-      vec3 slabDark = vec3(0.005, 0.008, 0.014);
-      vec3 slabHighlight = vec3(0.012, 0.016, 0.026);
+      // World Dynamic Base & Accent Colors
+      vec3 baseRoad = length(uRoadColor) > 0.001 ? uRoadColor : vec3(0.012, 0.016, 0.026);
+      vec3 accentRoad = length(uAccentColor) > 0.001 ? uAccentColor : vec3(0.02, 0.08, 0.12);
+      vec3 energyGlow = length(uEnergyColor) > 0.001 ? uEnergyColor : vec3(0.0, 0.85, 0.95);
+
       float slabVar = fract(sin(floor(tileCoord.x) * 12.9898 + floor(tileCoord.y) * 78.233) * 43758.5453);
-      vec3 pavementBase = mix(slabDark, slabHighlight, slabVar * 0.35);
-      pavementBase = mix(pavementBase, vec3(0.001, 0.002, 0.004), tileSeam * 0.95);
+      vec3 pavementBase = mix(baseRoad * 0.82, baseRoad * 1.18, slabVar * 0.35);
+      pavementBase = mix(pavementBase, accentRoad * 0.65, tileSeam * 0.75);
 
       // 2. Controlled Mirror Puddles & Specular Water Film
       float puddleNoise1 = sin(vWorldPosition.x * 0.28 + sin(vWorldPosition.z * 0.12)) * 0.5 + 0.5;
@@ -207,25 +212,24 @@ export const TerrainShader = {
       float fresnel = pow(1.0 - max(dot(V, perturbedN), 0.0), 3.2);
       float wetness = clamp(fresnel * 0.65 + puddleMask * 0.30, 0.06, 0.75);
 
-      // 3. Wet dark asphalt with specular puddle reflections and fresnel (not flat teal)
-      vec3 neonCyan = vec3(0.0, 0.85, 0.95);
-      vec3 wetSkyReflect = mix(vec3(0.012, 0.016, 0.028), vec3(0.025, 0.038, 0.06), fresnel);
-      vec3 puddleColor = mix(pavementBase, wetSkyReflect * 1.5, puddleMask * 0.45);
+      // Specular reflections
+      vec3 wetSkyReflect = mix(baseRoad * 1.3, energyGlow * 0.45, fresnel);
+      vec3 puddleColor = mix(pavementBase, wetSkyReflect * 1.4, puddleMask * 0.45);
       vec3 wetSurface = mix(pavementBase, puddleColor, wetness * 0.5);
 
-      // 4. --- EXACT 3-LANE SPACE HIGHWAY MARKINGS & GUIDED NEON RAILS ---
+      // 4. --- EXACT 3-LANE SPACE HIGHWAY MARKINGS & GUIDED ENERGY RAILS ---
       float roadX = vWorldPosition.x;
       float roadZ = vWorldPosition.z;
       float laneW = uLaneWidth > 0.1 ? uLaneWidth : 2.6;
       float railX = uRailX > 0.1 ? uRailX : 4.5;
       float divX = uDividerX > 0.1 ? uDividerX : 1.3;
 
-      // Exactly 2 Solid glowing outer highway rails (+-railX): thin (0.02)
+      // Exactly 2 Solid glowing outer highway rails (+-railX)
       float railLeft = smoothstep(0.035, 0.015, abs(roadX - (-railX)));
       float railRight = smoothstep(0.035, 0.015, abs(roadX - railX));
       float guideRails = railLeft * 1.6 + railRight * 1.6;
 
-      // Exactly 2 Dashed lane divider lines between the 3 lanes (+-divX): thin
+      // Exactly 2 Dashed lane divider lines between the 3 lanes (+-divX)
       float divLeft = smoothstep(0.030, 0.012, abs(roadX - (-divX)));
       float divRight = smoothstep(0.030, 0.012, abs(roadX - divX));
       float dashRate = 24.0 + uSpeed * 1.1;
@@ -238,13 +242,12 @@ export const TerrainShader = {
       float laneCenterR = smoothstep(0.10, 0.015, abs(roadX - laneW));
       float laneFlow = (laneCenterL + laneCenterC + laneCenterR) * 0.02 * (sin((roadZ - uTime * 28.0) * 0.2) * 0.5 + 0.5);
 
-      // Strict Color System: Cyan ONLY for rails and road guidance
-      vec3 emissiveLines = neonCyan * (guideRails * 1.5 + dividerLines * 1.2 + laneFlow);
+      // Emissive energy guidance colored by active world energy theme
+      vec3 emissiveLines = energyGlow * (guideRails * 1.5 + dividerLines * 1.2 + laneFlow);
 
       vec3 finalCol = wetSurface + emissiveLines;
 
-      // 5. Depth System: Foreground is Razor-Sharp & Punchy;
-      // Distance smoothly recedes into Per-Biome / Cosmic Space Fog
+      // 5. Depth System: Smooth fog blending
       float dist = length(uCameraPos - vWorldPosition);
       float fogFactor = smoothstep(75.0, 320.0, dist);
       vec3 finalFog = length(uFogColor) > 0.001 ? uFogColor : vec3(0.004, 0.007, 0.022);

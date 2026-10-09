@@ -54,8 +54,12 @@ export class WorldManager {
     return this._transitionManager.transitionProgress;
   }
 
-  public get isTransitioning(): boolean {
-    return this._transitionManager.isTransitioning;
+  public getCurrentWorld(): WorldConfig {
+    return this.currentWorldConfig;
+  }
+
+  public getCurrentWorldId(): WorldId {
+    return this.currentWorldId;
   }
 
   /**

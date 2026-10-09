@@ -155,7 +155,7 @@ export async function loadHeroModel(heroId: HeroId): Promise<LoadedHeroData | nu
           },
           undefined,
           (err2) => {
-            console.error(`[HeroRig] Failed to load model for ${heroId}`, err2);
+            console.warn(`[HeroRig] Optional 3D asset not found for ${heroId}, using procedural hero model`, err2);
             resolve(null);
           }
         );

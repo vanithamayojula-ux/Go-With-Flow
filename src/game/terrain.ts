@@ -18,25 +18,17 @@ import {
   RAIL_X,
   DIVIDER_X,
 } from './trackConfig';
+import { WORLD_LENGTH_DISTANCE } from './WorldConfig';
 
 export const CHUNK_SIZE = 80;
 export const CHUNK_SEGMENTS = 24;
 
-const BIOME_ROTATION: BiomeType[] = [
-  'neon-undercity',
-  'dune-nomad',
-  'aurora-frost',
-  'bioluminescent-jungle',
-  'ember-core',
-  'nebula-drift',
-  'sky-realm',
-  'quantum-desert',
-  'cyber-forest',
-  'orbital-ring',
-  'the-grid',
-  'volcanic-forge',
-  'crystal-glacier',
-  'derelict-station',
+export const CAMPAIGN_BIOME_ORDER: readonly BiomeType[] = [
+  'sky-realm',              // World 1: Sky Isles (0 - 2,249m)
+  'bioluminescent-jungle',  // World 2: Verdant Wilds (2,250 - 4,499m)
+  'dune-nomad',             // World 3: Crimson Dunes (4,500 - 6,749m)
+  'aurora-frost',           // World 4: Crystal Heights (6,750 - 8,999m)
+  'ember-core',             // World 5: Obsidian Core (9,000m+)
 ];
 
 let activeBiomeOverride: BiomeType | null = null;
@@ -78,9 +70,9 @@ export function getBiomeAt(z: number): BiomeType {
       return activeBiomeOverride;
     }
   }
-  const distancePerBiome = 450;
+  const distancePerBiome = WORLD_LENGTH_DISTANCE; // 2,250m per world
   const cycleIndex = Math.floor(Math.max(0, z) / distancePerBiome);
-  return BIOME_ROTATION[cycleIndex % BIOME_ROTATION.length];
+  return CAMPAIGN_BIOME_ORDER[cycleIndex % CAMPAIGN_BIOME_ORDER.length];
 }
 
 export function getBiomeFriction(biome: BiomeType): number {
@@ -325,6 +317,9 @@ export class TerrainManager {
         uSunColor: { value: new THREE.Color('#00d2e0') },
         uAmbientColor: { value: new THREE.Color('#02040c') },
         uCameraPos: { value: new THREE.Vector3() },
+        uRoadColor: { value: new THREE.Color('#E2E8F0') },
+        uAccentColor: { value: new THREE.Color('#86EFAC') },
+        uEnergyColor: { value: new THREE.Color('#22D3EE') },
         uTime: { value: 0 },
         uSpeed: { value: 20.0 },
         uGridMode: { value: 0.0 },
@@ -337,6 +332,26 @@ export class TerrainManager {
         uCelRampHardness: { value: 0.2 },
       },
     });
+  }
+
+  public applyBlendedTerrain(
+    terrainColor: THREE.Color,
+    terrainAccent: THREE.Color,
+    energyColor: THREE.Color
+  ): void {
+    if (this.terrainMaterial.uniforms.uRoadColor) {
+      this.terrainMaterial.uniforms.uRoadColor.value.copy(terrainColor);
+    }
+    if (this.terrainMaterial.uniforms.uAccentColor) {
+      this.terrainMaterial.uniforms.uAccentColor.value.copy(terrainAccent);
+    }
+    if (this.terrainMaterial.uniforms.uEnergyColor) {
+      this.terrainMaterial.uniforms.uEnergyColor.value.copy(energyColor);
+    }
+    this.sideGroundMaterial.color.copy(terrainColor).multiplyScalar(0.7);
+    this.curbRailMat.color.copy(energyColor);
+    this.glowingPillarMat.color.copy(energyColor);
+    this.neonCyanMat.color.copy(energyColor);
   }
 
   private createGroundedStructure(
@@ -451,16 +466,15 @@ export class TerrainManager {
       beacon.position.set(x, roofTopY + 14.0, z);
       group.add(beacon);
 
-      // Flush nomad solar rune banner if billboardIdx
-      if (billboardIdx !== undefined && this.billboardMats[billboardIdx]) {
-        const signW = Math.min(width * 0.75, 12);
-        const signH = signW * 0.55;
-        const signMesh = new THREE.Mesh(new THREE.PlaneGeometry(signW, signH), this.billboardMats[billboardIdx]);
-        const signX = side === 'left' ? x + (width * 0.85) / 2 + 0.08 : x - (width * 0.85) / 2 - 0.08;
-        signMesh.position.set(signX, baseY + height * 0.65, z);
-        signMesh.rotation.y = side === 'left' ? Math.PI / 2 : -Math.PI / 2;
-        group.add(signMesh);
-      }
+      // Carved nomad solar sun relief disc
+      const sunDisc = new THREE.Mesh(
+        new THREE.CylinderGeometry(Math.min(width * 0.25, 3.5), Math.min(width * 0.25, 3.5), 0.4, 16),
+        this.neonAmberMat
+      );
+      const signX = side === 'left' ? x + (width * 0.85) / 2 + 0.15 : x - (width * 0.85) / 2 - 0.15;
+      sunDisc.position.set(signX, baseY + height * 0.65, z);
+      sunDisc.rotation.z = Math.PI / 2;
+      group.add(sunDisc);
     } else if (biome === 'aurora-frost' || biome === 'crystal-glacier') {
       // 3. 3D Glacial Crystal Tower & Ice Spire
       const crystalTower = new THREE.Mesh(

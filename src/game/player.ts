@@ -140,8 +140,9 @@ export class PlayerManager {
     combo: 0,
     windOrbsCollected: 0,
     dataShardsCollected: 0,
-    currentBiome: 'neon-undercity',
-    currentFriction: 0.02,
+    currentBiome: 'sky-realm',
+    currentWorldId: 'sky-isles',
+    currentFriction: 0.005,
     activeTrickName: null,
     slowMoActive: false,
     isOnFloatingIsland: false,
@@ -694,6 +695,8 @@ export class PlayerManager {
     this.stats.distance = 0;
     this.stats.windOrbsCollected = 0;
     this.stats.dataShardsCollected = 0;
+    this.stats.currentBiome = 'sky-realm';
+    this.stats.currentWorldId = 'sky-isles';
     this.stats.gameState = 'playing';
     this.stats.combo = 0;
     this.trailHistoryCount = 0;
@@ -1105,7 +1108,7 @@ export class PlayerManager {
     this.stats.styleMeter = this.overdriveMeter;
     this.stats.isGrinding = this.isGrinding;
     this.stats.speed = Math.round(this.velocity.z * 3.6); // km/h
-    this.stats.distance += Math.round(this.velocity.z * effectiveDt * 1.5);
+    this.stats.distance = Math.round(this.position.z);
     const grindScoreBonus = this.isGrinding ? 2.0 : 1.0;
     this.stats.score += Math.round(this.velocity.z * effectiveDt * 4.0 * this.scoreMultiplier * grindScoreBonus);
     this.stats.highScore = Math.max(this.stats.highScore, this.stats.score);

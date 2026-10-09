@@ -29,6 +29,9 @@ export interface BlendedEnvironmentParams {
   ambientIntensity: number;
   sunColor: THREE.Color;
   sunIntensity: number;
+  terrainColor: THREE.Color;
+  terrainAccentColor: THREE.Color;
+  energyColor: THREE.Color;
   currentWorldWeight: number; // 1.0 -> 0.0
   nextWorldWeight: number;    // 0.0 -> 1.0
 }
@@ -62,6 +65,9 @@ export class WorldTransitionManager {
   private _blendedFogColor = new THREE.Color();
   private _blendedAmbientColor = new THREE.Color();
   private _blendedSunColor = new THREE.Color();
+  private _blendedTerrainColor = new THREE.Color();
+  private _blendedTerrainAccentColor = new THREE.Color();
+  private _blendedEnergyColor = new THREE.Color();
 
   // Reusable blended environment params (zero per-frame allocations)
   private _blendedParams: BlendedEnvironmentParams = {
@@ -73,6 +79,9 @@ export class WorldTransitionManager {
     ambientIntensity: 0.65,
     sunColor: this._blendedSunColor,
     sunIntensity: 0.85,
+    terrainColor: this._blendedTerrainColor,
+    terrainAccentColor: this._blendedTerrainAccentColor,
+    energyColor: this._blendedEnergyColor,
     currentWorldWeight: 1.0,
     nextWorldWeight: 0.0,
   };
@@ -274,6 +283,19 @@ export class WorldTransitionManager {
       nextWeight
     );
 
+    // 5. Terrain & Energy Colors
+    this._tempColA.set(curr.palette.terrain);
+    this._tempColB.set(next.palette.terrain);
+    this._blendedTerrainColor.copy(this._tempColA).lerp(this._tempColB, nextWeight);
+
+    this._tempColA.set(curr.palette.terrainAccent);
+    this._tempColB.set(next.palette.terrainAccent);
+    this._blendedTerrainAccentColor.copy(this._tempColA).lerp(this._tempColB, nextWeight);
+
+    this._tempColA.set(curr.palette.energy);
+    this._tempColB.set(next.palette.energy);
+    this._blendedEnergyColor.copy(this._tempColA).lerp(this._tempColB, nextWeight);
+
     this._blendedParams.fogDensity = fogDensity;
     this._blendedParams.ambientIntensity = ambientIntensity;
     this._blendedParams.sunIntensity = sunIntensity;
@@ -289,6 +311,14 @@ export class WorldTransitionManager {
       return WORLD_ORDER[idx + 1];
     }
     return id;
+  }
+
+  public getCurrentWorld(): WorldConfig {
+    return getWorldConfig(this._currentWorldId);
+  }
+
+  public getCurrentWorldId(): WorldId {
+    return this._currentWorldId;
   }
 
   public setWorld(worldId: WorldId): void {
