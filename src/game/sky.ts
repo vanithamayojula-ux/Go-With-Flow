@@ -392,6 +392,15 @@ export class SkyManager {
   skyMaterial: THREE.ShaderMaterial;
   dirLight: THREE.DirectionalLight;
   ambientLight: THREE.AmbientLight;
+  hemiLight: THREE.HemisphereLight;
+
+  // Image-based lighting: a prefiltered environment map drives all specular
+  // response. Without it, MeshStandardMaterial metals have nothing to reflect
+  // and read as flat grey regardless of roughness/metalness.
+  private pmremGenerator: THREE.PMREMGenerator | null = null;
+  private envRT: THREE.WebGLRenderTarget | null = null;
+  private envScene: THREE.Scene;
+  private lastEnvKey = '';
 
   // Giant Deep-Space Celestial Orbital Ring (Infinite Depth Anchor)
   holoRingMesh: THREE.Mesh;
@@ -425,23 +434,34 @@ export class SkyManager {
     this.skyMesh = new THREE.Mesh(skyGeom, this.skyMaterial);
     this.scene.add(this.skyMesh);
 
-    // 2. Cosmic Directional & Ambient Lighting (30% Reduced brightness, strong contrast)
-    this.ambientLight = new THREE.AmbientLight(0x02050e, 0.65);
+    // 2. Three-point lighting rig. Ambient alone flattens everything; the
+    // hemisphere term supplies sky-vs-ground ambient bounce with a real
+    // directional bias, which is what makes curved PBR surfaces read as curved.
+    this.ambientLight = new THREE.AmbientLight(0x02050e, 0.28);
     this.scene.add(this.ambientLight);
 
+    this.hemiLight = new THREE.HemisphereLight(0x0a1c2e, 0x05070d, 0.55);
+    this.scene.add(this.hemiLight);
+
     // Directional lighting from top-front illuminating space highway and player cleanly
-    this.dirLight = new THREE.DirectionalLight(0x00d2e0, 0.85);
+    this.dirLight = new THREE.DirectionalLight(0x00d2e0, 1.6);
     this.dirLight.position.set(0, 90, 40);
     this.dirLight.castShadow = true;
-    this.dirLight.shadow.mapSize.width = 1024;
-    this.dirLight.shadow.mapSize.height = 1024;
+    this.dirLight.shadow.mapSize.width = 2048;
+    this.dirLight.shadow.mapSize.height = 2048;
     this.dirLight.shadow.camera.near = 10;
-    this.dirLight.shadow.camera.far = 300;
-    this.dirLight.shadow.camera.left = -35;
-    this.dirLight.shadow.camera.right = 35;
-    this.dirLight.shadow.camera.top = 35;
-    this.dirLight.shadow.camera.bottom = -35;
+    this.dirLight.shadow.camera.far = 220;
+    // Tight ortho frustum around the rider: the previous 70x70 box spread
+    // 2048 texels over 140m, giving ~14cm texels and visible acne on the road.
+    this.dirLight.shadow.camera.left = -22;
+    this.dirLight.shadow.camera.right = 22;
+    this.dirLight.shadow.camera.top = 22;
+    this.dirLight.shadow.camera.bottom = -22;
+    this.dirLight.shadow.bias = -0.0006;
+    this.dirLight.shadow.normalBias = 0.035;
+    this.dirLight.shadow.radius = 3;
     this.scene.add(this.dirLight);
+    this.scene.add(this.dirLight.target);
 
     // 3. Colossal Deep-Space Orbital Ring
     const ringGeom = new THREE.TorusGeometry(360, 3.5, 16, 64);
@@ -462,6 +482,91 @@ export class SkyManager {
     this.beaconLightMesh = new THREE.Mesh(beaconGeom, beaconMat);
     this.beaconLightMesh.position.set(0, 45, 600);
     this.scene.add(this.beaconLightMesh);
+
+    // 5. Private scene used only to bake the environment probe
+    this.envScene = new THREE.Scene();
+  }
+
+  /**
+   * Bake a prefiltered environment map for a lighting preset.
+   *
+   * Renders a small emissive dome matching the preset's sky gradient into a
+   * cubemap and prefilters it. The result is assigned as `scene.environment`,
+   * so every PBR material in the scene picks up correct ambient specular and
+   * irradiance without any per-material work.
+   */
+  private buildEnvironment(preset: LightingPresetConfig): void {
+    if (!this.pmremGenerator) {
+      try {
+        this.pmremGenerator = new THREE.PMREMGenerator(this.scene as any);
+      } catch {
+        // PMREM is unavailable (very old driver); scene.environment stays null
+        // and materials fall back to light-only shading.
+        return;
+      }
+    }
+
+    // Sky dome carrying the preset gradient.
+    const domeMat = new THREE.ShaderMaterial({
+      side: THREE.BackSide,
+      depthWrite: false,
+      uniforms: {
+        uSkyTop: { value: new THREE.Color(preset.skyTop) },
+        uSkyMid: { value: new THREE.Color(preset.skyMid) },
+        uSkyHorizon: { value: new THREE.Color(preset.skyHorizon) },
+        uSunColor: { value: new THREE.Color(preset.sunColor) },
+        uSunPosition: { value: new THREE.Vector3(...preset.sunPosition).normalize() },
+        uFogColor: { value: new THREE.Color(preset.fogColor) },
+      },
+      vertexShader: `
+        varying vec3 vDir;
+        void main() {
+          vDir = normalize(position);
+          gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0);
+        }
+      `,
+      fragmentShader: `
+        uniform vec3 uSkyTop;
+        uniform vec3 uSkyMid;
+        uniform vec3 uSkyHorizon;
+        uniform vec3 uSunColor;
+        uniform vec3 uSunPosition;
+        uniform vec3 uFogColor;
+        varying vec3 vDir;
+
+        void main() {
+          vec3 dir = normalize(vDir);
+          float elevation = clamp(dir.y * 0.5 + 0.5, 0.0, 1.0);
+          vec3 sky = mix(uSkyHorizon, uSkyMid, smoothstep(0.0, 0.45, elevation));
+          sky = mix(sky, uSkyTop, smoothstep(0.45, 1.0, elevation));
+
+          // Ground hemisphere: the city's neon spill bouncing off the road.
+          // Without this the lower half of every reflection is pure black.
+          float below = smoothstep(0.02, -0.35, dir.y);
+          vec3 groundBounce = uFogColor * 2.4 + uSkyHorizon * 0.22;
+          sky = mix(sky, groundBounce, below);
+
+          // Sun/moon disc contributes real irradiance to the probe.
+          float sunDot = max(0.0, dot(dir, normalize(uSunPosition)));
+          sky += uSunColor * pow(sunDot, 24.0) * 3.0;
+
+          gl_FragColor = vec4(sky, 1.0);
+        }
+      `,
+    });
+
+    const dome = new THREE.Mesh(new THREE.SphereGeometry(50, 24, 16), domeMat);
+    this.envScene.clear();
+    this.envScene.add(dome);
+
+    const prevRT = this.envRT;
+    this.envRT = this.pmremGenerator.fromScene(this.envScene, 0.04);
+    this.scene.environment = this.envRT.texture;
+    this.scene.environmentIntensity = 1.0;
+
+    dome.geometry.dispose();
+    domeMat.dispose();
+    prevRT?.dispose();
   }
 
   applyLightingPreset(mode: LightingMode) {
@@ -476,7 +581,20 @@ export class SkyManager {
 
     this.dirLight.color.set(preset.sunColor);
     this.dirLight.position.set(...preset.sunPosition);
+    this.dirLight.intensity = 1.35 * (preset.hazeDensity ?? 0.9);
     this.ambientLight.color.set(preset.ambientColor);
+    this.ambientLight.intensity = 0.22;
+    this.hemiLight.color.set(preset.skyHorizon);
+    this.hemiLight.groundColor.set(preset.fogColor);
+    this.hemiLight.intensity = 0.45 * (preset.hazeDensity ?? 0.9);
+
+    // Only re-bake when the preset actually changed; PMREM is expensive and
+    // this effect also fires on unrelated re-renders.
+    const envKey = `${mode}`;
+    if (envKey !== this.lastEnvKey) {
+      this.lastEnvKey = envKey;
+      this.buildEnvironment(preset);
+    }
 
     // Scene-level atmospheric cosmic depth fog configured from biome preset
     const fogCol = new THREE.Color(preset.fogColor || '#020512');
@@ -516,10 +634,16 @@ export class SkyManager {
     this.scene.remove(this.skyMesh);
     this.scene.remove(this.dirLight);
     this.scene.remove(this.ambientLight);
+    this.scene.remove(this.hemiLight);
     this.scene.remove(this.holoRingMesh);
     this.scene.remove(this.beaconLightMesh);
     this.skyMesh.geometry.dispose();
     this.skyMaterial.dispose();
     this.holoRingMesh.geometry.dispose();
+    this.beaconLightMesh.geometry.dispose();
+    (this.beaconLightMesh.material as THREE.Material).dispose();
+    this.envRT?.dispose();
+    this.pmremGenerator?.dispose();
+    this.scene.environment = null;
   }
 }

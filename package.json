@@ -9,12 +9,13 @@
     "preview": "vite preview",
     "clean": "rm -rf dist server.js",
     "lint": "tsc --noEmit",
-    "typecheck:scripts": "tsc --noEmit --skipLibCheck --module esnext --moduleResolution bundler --target es2022 --jsx react-jsx --allowImportingTsExtensions scripts/*.ts",
+    "typecheck:scripts": "tsc --noEmit -p tsconfig.scripts.json",
     "qa:done": "tsx scripts/verify_done_gate.ts"
   },
   "dependencies": {
     "@tailwindcss/vite": "^4.3.3",
     "@vitejs/plugin-react": "^5.2.0",
+    "chatgpt": "^5.2.5",
     "lucide-react": "^0.546.0",
     "motion": "^12.23.24",
     "react": "^19.2.0",
