@@ -2,7 +2,7 @@ import * as THREE from 'three';
 import { GLTFLoader } from 'three/examples/jsm/loaders/GLTFLoader.js';
 import { BiomeType, LaneIndex, PowerUpType } from '../types';
 import { getTerrainHeight, getBiomeAt } from './terrain';
-import { LANE_WIDTH, laneToWorldX } from './trackConfig';
+import { laneToWorldX } from './trackConfig';
 
 export interface Obstacle3DTemplate {
   id: string;
@@ -569,7 +569,7 @@ export class ObstacleManager {
 
     const defs: ObstacleModelDef[] = [
       { id: 'sentinel', name: 'Cyber Sentinel', url: '/obstacle01.glb', targetHeight: 2.2, yaw: -Math.PI / 2 },
-      { id: 'frost-drake', name: 'Frost Drake', url: '/0bstacle02.glb', targetHeight: 2.2, yaw: -Math.PI / 2 },
+      { id: 'frost-drake', name: 'Frost Drake', url: '/obstacle02.glb', targetHeight: 2.2, yaw: -Math.PI / 2 },
       { id: 'bio-predator', name: 'Bio Predator', url: '/obstacle03.glb', targetHeight: 2.2, yaw: -Math.PI / 2 },
       { id: 'xenobeast', name: 'Cyber Beast', url: '/obstacle04.glb', targetHeight: 2.1, yaw: -Math.PI / 2 },
     ];

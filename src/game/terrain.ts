@@ -17,8 +17,6 @@ import {
 } from '../graphics/textures';
 import {
   LANE_WIDTH,
-  ROAD_HALF,
-  ROAD_MARGIN,
   RAIL_X,
   DIVIDER_X,
 } from './trackConfig';

@@ -822,6 +822,12 @@ export const GameCanvas: React.FC<GameCanvasProps> = ({
       window.removeEventListener('pointerup', onPointerUp);
       resizeObserver.disconnect();
 
+      // Clean up global window assignments
+      if (typeof window !== 'undefined') {
+        (window as any).__playerManager = undefined;
+        (window as any).__setActiveBiome = undefined;
+      }
+
       terrainMgr.dispose();
       foliageMgr.dispose();
       skyMgr.dispose();
