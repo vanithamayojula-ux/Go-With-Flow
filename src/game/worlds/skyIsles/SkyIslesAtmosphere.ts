@@ -100,25 +100,25 @@ export class SkyIslesAtmosphere {
     this.cloudMesh.instanceMatrix.needsUpdate = true;
 
     // --- Lower Cloud Ocean Layer ---
-    // Sits at Y = -45 to -60 to communicate grand vertical height above the world
-    const seaPuffGeom = new THREE.DodecahedronGeometry(22.0, 1);
-    let seaCount = 36;
-    if (graphicsConfig.preset === 'mobile-opt') seaCount = 20;
-    if (graphicsConfig.preset === 'webgl-min') seaCount = 10;
+    // Sits at Y = -22 to -28 to communicate grand vertical height directly beneath floating islands
+    const seaPuffGeom = new THREE.DodecahedronGeometry(26.0, 1);
+    let seaCount = 48;
+    if (graphicsConfig.preset === 'mobile-opt') seaCount = 26;
+    if (graphicsConfig.preset === 'webgl-min') seaCount = 14;
 
     this.cloudSeaMesh = new THREE.InstancedMesh(seaPuffGeom, this.cloudSeaMaterial, seaCount);
     this.group.add(this.cloudSeaMesh);
 
     for (let i = 0; i < seaCount; i++) {
-      const sx = (Math.random() - 0.5) * 360;
-      const sy = -52.0 + (Math.random() - 0.5) * 8.0;
+      const sx = (Math.random() - 0.5) * 380;
+      const sy = -24.0 + (Math.random() - 0.5) * 6.0;
       const sz = (i / seaCount) * 800 - 150;
-      const sScale = 1.5 + Math.random() * 1.5;
+      const sScale = 1.6 + Math.random() * 1.8;
 
       this.cloudSeaPositions.push({ x: sx, y: sy, z: sz, scale: sScale });
 
       this.dummy.position.set(sx, sy, sz);
-      this.dummy.scale.set(sScale * 1.4, sScale * 0.45, sScale * 1.4);
+      this.dummy.scale.set(sScale * 1.5, sScale * 0.55, sScale * 1.5);
       this.dummy.rotation.set(0, Math.random() * Math.PI, 0);
       this.dummy.updateMatrix();
       this.cloudSeaMesh.setMatrixAt(i, this.dummy.matrix);

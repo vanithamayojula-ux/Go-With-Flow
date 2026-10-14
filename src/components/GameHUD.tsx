@@ -221,7 +221,7 @@ export const GameHUD: React.FC<GameHUDProps> = ({
             </div>
 
             {/* Active Game Mode Badge */}
-            {gameModeMgr && gameModeMgr.activeModeId !== 'standard-run' && (
+            {gameModeMgr && (
               <div className="px-2.5 py-1.5 rounded-lg bg-amber-950/70 backdrop-blur-md border border-amber-400 text-amber-300 text-xs font-bold flex items-center space-x-1.5 shadow-md shadow-amber-950/40">
                 <span className="text-[10px] bg-amber-400/20 px-1 py-0.5 rounded font-black text-amber-200 uppercase">
                   {gameModeMgr.activeMode.name}
@@ -242,8 +242,8 @@ export const GameHUD: React.FC<GameHUDProps> = ({
             )}
           </div>
 
-          {/* Mode-Specific Telemetry Override (Phase 15 Section 18) */}
-          {gameModeMgr && gameModeMgr.activeModeId !== 'standard-run' && (() => {
+          {/* Mode-Specific Telemetry Override */}
+          {gameModeMgr && (() => {
             const m = gameModeMgr.activeMode.getHudMetrics();
             return (
               <div className="flex items-center space-x-2 pointer-events-auto flex-wrap gap-y-1.5">

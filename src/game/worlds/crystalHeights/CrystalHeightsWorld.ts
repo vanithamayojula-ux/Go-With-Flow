@@ -140,19 +140,25 @@ export class CrystalHeightsWorld {
       spawnedMeshes.push(ground);
     }
 
-    // 2. Flanking Crystal Formations (strictly kept at |X| >= 10.5 for runner lane clarity)
-    let crystalDensity = 3;
-    if (graphicsConfig.preset === 'mobile-opt') crystalDensity = 2;
-    if (graphicsConfig.preset === 'webgl-min') crystalDensity = 1;
+    // 2. Flanking Crystal Formations (Midground & Distant Layers, outside |X| >= 12.0)
+    let crystalDensity = 5;
+    if (graphicsConfig.preset === 'mobile-opt') crystalDensity = 3;
+    if (graphicsConfig.preset === 'webgl-min') crystalDensity = 2;
 
     for (let c = 0; c < crystalDensity; c++) {
       const side = c % 2 === 0 ? -1 : 1;
-      const posX = side * (12.0 + rnd(c * 4 + 1) * 18.0);
-      const posZ = centerZ + (rnd(c * 4 + 2) - 0.5) * 45.0;
+      const isDistant = c >= 3;
+
+      const posX = isDistant
+        ? side * (52.0 + rnd(c * 4 + 1) * 55.0)
+        : side * (12.5 + rnd(c * 4 + 1) * 16.0);
+      const posZ = isDistant
+        ? centerZ + 80.0 + rnd(c * 4 + 2) * 140.0
+        : centerZ + (rnd(c * 4 + 2) - 0.5) * 48.0;
 
       const pick = rnd(c * 4 + 3);
       let archId = 'prismatic-cluster';
-      if (pick > 0.65) archId = 'celestial-spire';
+      if (pick > 0.5 || isDistant) archId = 'celestial-spire';
       else if (pick < 0.25) archId = 'ground-shard';
 
       const geom = this.crystalGeoms.get(archId);
@@ -160,9 +166,11 @@ export class CrystalHeightsWorld {
         const crystalMesh = new THREE.Mesh(geom, this.materials.crystalMaterial);
         crystalMesh.position.set(posX, 0, posZ);
         crystalMesh.rotation.y = rnd(c * 4 + 4) * Math.PI * 2;
-        const scale = 0.85 + rnd(c * 4 + 5) * 0.35;
+        const scale = isDistant
+          ? 2.2 + rnd(c * 4 + 5) * 1.4
+          : 0.95 + rnd(c * 4 + 5) * 0.4;
         crystalMesh.scale.set(scale, scale, scale);
-        crystalMesh.castShadow = graphicsConfig.enableShadows && archId === 'celestial-spire';
+        crystalMesh.castShadow = graphicsConfig.enableShadows && archId === 'celestial-spire' && !isDistant;
         crystalMesh.receiveShadow = graphicsConfig.enableShadows;
         this.group.add(crystalMesh);
         spawnedMeshes.push(crystalMesh);
@@ -170,13 +178,13 @@ export class CrystalHeightsWorld {
     }
 
     // 3. Floating Celestial Geode Island (flanking the void)
-    if (graphicsConfig.preset !== 'webgl-min' && rnd(10) > 0.45) {
+    if (graphicsConfig.preset !== 'webgl-min' && rnd(10) > 0.35) {
       if (this.platformGeom) {
         const platform = new THREE.Mesh(this.platformGeom, this.materials.celestialGroundMaterial);
         const pSide = rnd(11) > 0.5 ? 1 : -1;
-        const pX = pSide * (32.0 + rnd(12) * 25.0);
-        const pY = 2.0 + (rnd(13) - 0.5) * 12.0;
-        const pZ = centerZ + (rnd(14) - 0.5) * 20.0;
+        const pX = pSide * (28.0 + rnd(12) * 22.0);
+        const pY = 2.0 + (rnd(13) - 0.5) * 10.0;
+        const pZ = centerZ + (rnd(14) - 0.5) * 25.0;
 
         platform.position.set(pX, pY, pZ);
         platform.rotation.y = rnd(15) * Math.PI * 2;
@@ -188,7 +196,7 @@ export class CrystalHeightsWorld {
         if (topGeom) {
           const topSpire = new THREE.Mesh(topGeom, this.materials.crystalMaterial);
           topSpire.position.set(pX, pY, pZ);
-          topSpire.scale.set(0.7, 0.7, 0.7);
+          topSpire.scale.set(0.85, 0.85, 0.85);
           this.group.add(topSpire);
           spawnedMeshes.push(topSpire);
         }
@@ -196,28 +204,39 @@ export class CrystalHeightsWorld {
     }
 
     // 4. Landmark: Monumental Celestial Gateway or Crystal Shrine
-    if (rnd(16) > 0.65) {
+    // Guarantee gateway bridging across the highway every ~120m (even chunks)
+    const chunkIdx = Math.abs(Math.round(centerZ / 60));
+    if (chunkIdx % 2 === 0) {
       // Spawn celestial gateway spanning the roadbed
-      const gate = this.decorations.spawnCelestialGate(new THREE.Vector3(0, 0, centerZ + 10), 1.0);
+      const gate = this.decorations.spawnCelestialGate(new THREE.Vector3(0, 0, centerZ + 10), 1.05);
       spawnedDecs.push(gate);
-    } else if (rnd(17) > 0.5) {
-      // Spawn roadside crystal altar shrine
+    } else {
+      // Roadside crystal altar shrine
       const side = rnd(18) > 0.5 ? 1 : -1;
       const shrine = this.decorations.spawnCrystalShrine(
-        new THREE.Vector3(side * 8.8, 0, centerZ - 8),
-        0.95
+        new THREE.Vector3(side * 8.6, 0, centerZ - 6),
+        1.0
       );
       spawnedDecs.push(shrine);
     }
 
-    // 5. Crystal Bonsai Tree (celestial flora)
-    if (graphicsConfig.preset !== 'webgl-min' && rnd(19) > 0.45) {
+    // 5. Crystal Bonsai Tree & Ground Shards (Foreground Layer)
+    if (graphicsConfig.preset !== 'webgl-min') {
       const treeSide = rnd(20) > 0.5 ? 1 : -1;
       const tree = this.decorations.spawnCrystalTree(
-        new THREE.Vector3(treeSide * 9.5, 0, centerZ + 14),
-        1.0
+        new THREE.Vector3(treeSide * 7.8, 0, centerZ + 12),
+        1.05
       );
       spawnedDecs.push(tree);
+
+      const shardGeom = this.crystalGeoms.get('ground-shard');
+      if (shardGeom && graphicsConfig.preset === 'desktop-full') {
+        const roadsideShard = new THREE.Mesh(shardGeom, this.materials.crystalMaterial);
+        roadsideShard.position.set(-treeSide * 7.5, 0, centerZ - 10);
+        roadsideShard.scale.set(0.9, 0.9, 0.9);
+        this.group.add(roadsideShard);
+        spawnedMeshes.push(roadsideShard);
+      }
     }
 
     this.activeChunks.push({

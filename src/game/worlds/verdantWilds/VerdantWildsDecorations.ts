@@ -85,51 +85,73 @@ export class VerdantWildsDecorations {
 
   private buildTemplates(): void {
     // 1. Ancient Mossy Ruin Arch
-    // Directly evokes the ancient arches and overgrown stone bridges in the concept art
+    // Monumental stone portal with stepped columns, hanging foliage vines, and druidic runes
     this.ruinArchTemplate = new THREE.Group();
 
-    // Pillar left and right
-    const pGeom = new THREE.BoxGeometry(2.4, 11.0, 2.4);
-    const pL = new THREE.Mesh(pGeom, this.mossyStoneMaterial);
-    pL.position.set(-6.5, 5.5, 0);
-    const pR = new THREE.Mesh(pGeom, this.mossyStoneMaterial);
-    pR.position.set(6.5, 5.5, 0);
+    // Pillar left and right (stepped plinth, main column, carved capital)
+    const basePillarGeom = new THREE.BoxGeometry(2.8, 3.0, 2.8);
+    const shaftGeom = new THREE.CylinderGeometry(1.2, 1.4, 8.5, 8);
+    const capGeom = new THREE.BoxGeometry(2.6, 1.5, 2.6);
 
-    // Arch header lintel
-    const lintelGeom = new THREE.BoxGeometry(16.0, 2.2, 2.8);
-    const lintel = new THREE.Mesh(lintelGeom, this.mossyStoneMaterial);
-    lintel.position.set(0, 11.5, 0);
+    for (const sign of [-1, 1]) {
+      const pBase = new THREE.Mesh(basePillarGeom, this.mossyStoneMaterial);
+      pBase.position.set(sign * 6.8, 1.5, 0);
 
-    // Moss / Foliage overgrowth on lintel
-    const mossTuftGeom = new THREE.DodecahedronGeometry(1.6, 1);
-    const mossTuft = new THREE.Mesh(mossTuftGeom, this.fernLeafMaterial);
-    mossTuft.position.set(-2.5, 12.8, 0.4);
+      const pShaft = new THREE.Mesh(shaftGeom, this.mossyStoneMaterial);
+      pShaft.position.set(sign * 6.8, 7.0, 0);
+
+      const pCap = new THREE.Mesh(capGeom, this.mossyStoneMaterial);
+      pCap.position.set(sign * 6.8, 11.5, 0);
+
+      // Hanging moss/vine tendrils alongside pillars (outside road corridor |X| >= 5.5)
+      const vineGeom = new THREE.CylinderGeometry(0.15, 0.05, 5.5, 5);
+      const vine = new THREE.Mesh(vineGeom, this.fernLeafMaterial);
+      vine.position.set(sign * 5.6, 8.5, 0.4);
+      vine.rotation.z = sign * -0.08;
+
+      this.ruinArchTemplate.add(pBase, pShaft, pCap, vine);
+    }
+
+    // Curved Arch Vault / Lintel (High clearance: Y=11.5 to 15.0, cleanly above player)
+    const vaultGeom = new THREE.TorusGeometry(6.8, 1.35, 7, 16, Math.PI);
+    const vault = new THREE.Mesh(vaultGeom, this.mossyStoneMaterial);
+    vault.position.set(0, 11.5, 0);
+
+    // Overgrown Foliage clusters on arch crown
+    const mossTuftGeom = new THREE.DodecahedronGeometry(1.8, 1);
+    const mossTuft1 = new THREE.Mesh(mossTuftGeom, this.fernLeafMaterial);
+    mossTuft1.position.set(-2.8, 18.0, 0.3);
     const mossTuft2 = new THREE.Mesh(mossTuftGeom, this.fernLeafMaterial);
-    mossTuft2.position.set(3.8, 12.6, -0.3);
+    mossTuft2.position.set(3.0, 17.8, -0.2);
+    const mossTuft3 = new THREE.Mesh(mossTuftGeom, this.fernLeafMaterial);
+    mossTuft3.position.set(0, 18.6, 0.1);
 
-    // Glowing ancient rune in center
-    const runeGeom = new THREE.CylinderGeometry(0.7, 0.7, 0.4, 6);
-    runeGeom.rotateX(Math.PI / 2);
+    // Glowing ancient druidic rune keystone in arch apex
+    const runeGeom = new THREE.OctahedronGeometry(1.3, 0);
     const rune = new THREE.Mesh(runeGeom, this.ancientCarvingMaterial);
-    rune.position.set(0, 11.5, 1.4);
+    rune.position.set(0, 17.0, 0);
 
-    this.ruinArchTemplate.add(pL, pR, lintel, mossTuft, mossTuft2, rune);
+    this.ruinArchTemplate.add(vault, mossTuft1, mossTuft2, mossTuft3, rune);
 
     // 2. Ruin Broken Column / Monolith
     this.ruinPillarTemplate = new THREE.Group();
-    const colBase = new THREE.Mesh(new THREE.CylinderGeometry(1.4, 1.7, 1.8, 7), this.mossyStoneMaterial);
-    colBase.position.set(0, 0.9, 0);
-    const colShaft = new THREE.Mesh(new THREE.CylinderGeometry(1.2, 1.4, 6.5, 7), this.mossyStoneMaterial);
-    colShaft.position.set(0, 4.8, 0);
-    colShaft.rotation.z = 0.08; // slightly weathered tilt
-    this.ruinPillarTemplate.add(colBase, colShaft);
+    const colBase = new THREE.Mesh(new THREE.CylinderGeometry(1.5, 1.9, 2.0, 8), this.mossyStoneMaterial);
+    colBase.position.set(0, 1.0, 0);
+    const colShaft = new THREE.Mesh(new THREE.CylinderGeometry(1.2, 1.4, 7.5, 8), this.mossyStoneMaterial);
+    colShaft.position.set(0, 5.5, 0);
+    colShaft.rotation.z = 0.08; // weathered tilt
+
+    // Moss crown atop broken column
+    const colMoss = new THREE.Mesh(new THREE.DodecahedronGeometry(1.2, 1), this.fernLeafMaterial);
+    colMoss.position.set(0.3, 9.5, 0);
+    this.ruinPillarTemplate.add(colBase, colShaft, colMoss);
 
     // 3. Bioluminescent Mushroom Cluster
     this.mushroomClusterTemplate = new THREE.Group();
-    for (let i = 0; i < 4; i++) {
-      const stemH = 1.4 + i * 0.8;
+    for (let i = 0; i < 5; i++) {
+      const stemH = 1.4 + i * 0.7;
       const stem = new THREE.Mesh(new THREE.CylinderGeometry(0.18, 0.32, stemH, 6), this.mushroomStemMaterial);
-      const capRadius = 0.9 + i * 0.45;
+      const capRadius = 0.85 + i * 0.4;
       const cap = new THREE.Mesh(
         new THREE.SphereGeometry(capRadius, 7, 5, 0, Math.PI * 2, 0, Math.PI * 0.55),
         this.mushroomCapMaterial
@@ -138,19 +160,19 @@ export class VerdantWildsDecorations {
 
       const singleShroom = new THREE.Group();
       singleShroom.add(stem, cap);
-      singleShroom.position.set((i - 1.5) * 1.2, 0, (Math.random() - 0.5) * 1.5);
-      singleShroom.rotation.z = (Math.random() - 0.5) * 0.3;
+      singleShroom.position.set((i - 2.0) * 1.1, 0, (Math.random() - 0.5) * 1.6);
+      singleShroom.rotation.z = (Math.random() - 0.5) * 0.35;
       this.mushroomClusterTemplate.add(singleShroom);
     }
 
     // 4. Understory Fern Cluster
     this.fernClusterTemplate = new THREE.Group();
-    const frondGeom = new THREE.ConeGeometry(0.8, 3.2, 4);
+    const frondGeom = new THREE.ConeGeometry(0.85, 3.4, 4);
     frondGeom.rotateX(Math.PI / 3);
-    for (let f = 0; f < 6; f++) {
+    for (let f = 0; f < 8; f++) {
       const frond = new THREE.Mesh(frondGeom, this.fernLeafMaterial);
-      frond.rotation.y = (f / 6) * Math.PI * 2;
-      frond.scale.set(0.8, 1.1, 0.8);
+      frond.rotation.y = (f / 8) * Math.PI * 2;
+      frond.scale.set(0.85, 1.15, 0.85);
       this.fernClusterTemplate.add(frond);
     }
   }

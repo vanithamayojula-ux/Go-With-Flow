@@ -18,6 +18,7 @@ export interface WorldTransitionMetrics {
   isTransitioning: boolean;
   preloadDistance: number;
   transitionZoneLength: number;
+  loopNumber?: number;
 }
 
 export interface BlendedEnvironmentParams {
@@ -56,6 +57,8 @@ export class WorldTransitionManager {
 
   private _transitionProgress = 0.0;
   private _lastAnnouncedWorldId: WorldId = 'sky-isles';
+  private _isLooping: boolean = true;
+  private _loopCount: number = 1;
 
   // Cached color objects for zero-garbage interpolation
   private _tempColA = new THREE.Color();
@@ -139,6 +142,18 @@ export class WorldTransitionManager {
     return this._currentState === 'TRANSITIONING';
   }
 
+  public get isLooping(): boolean {
+    return this._isLooping;
+  }
+
+  public setLooping(looping: boolean): void {
+    this._isLooping = looping;
+  }
+
+  public get loopCount(): number {
+    return this._loopCount;
+  }
+
   public update(distance: number): {
     metrics: WorldTransitionMetrics;
     blended: BlendedEnvironmentParams;
@@ -147,23 +162,43 @@ export class WorldTransitionManager {
   } {
     const safeDist = Math.max(0, distance);
     const rawIndex = Math.floor(safeDist / this.worldLength);
-    const worldIndex = Math.min(rawIndex, WORLD_ORDER.length - 1);
-    const targetWorldId = WORLD_ORDER[worldIndex];
 
-    const isFinalWorld = worldIndex === WORLD_ORDER.length - 1;
-    const worldStartDist = worldIndex * this.worldLength;
-    const worldEndDist = worldStartDist + this.worldLength;
-    const distToBoundary = worldEndDist - safeDist;
+    let targetWorldId: WorldId;
+    let nextWorldId: WorldId;
+    let transitionStartDist: number;
+    let preloadStartDist: number;
+    let worldEndDist: number;
+    let isFinalWorld = false;
 
-    // Transition Zone calculations
-    const transitionStartDist = worldEndDist - this.transitionZoneLength;
-    const preloadStartDist = transitionStartDist - this.preloadDistance;
+    if (this._isLooping) {
+      const cycleIndex = rawIndex % WORLD_ORDER.length;
+      targetWorldId = WORLD_ORDER[cycleIndex];
+      const nextCycleIndex = (cycleIndex + 1) % WORLD_ORDER.length;
+      nextWorldId = WORLD_ORDER[nextCycleIndex];
+      this._loopCount = Math.floor(rawIndex / WORLD_ORDER.length) + 1;
+
+      const worldStartDist = rawIndex * this.worldLength;
+      worldEndDist = worldStartDist + this.worldLength;
+      transitionStartDist = worldEndDist - this.transitionZoneLength;
+      preloadStartDist = transitionStartDist - this.preloadDistance;
+    } else {
+      const worldIndex = Math.min(rawIndex, WORLD_ORDER.length - 1);
+      targetWorldId = WORLD_ORDER[worldIndex];
+      isFinalWorld = worldIndex === WORLD_ORDER.length - 1;
+      const worldStartDist = worldIndex * this.worldLength;
+      worldEndDist = worldStartDist + this.worldLength;
+      transitionStartDist = worldEndDist - this.transitionZoneLength;
+      preloadStartDist = transitionStartDist - this.preloadDistance;
+      const nextIdx = Math.min(worldIndex + 1, WORLD_ORDER.length - 1);
+      nextWorldId = WORLD_ORDER[nextIdx];
+      this._loopCount = 1;
+    }
 
     let shouldNotify = false;
     let worldToAnnounce: WorldConfig | undefined;
 
-    if (isFinalWorld) {
-      // Final world (Obsidian Core) remains stable indefinitely
+    if (!this._isLooping && isFinalWorld) {
+      // In finite campaign mode, final world remains stable after completing all transitions
       this._currentState = 'STABLE';
       this._currentWorldId = targetWorldId;
       this._transitionProgress = 0.0;
@@ -172,29 +207,26 @@ export class WorldTransitionManager {
       // Deep within current world: STABLE
       this._currentState = 'STABLE';
       this._currentWorldId = targetWorldId;
-      this._nextWorldId = WORLD_ORDER[worldIndex + 1];
+      this._nextWorldId = nextWorldId;
       this._transitionProgress = 0.0;
     } else if (safeDist < transitionStartDist) {
       // Approaching boundary within preload range: PREPARING
       this._currentState = 'PREPARING';
       this._currentWorldId = targetWorldId;
-      this._nextWorldId = WORLD_ORDER[worldIndex + 1];
+      this._nextWorldId = nextWorldId;
       this._transitionProgress = 0.0;
     } else if (safeDist < worldEndDist) {
       // Crossing through transition corridor: TRANSITIONING
       this._currentState = 'TRANSITIONING';
       this._currentWorldId = targetWorldId;
-      this._nextWorldId = WORLD_ORDER[worldIndex + 1];
-      // Progress from 0.0 (start of transition zone) to 1.0 (boundary)
+      this._nextWorldId = nextWorldId;
       const rawProg = (safeDist - transitionStartDist) / this.transitionZoneLength;
-      // Smooth Hermite smoothstep interpolation
       this._transitionProgress = THREE.MathUtils.smoothstep(rawProg, 0.0, 1.0);
     } else {
       // Crossed boundary into next world: COMPLETING -> STABLE
       this._currentState = 'COMPLETING';
       this._previousWorldId = targetWorldId;
-      const nextIdx = Math.min(worldIndex + 1, WORLD_ORDER.length - 1);
-      this._currentWorldId = WORLD_ORDER[nextIdx];
+      this._currentWorldId = nextWorldId;
       this._nextWorldId = this.computeNextWorld(this._currentWorldId);
       this._transitionProgress = 0.0;
     }
@@ -224,6 +256,7 @@ export class WorldTransitionManager {
     this._metrics.isTransitioning = this._currentState === 'TRANSITIONING';
     this._metrics.preloadDistance = this.preloadDistance;
     this._metrics.transitionZoneLength = this.transitionZoneLength;
+    this._metrics.loopNumber = this._loopCount;
 
     this._updateResult.metrics = this._metrics;
     this._updateResult.blended = this._blendedParams;

@@ -30,21 +30,28 @@ import { ScoreAttackMode } from './scoreAttack';
 import { TimeTrialMode } from './timeTrial';
 import { SurvivalMode } from './survival';
 import { ChallengeRunMode } from './challengeRun';
+import { CampaignRunMode } from './campaignRun';
+import { EndlessRunMode } from './endlessRun';
+import { CampaignManager } from '../campaign/CampaignManager';
 import { ProgressionManager } from '../progression';
 
 export class GameModeManager {
   private _state: GameModeSaveData;
   private _modes: Map<GameModeId, GameMode> = new Map();
-  private _activeModeId: GameModeId = 'standard-run';
+  private _campaignMgr: CampaignManager;
+  private _activeModeId: GameModeId = 'campaign';
   private _activeChallengeId?: string;
   private _currentSummary: GameModeSummary | null = null;
   private _runHasStarted: boolean = false;
   private _hasAwardedProgression: boolean = false;
 
-  constructor() {
+  constructor(campaignMgr?: CampaignManager) {
+    this._campaignMgr = campaignMgr || new CampaignManager();
     this._state = this.loadState();
 
     // Register mode instances
+    this._modes.set('campaign', new CampaignRunMode(this._campaignMgr));
+    this._modes.set('endless', new EndlessRunMode());
     this._modes.set('standard-run', new StandardRunMode());
     this._modes.set('score-attack', new ScoreAttackMode());
     this._modes.set('time-trial', new TimeTrialMode());
@@ -53,6 +60,10 @@ export class GameModeManager {
 
     // Restore selected mode
     this.setMode(this._state.selectedMode, this._state.selectedChallengeId);
+  }
+
+  public get campaignManager(): CampaignManager {
+    return this._campaignMgr;
   }
 
   // --- State Persistence ---
@@ -76,6 +87,8 @@ export class GameModeManager {
             claimedDailyChallenges: parsed.claimedDailyChallenges || {},
             claimedWeeklyChallenges: parsed.claimedWeeklyChallenges || {},
             totalRunsByMode: parsed.totalRunsByMode || {
+              'campaign': 0,
+              'endless': 0,
               'standard-run': 0,
               'score-attack': 0,
               'time-trial': 0,

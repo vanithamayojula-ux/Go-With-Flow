@@ -4,6 +4,8 @@
 
 export * from './gameModeTypes';
 export * from './gameModeConfig';
+export * from './campaignRun';
+export * from './endlessRun';
 export * from './standardRun';
 export * from './scoreAttack';
 export * from './timeTrial';

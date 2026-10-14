@@ -858,83 +858,86 @@ export class TerrainManager {
     this.scene.add(rightCurb);
     decorations.push(rightCurb);
 
-    // 4. Grounded Canyon Structure Depth Bands (Volumetric across all biomes)
+    // 4. Grounded Canyon Structure Depth Bands (Only for urban cyberpunk biomes)
     const baseRoadY = getTerrainHeight(0, zCenter);
+    const isCyberCity = biome === 'neon-undercity' || biome === 'the-grid' || biome === 'derelict-station';
 
-    // Near Band (x = +-11..16, height 45..75) - clear 6+ unit gap from rail (4.5)
-    const hL_near = 48 + Math.abs(cz * 13) % 28;
-    const bL_near = this.createGroundedStructure(-12.5, baseRoadY, zCenter - 18, 14, hL_near, 20, 'left', biome, Math.abs(cz) % 4);
-    this.scene.add(bL_near);
-    decorations.push(bL_near);
+    if (isCyberCity) {
+      // Near Band (x = +-11..16, height 45..75) - clear 6+ unit gap from rail (4.5)
+      const hL_near = 48 + Math.abs(cz * 13) % 28;
+      const bL_near = this.createGroundedStructure(-12.5, baseRoadY, zCenter - 18, 14, hL_near, 20, 'left', biome, Math.abs(cz) % 4);
+      this.scene.add(bL_near);
+      decorations.push(bL_near);
 
-    const hR_near = 52 + Math.abs(cz * 17) % 26;
-    const bR_near = this.createGroundedStructure(12.5, baseRoadY, zCenter + 16, 14, hR_near, 20, 'right', biome, (Math.abs(cz) + 2) % 4);
-    this.scene.add(bR_near);
-    decorations.push(bR_near);
+      const hR_near = 52 + Math.abs(cz * 17) % 26;
+      const bR_near = this.createGroundedStructure(12.5, baseRoadY, zCenter + 16, 14, hR_near, 20, 'right', biome, (Math.abs(cz) + 2) % 4);
+      this.scene.add(bR_near);
+      decorations.push(bR_near);
 
-    // Mid Band (x = +-28..38, height 75..120)
-    const hL_mid = 82 + Math.abs(cz * 23) % 38;
-    const bL_mid = this.createGroundedStructure(-30, baseRoadY, zCenter + 14, 20, hL_mid, 26, 'left', biome);
-    this.scene.add(bL_mid);
-    decorations.push(bL_mid);
+      // Mid Band (x = +-28..38, height 75..120)
+      const hL_mid = 82 + Math.abs(cz * 23) % 38;
+      const bL_mid = this.createGroundedStructure(-30, baseRoadY, zCenter + 14, 20, hL_mid, 26, 'left', biome);
+      this.scene.add(bL_mid);
+      decorations.push(bL_mid);
 
-    const hR_mid = 86 + Math.abs(cz * 29) % 36;
-    const bR_mid = this.createGroundedStructure(30, baseRoadY, zCenter - 14, 20, hR_mid, 26, 'right', biome);
-    this.scene.add(bR_mid);
-    decorations.push(bR_mid);
+      const hR_mid = 86 + Math.abs(cz * 29) % 36;
+      const bR_mid = this.createGroundedStructure(30, baseRoadY, zCenter - 14, 20, hR_mid, 26, 'right', biome);
+      this.scene.add(bR_mid);
+      decorations.push(bR_mid);
 
-    // Far Band (x = +-60..85, height 120..190)
-    const hL_far = 135 + Math.abs(cz * 37) % 55;
-    const bL_far = this.createGroundedStructure(-65, baseRoadY, zCenter - 4, 32, hL_far, 40, 'left', biome);
-    this.scene.add(bL_far);
-    decorations.push(bL_far);
+      // Far Band (x = +-60..85, height 120..190)
+      const hL_far = 135 + Math.abs(cz * 37) % 55;
+      const bL_far = this.createGroundedStructure(-65, baseRoadY, zCenter - 4, 32, hL_far, 40, 'left', biome);
+      this.scene.add(bL_far);
+      decorations.push(bL_far);
 
-    const hR_far = 140 + Math.abs(cz * 41) % 50;
-    const bR_far = this.createGroundedStructure(65, baseRoadY, zCenter + 6, 32, hR_far, 40, 'right', biome);
-    this.scene.add(bR_far);
-    decorations.push(bR_far);
+      const hR_far = 140 + Math.abs(cz * 41) % 50;
+      const bR_far = this.createGroundedStructure(65, baseRoadY, zCenter + 6, 32, hR_far, 40, 'right', biome);
+      this.scene.add(bR_far);
+      decorations.push(bR_far);
 
-    // 5. Glowing Vertical Pillars at rhythmic intervals
-    const pillarDistX = RAIL_X + 1.2;
-    for (let pStep = -CHUNK_SIZE / 2 + 12; pStep < CHUNK_SIZE / 2; pStep += 24) {
-      const pZ = zCenter + pStep;
-      const roadHLeft = getTerrainHeight(-pillarDistX, pZ);
-      const roadHRight = getTerrainHeight(pillarDistX, pZ);
+      // 5. Glowing Vertical Pillars at rhythmic intervals
+      const pillarDistX = RAIL_X + 1.2;
+      for (let pStep = -CHUNK_SIZE / 2 + 12; pStep < CHUNK_SIZE / 2; pStep += 24) {
+        const pZ = zCenter + pStep;
+        const roadHLeft = getTerrainHeight(-pillarDistX, pZ);
+        const roadHRight = getTerrainHeight(pillarDistX, pZ);
 
-      // Left glowing pylon
-      const leftPillar = new THREE.Mesh(this.pillarGeom, this.spaceObsidianMat);
-      leftPillar.position.set(-pillarDistX, roadHLeft + 7.0, pZ);
-      this.scene.add(leftPillar);
-      decorations.push(leftPillar);
+        // Left glowing pylon
+        const leftPillar = new THREE.Mesh(this.pillarGeom, this.spaceObsidianMat);
+        leftPillar.position.set(-pillarDistX, roadHLeft + 7.0, pZ);
+        this.scene.add(leftPillar);
+        decorations.push(leftPillar);
 
-      const leftCrown = new THREE.Mesh(this.pillarCrownGeom, this.glowingPillarMat);
-      leftCrown.rotation.x = Math.PI / 2;
-      leftCrown.position.set(-pillarDistX, roadHLeft + 14.0, pZ);
-      this.scene.add(leftCrown);
-      decorations.push(leftCrown);
+        const leftCrown = new THREE.Mesh(this.pillarCrownGeom, this.glowingPillarMat);
+        leftCrown.rotation.x = Math.PI / 2;
+        leftCrown.position.set(-pillarDistX, roadHLeft + 14.0, pZ);
+        this.scene.add(leftCrown);
+        decorations.push(leftCrown);
 
-      // Right glowing pylon
-      const rightPillar = new THREE.Mesh(this.pillarGeom, this.spaceObsidianMat);
-      rightPillar.position.set(pillarDistX, roadHRight + 7.0, pZ);
-      this.scene.add(rightPillar);
-      decorations.push(rightPillar);
+        // Right glowing pylon
+        const rightPillar = new THREE.Mesh(this.pillarGeom, this.spaceObsidianMat);
+        rightPillar.position.set(pillarDistX, roadHRight + 7.0, pZ);
+        this.scene.add(rightPillar);
+        decorations.push(rightPillar);
 
-      const rightCrown = new THREE.Mesh(this.pillarCrownGeom, this.glowingPillarMat);
-      rightCrown.rotation.x = Math.PI / 2;
-      rightCrown.position.set(pillarDistX, roadHRight + 14.0, pZ);
-      this.scene.add(rightCrown);
-      decorations.push(rightCrown);
-    }
+        const rightCrown = new THREE.Mesh(this.pillarCrownGeom, this.glowingPillarMat);
+        rightCrown.rotation.x = Math.PI / 2;
+        rightCrown.position.set(pillarDistX, roadHRight + 14.0, pZ);
+        this.scene.add(rightCrown);
+        decorations.push(rightCrown);
+      }
 
-    // 6. Overhead Skybridge & Space Frame Archways
-    if ((biome === 'neon-undercity' || biome === 'the-grid' || biome === 'derelict-station') && Math.abs(cz) % 3 === 0) {
-      const skybridge = this.createSkybridge(zCenter, baseRoadY);
-      this.scene.add(skybridge);
-      decorations.push(skybridge);
-    } else if (Math.abs(cz) % 2 === 0) {
-      const frameGroup = this.createGeometricSpaceFrame(zCenter, baseRoadY);
-      this.scene.add(frameGroup);
-      decorations.push(frameGroup);
+      // 6. Overhead Skybridge & Space Frame Archways
+      if (Math.abs(cz) % 3 === 0) {
+        const skybridge = this.createSkybridge(zCenter, baseRoadY);
+        this.scene.add(skybridge);
+        decorations.push(skybridge);
+      } else if (Math.abs(cz) % 2 === 0) {
+        const frameGroup = this.createGeometricSpaceFrame(zCenter, baseRoadY);
+        this.scene.add(frameGroup);
+        decorations.push(frameGroup);
+      }
     }
 
     // 7. Foliage Instances (Lush neon grass and crystal trees for nature and futuristic biomes)

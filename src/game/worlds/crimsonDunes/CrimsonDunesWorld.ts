@@ -145,17 +145,16 @@ export class CrimsonDunesWorld {
       spawnedMeshes.push(ground);
     }
 
-    // 2. Flanking Rolling Dunes (Positioned safely outside central runner road |X| >= 16)
-    const sides: Array<'left' | 'right'> = rnd(1) > 0.4 ? ['left', 'right'] : (rnd(2) > 0.5 ? ['left'] : ['right']);
-    for (const side of sides) {
+    // 2. Flanking Rolling Dunes (Midground Layer on both flanks |X| >= 16)
+    for (const side of ['left', 'right'] as const) {
       const sign = side === 'left' ? -1 : 1;
       const duneType = rnd(3) > 0.6 ? 'large-crescent' : (rnd(4) > 0.3 ? 'medium-dune' : 'long-ridge');
       const geom = this.duneGeoms.get(duneType);
       if (geom) {
         const duneMesh = new THREE.Mesh(geom, this.materials.duneMaterial);
-        const posX = sign * (20.0 + rnd(5) * 25.0);
-        const posY = -1.5 + rnd(6) * 3.0;
-        const posZ = centerZ + (rnd(7) - 0.5) * 20.0;
+        const posX = sign * (18.0 + rnd(5) * 22.0);
+        const posY = -1.5 + rnd(6) * 2.5;
+        const posZ = centerZ + (rnd(7) - 0.5) * 25.0;
 
         duneMesh.position.set(posX, posY, posZ);
         duneMesh.rotation.y = rnd(8) * Math.PI * 0.4;
@@ -166,20 +165,20 @@ export class CrimsonDunesWorld {
       }
     }
 
-    // 3. Towering Horizon Mesa Landmark (Placed far on horizon to establish vast desert scale)
-    if (graphicsConfig.preset !== 'webgl-min' && rnd(9) > 0.5) {
-      const isMonolith = rnd(10) > 0.5 && graphicsConfig.preset === 'desktop-full';
+    // 3. Towering Horizon Mesa & Canyon Wall Landmarks (Distant Silhouette Layer)
+    if (graphicsConfig.preset !== 'webgl-min') {
+      const isMonolith = rnd(10) > 0.4;
       const mesaArchId = isMonolith ? 'horizon-monolith' : 'flank-butte';
       const mesaGeom = this.mesaGeoms.get(mesaArchId);
 
       if (mesaGeom) {
         const mesa = new THREE.Mesh(mesaGeom, this.materials.mesaRockMaterial);
         const sideSign = rnd(11) > 0.5 ? 1 : -1;
-        const mesaDistX = sideSign * (isMonolith ? 140.0 + rnd(12) * 80.0 : 45.0 + rnd(12) * 30.0);
-        const mesaDistZ = centerZ + (isMonolith ? 180.0 + rnd(13) * 100.0 : (rnd(13) - 0.5) * 35.0);
+        const mesaDistX = sideSign * (isMonolith ? 85.0 + rnd(12) * 50.0 : 42.0 + rnd(12) * 25.0);
+        const mesaDistZ = centerZ + 100.0 + rnd(13) * 120.0;
 
-        mesa.position.set(mesaDistX, -4.0, mesaDistZ);
-        mesa.scale.set(1.2, 1.2, 1.2);
+        mesa.position.set(mesaDistX, -3.0, mesaDistZ);
+        mesa.scale.set(1.4, 1.4, 1.4);
         mesa.receiveShadow = graphicsConfig.enableShadows;
         this.group.add(mesa);
         spawnedMeshes.push(mesa);
@@ -187,35 +186,43 @@ export class CrimsonDunesWorld {
     }
 
     // 4. Ancient Desert Landmark: Monumental Arch or Sand-Buried Obelisk
-    if (rnd(14) > 0.65) {
+    // Guarantee grand arch bridging across the highway every ~120m (even chunks)
+    const chunkIdx = Math.abs(Math.round(centerZ / 60));
+    if (chunkIdx % 2 === 0) {
       // Spawn monumental arch bridging across the roadbed
-      const arch = this.decorations.spawnDesertArch(new THREE.Vector3(0, 0, centerZ + 12), 1.0);
+      const arch = this.decorations.spawnDesertArch(new THREE.Vector3(0, 0, centerZ + 12), 1.05);
       spawnedDecs.push(arch);
-    } else if (rnd(15) > 0.45) {
-      // Spawn roadside buried obelisk or pillar colonnade
+    } else {
+      // Roadside buried obelisk or pillar colonnade
       const side = rnd(16) > 0.5 ? 1 : -1;
       const isObelisk = rnd(17) > 0.5;
       const ruin = isObelisk
-        ? this.decorations.spawnObelisk(new THREE.Vector3(side * 8.8, 0, centerZ), 1.1)
-        : this.decorations.spawnRuinPillars(new THREE.Vector3(side * 8.5, 0, centerZ - 6), 0.95);
+        ? this.decorations.spawnObelisk(new THREE.Vector3(side * 8.6, 0, centerZ), 1.1)
+        : this.decorations.spawnRuinPillars(new THREE.Vector3(side * 8.4, 0, centerZ - 6), 1.0);
       spawnedDecs.push(ruin);
     }
 
-    // 5. Sparse Desert Vegetation: Cacti and Dry Shrubs
-    if (graphicsConfig.preset !== 'webgl-min' && rnd(18) > 0.3) {
+    // 5. Sparse Desert Vegetation: Cacti and Dry Shrubs (Foreground Layer)
+    if (graphicsConfig.preset !== 'webgl-min') {
       const side = rnd(19) > 0.5 ? 1 : -1;
-      const cactus = this.decorations.spawnCactus(
-        new THREE.Vector3(side * 9.2, 0, centerZ + (rnd(20) - 0.5) * 20),
-        0.95
+      const cactus1 = this.decorations.spawnCactus(
+        new THREE.Vector3(side * 7.6, 0, centerZ + (rnd(20) - 0.5) * 18),
+        1.0
       );
-      spawnedDecs.push(cactus);
+      spawnedDecs.push(cactus1);
 
-      if (rnd(21) > 0.5) {
-        const shrub = this.decorations.spawnShrub(
-          new THREE.Vector3(-side * 9.5, 0, centerZ + (rnd(22) - 0.5) * 15),
-          1.0
+      const shrub = this.decorations.spawnShrub(
+        new THREE.Vector3(-side * 7.8, 0, centerZ + (rnd(22) - 0.5) * 14),
+        1.1
+      );
+      spawnedDecs.push(shrub);
+
+      if (graphicsConfig.preset === 'desktop-full') {
+        const cactus2 = this.decorations.spawnCactus(
+          new THREE.Vector3(-side * 9.2, 0, centerZ + 20),
+          0.85
         );
-        spawnedDecs.push(shrub);
+        spawnedDecs.push(cactus2);
       }
     }
 

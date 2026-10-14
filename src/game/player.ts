@@ -122,6 +122,7 @@ export class PlayerManager {
 
   // Shield Visual Bubble
   shieldMesh!: THREE.Mesh;
+  public speedMultiplier: number = 1.0;
 
   // Stats
   stats: PlayerStats = {
@@ -900,7 +901,7 @@ export class PlayerManager {
 
     // Dynamic distance-based speed scaling: starting slow at ~6.0, ramping up smoothly as distance increases (Subway Surfers style)
     const distanceSpeedBonus = Math.min(28.0, (this.stats.distance / 120.0) * 2.0);
-    let targetSpeed = 6.0 + distanceSpeedBonus;
+    let targetSpeed = (6.0 + distanceSpeedBonus) * this.speedMultiplier;
 
     if (input.forward) targetSpeed += 12.0;
     if (this.stats.isBoosting) targetSpeed += 18.0;

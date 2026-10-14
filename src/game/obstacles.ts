@@ -460,6 +460,13 @@ export class ObstacleManager {
   private lastSpawnZ = 35;
   private genState: ObstacleGeneratorState;
   private _nearMissPosScratch = new THREE.Vector3();
+  public difficultyMultiplier: number = 1.0;
+  public gapMultiplier: number = 1.0;
+
+  public setDifficultyScaling(diffMultiplier: number, gapMultiplier: number): void {
+    this.difficultyMultiplier = Math.max(0.2, Math.min(3.0, diffMultiplier));
+    this.gapMultiplier = Math.max(0.5, Math.min(2.0, gapMultiplier));
+  }
 
   // Strict High-Contrast Materials
   private barrierMat = new THREE.MeshStandardMaterial({
@@ -685,12 +692,13 @@ export class ObstacleManager {
   }
 
   private spawnNextRow(playerSpeed = 22): void {
-    // Difficulty ramp over first 500m
-    const difficulty = THREE.MathUtils.clamp(this.lastSpawnZ / 500.0, 0.0, 1.0);
+    // Difficulty ramp over distance, scaled by world/mode difficulty multiplier
+    const baseDifficulty = THREE.MathUtils.clamp(this.lastSpawnZ / 500.0, 0.0, 1.0);
+    const difficulty = THREE.MathUtils.clamp(baseDifficulty * this.difficultyMultiplier, 0.0, 1.0);
     const tSwitch = 0.18;
     const reaction = 0.55;
     const minGap = playerSpeed * (reaction + tSwitch);
-    const rowGap = Math.max(minGap, (1 - difficulty) * 40 + difficulty * 20);
+    const rowGap = Math.max(minGap, ((1 - difficulty) * 40 + difficulty * 20) * this.gapMultiplier);
 
     const spawnZ = this.lastSpawnZ + rowGap;
     this.lastSpawnZ = spawnZ;

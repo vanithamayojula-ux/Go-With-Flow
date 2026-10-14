@@ -134,11 +134,23 @@ export class SkyIslesWorld {
     if (graphicsConfig.preset === 'mobile-opt') islandCount = 2;
     if (graphicsConfig.preset === 'webgl-min') islandCount = 1;
 
-    // Spawn 1 Flank Island on Left and/or Right flank of the highway
-    const sides: Array<'left' | 'right'> = rnd(1) > 0.5 ? ['left', 'right'] : (rnd(2) > 0.5 ? ['left'] : ['right']);
+    // 1. Landmark: Grand Monumental Highway Sky Arch spanning over the road
+    if (Math.abs(Math.round(centerZ / 60)) % 2 === 0) {
+      const arch = this.decorations.spawnLandmark('arch', new THREE.Vector3(0, 0, centerZ + 12), 1.0);
+      this.activeIslands.push({
+        id: `sky-arch-${centerZ}`,
+        mesh: new THREE.Mesh(), // dummy mesh reference for group
+        decorations: [arch],
+        z: centerZ + 12,
+        lodTier: 'high',
+      });
+    }
+
+    // 2. Spawn Floating Islands on Flanks of the Highway
+    const sides: Array<'left' | 'right'> = ['left', 'right'];
 
     for (const side of sides) {
-      const archId = rnd(3) > 0.6 ? 'large-sanctuary' : (rnd(4) > 0.3 ? 'medium-plateau' : 'small-satellite');
+      const archId = rnd(3) > 0.5 ? 'large-sanctuary' : (rnd(4) > 0.3 ? 'medium-plateau' : 'small-satellite');
       const geom = this.islandGeoms.get(archId);
       if (!geom) continue;
 
@@ -147,8 +159,8 @@ export class SkyIslesWorld {
       mesh.castShadow = graphicsConfig.enableShadows && archId !== 'small-satellite';
 
       const sign = side === 'left' ? -1 : 1;
-      const posX = sign * (22.0 + rnd(5) * 28.0);
-      const posY = -4.0 + (rnd(6) - 0.5) * 14.0;
+      const posX = sign * (18.0 + rnd(5) * 22.0);
+      const posY = -2.0 + (rnd(6) - 0.5) * 8.0;
       const posZ = centerZ + (rnd(7) - 0.5) * 24.0;
 
       mesh.position.set(posX, posY, posZ);
@@ -157,25 +169,24 @@ export class SkyIslesWorld {
 
       const attachedDecs: THREE.Object3D[] = [];
 
-      // Add Waterfalls on large islands (directly matching hero concept art)
+      // Add cascading waterfalls pouring off large sanctuary islands down into the cloud sea
       if (archId === 'large-sanctuary' && graphicsConfig.preset !== 'webgl-min') {
-        const fallEdgePos = new THREE.Vector3(posX - sign * 5.0, posY + 2.0, posZ + 2.0);
-        const fall = this.decorations.createWaterfall(fallEdgePos, 34.0, 3.2);
+        const fallEdgePos = new THREE.Vector3(posX - sign * 6.5, posY + 2.0, posZ + 1.0);
+        const fall = this.decorations.createWaterfall(fallEdgePos, 32.0, 3.8);
         attachedDecs.push(fall);
       }
 
-      // Add Landmark: Ancient Portal Arch or Sky Temple
-      if (archId === 'large-sanctuary' && rnd(9) > 0.4) {
-        const isArch = rnd(10) > 0.5;
-        const lm = this.decorations.spawnLandmark(
-          isArch ? 'arch' : 'temple',
-          new THREE.Vector3(posX, posY + 3.0, posZ),
-          isArch ? 1.0 : 0.85
+      // Add Sky Temple Shrines on sanctuary islands
+      if (archId === 'large-sanctuary' && rnd(9) > 0.35) {
+        const temple = this.decorations.spawnLandmark(
+          'temple',
+          new THREE.Vector3(posX, posY + 3.2, posZ),
+          1.0
         );
-        attachedDecs.push(lm);
-      } else if (rnd(11) > 0.45 && graphicsConfig.preset !== 'webgl-min') {
+        attachedDecs.push(temple);
+      } else if (rnd(11) > 0.4 && graphicsConfig.preset !== 'webgl-min') {
         // Add stylized cloud bonsai tree
-        const tree = this.decorations.spawnTree(new THREE.Vector3(posX, posY + 2.5, posZ), 1.1);
+        const tree = this.decorations.spawnTree(new THREE.Vector3(posX, posY + 2.6, posZ), 1.2);
         attachedDecs.push(tree);
       }
 
@@ -188,16 +199,18 @@ export class SkyIslesWorld {
       });
     }
 
-    // Spawn 1 Distant Horizon Monolith for atmospheric depth (if desktop)
-    if (graphicsConfig.preset === 'desktop-full' && rnd(12) > 0.4) {
+    // 3. Spawn Monumental Distant Horizon Sky Island (Layered distant silhouette)
+    if (graphicsConfig.preset !== 'webgl-min' && rnd(12) > 0.3) {
       const dGeom = this.islandGeoms.get('distant-monolith');
       if (dGeom) {
         const dMesh = new THREE.Mesh(dGeom, this.materials.islandMaterial);
-        const dX = (rnd(13) - 0.5) * 240 + (rnd(14) > 0.5 ? 90 : -90);
-        const dY = 10.0 + rnd(15) * 45.0;
-        const dZ = centerZ + 180.0 + rnd(16) * 120.0;
+        const dSign = rnd(14) > 0.5 ? 1 : -1;
+        const dX = dSign * (70.0 + rnd(13) * 70.0);
+        const dY = 12.0 + rnd(15) * 35.0;
+        const dZ = centerZ + 180.0 + rnd(16) * 110.0;
         dMesh.position.set(dX, dY, dZ);
-        dMesh.scale.set(1.5, 1.5, 1.5);
+        const dScale = 2.4 + rnd(17) * 1.2;
+        dMesh.scale.set(dScale, dScale, dScale);
         this.group.add(dMesh);
 
         this.activeIslands.push({

@@ -78,72 +78,105 @@ export class SkyIslesDecorations {
   }
 
   private buildTemplates(): void {
-    // 1. Landmark: Ancient Floating Portal Arch
-    // Inspired directly by the visual reference hero image center archway
+    // 1. Landmark: Grand Monumental Sky Arch spanning across the highway
     this.portalArchTemplate = new THREE.Group();
 
-    // Arch base pedestals
-    const pedL = new THREE.Mesh(new THREE.BoxGeometry(2.2, 4.0, 2.2), this.stoneMaterial);
-    pedL.position.set(-3.5, 2.0, 0);
-    const pedR = new THREE.Mesh(new THREE.BoxGeometry(2.2, 4.0, 2.2), this.stoneMaterial);
-    pedR.position.set(3.5, 2.0, 0);
+    // Arch base pedestals - placed safely outside the rails (rail is at +-4.2)
+    const pedGeom = new THREE.BoxGeometry(2.4, 4.5, 2.4);
+    const pedL = new THREE.Mesh(pedGeom, this.stoneMaterial);
+    pedL.position.set(-6.2, 2.25, 0);
+    const pedR = new THREE.Mesh(pedGeom, this.stoneMaterial);
+    pedR.position.set(6.2, 2.25, 0);
 
-    // Arch columns
-    const colL = new THREE.Mesh(new THREE.CylinderGeometry(0.8, 1.0, 7.0, 8), this.stoneMaterial);
-    colL.position.set(-3.5, 7.5, 0);
-    const colR = new THREE.Mesh(new THREE.CylinderGeometry(0.8, 1.0, 7.0, 8), this.stoneMaterial);
-    colR.position.set(3.5, 7.5, 0);
+    // Decorative gold base bands
+    const goldBandGeom = new THREE.BoxGeometry(2.6, 0.4, 2.6);
+    const goldBandL = new THREE.Mesh(goldBandGeom, this.goldAccentMaterial);
+    goldBandL.position.set(-6.2, 4.2, 0);
+    const goldBandR = new THREE.Mesh(goldBandGeom, this.goldAccentMaterial);
+    goldBandR.position.set(6.2, 4.2, 0);
 
-    // Arch curved lintel / torus top
-    const archTop = new THREE.Mesh(new THREE.TorusGeometry(3.5, 0.9, 8, 16, Math.PI), this.stoneMaterial);
-    archTop.position.set(0, 11.0, 0);
+    // Fluted marble columns
+    const colGeom = new THREE.CylinderGeometry(0.85, 1.1, 8.5, 12);
+    const colL = new THREE.Mesh(colGeom, this.stoneMaterial);
+    colL.position.set(-6.2, 8.5, 0);
+    const colR = new THREE.Mesh(colGeom, this.stoneMaterial);
+    colR.position.set(6.2, 8.5, 0);
 
-    // Floating central power crystal
-    const crystalGeom = new THREE.OctahedronGeometry(1.2, 0);
+    // Column capitals
+    const capGeom = new THREE.BoxGeometry(2.2, 1.2, 2.2);
+    const capL = new THREE.Mesh(capGeom, this.goldAccentMaterial);
+    capL.position.set(-6.2, 13.0, 0);
+    const capR = new THREE.Mesh(capGeom, this.goldAccentMaterial);
+    capR.position.set(6.2, 13.0, 0);
+
+    // Grand curved marble arch vault
+    const archTopGeom = new THREE.TorusGeometry(6.2, 1.1, 10, 24, Math.PI);
+    const archTop = new THREE.Mesh(archTopGeom, this.stoneMaterial);
+    archTop.position.set(0, 13.0, 0);
+
+    // Gold arch fascia trim
+    const goldTrimGeom = new THREE.TorusGeometry(6.2, 0.22, 6, 24, Math.PI);
+    const goldTrimFront = new THREE.Mesh(goldTrimGeom, this.goldAccentMaterial);
+    goldTrimFront.position.set(0, 13.0, 1.15);
+    const goldTrimBack = new THREE.Mesh(goldTrimGeom, this.goldAccentMaterial);
+    goldTrimBack.position.set(0, 13.0, -1.15);
+
+    // Floating central celestial power crystal
+    const crystalGeom = new THREE.OctahedronGeometry(1.6, 0);
     const crystal = new THREE.Mesh(crystalGeom, this.energyCyanMaterial);
-    crystal.position.set(0, 9.5, 0);
+    crystal.position.set(0, 15.2, 0);
     crystal.scale.set(1.0, 1.8, 1.0);
 
-    // Golden halo ring around portal
-    const goldHalo = new THREE.Mesh(new THREE.TorusGeometry(2.6, 0.12, 6, 24), this.goldAccentMaterial);
-    goldHalo.position.set(0, 9.5, 0);
+    // Golden halo ring around portal crystal
+    const goldHalo = new THREE.Mesh(new THREE.TorusGeometry(3.0, 0.14, 6, 32), this.goldAccentMaterial);
+    goldHalo.position.set(0, 15.2, 0);
 
-    this.portalArchTemplate.add(pedL, pedR, colL, colR, archTop, crystal, goldHalo);
+    this.portalArchTemplate.add(
+      pedL, pedR,
+      goldBandL, goldBandR,
+      colL, colR,
+      capL, capR,
+      archTop, goldTrimFront, goldTrimBack,
+      crystal, goldHalo
+    );
 
     // 2. Landmark: Sky Temple / Wind Shrine
     this.skyTempleTemplate = new THREE.Group();
-    const templeBase = new THREE.Mesh(new THREE.CylinderGeometry(4.2, 4.8, 2.0, 8), this.stoneMaterial);
-    templeBase.position.set(0, 1.0, 0);
+    const templeBase = new THREE.Mesh(new THREE.CylinderGeometry(5.5, 6.2, 2.5, 8), this.stoneMaterial);
+    templeBase.position.set(0, 1.25, 0);
 
-    for (let i = 0; i < 4; i++) {
-      const angle = (i / 4) * Math.PI * 2;
-      const p = new THREE.Mesh(new THREE.CylinderGeometry(0.35, 0.45, 5.0, 6), this.stoneMaterial);
-      p.position.set(Math.cos(angle) * 3.0, 4.5, Math.sin(angle) * 3.0);
+    const goldSteps = new THREE.Mesh(new THREE.CylinderGeometry(6.4, 7.0, 0.5, 8), this.goldAccentMaterial);
+    goldSteps.position.set(0, 0.25, 0);
+
+    for (let i = 0; i < 6; i++) {
+      const angle = (i / 6) * Math.PI * 2;
+      const p = new THREE.Mesh(new THREE.CylinderGeometry(0.4, 0.5, 6.5, 8), this.stoneMaterial);
+      p.position.set(Math.cos(angle) * 4.2, 5.5, Math.sin(angle) * 4.2);
       this.skyTempleTemplate.add(p);
     }
 
-    const dome = new THREE.Mesh(new THREE.ConeGeometry(3.6, 3.2, 8), this.goldAccentMaterial);
-    dome.position.set(0, 8.5, 0);
+    const dome = new THREE.Mesh(new THREE.ConeGeometry(5.0, 4.2, 8), this.goldAccentMaterial);
+    dome.position.set(0, 10.5, 0);
 
-    const shrineBeacon = new THREE.Mesh(new THREE.OctahedronGeometry(0.7), this.energyCyanMaterial);
-    shrineBeacon.position.set(0, 4.5, 0);
+    const shrineBeacon = new THREE.Mesh(new THREE.OctahedronGeometry(1.2), this.energyCyanMaterial);
+    shrineBeacon.position.set(0, 5.5, 0);
 
-    this.skyTempleTemplate.add(templeBase, dome, shrineBeacon);
+    this.skyTempleTemplate.add(templeBase, goldSteps, dome, shrineBeacon);
 
     // 3. Stylized Cloud Bonsai Tree
     this.treeTemplate = new THREE.Group();
-    const trunk = new THREE.Mesh(new THREE.CylinderGeometry(0.2, 0.55, 3.8, 6), this.woodBarkMaterial);
-    trunk.position.set(0, 1.9, 0);
+    const trunk = new THREE.Mesh(new THREE.CylinderGeometry(0.25, 0.7, 4.5, 6), this.woodBarkMaterial);
+    trunk.position.set(0, 2.25, 0);
     trunk.rotation.z = 0.08;
 
-    const foliage1 = new THREE.Mesh(new THREE.DodecahedronGeometry(1.8, 1), this.foliageGreenMaterial);
-    foliage1.position.set(0.2, 4.0, 0);
+    const foliage1 = new THREE.Mesh(new THREE.DodecahedronGeometry(2.4, 1), this.foliageGreenMaterial);
+    foliage1.position.set(0.3, 5.0, 0);
 
-    const foliage2 = new THREE.Mesh(new THREE.DodecahedronGeometry(1.3, 1), this.foliageGreenMaterial);
-    foliage2.position.set(-0.9, 3.5, 0.3);
+    const foliage2 = new THREE.Mesh(new THREE.DodecahedronGeometry(1.8, 1), this.foliageGreenMaterial);
+    foliage2.position.set(-1.2, 4.2, 0.4);
 
-    const foliage3 = new THREE.Mesh(new THREE.DodecahedronGeometry(1.1, 1), this.foliageGreenMaterial);
-    foliage3.position.set(0.8, 3.2, -0.4);
+    const foliage3 = new THREE.Mesh(new THREE.DodecahedronGeometry(1.5, 1), this.foliageGreenMaterial);
+    foliage3.position.set(1.1, 3.8, -0.5);
 
     this.treeTemplate.add(trunk, foliage1, foliage2, foliage3);
   }

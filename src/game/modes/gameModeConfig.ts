@@ -26,6 +26,40 @@ export const DEFAULT_PERSONAL_RECORD: GameModePersonalRecord = {
 };
 
 export const GAME_MODE_DEFINITIONS: Record<GameModeId, GameModeDefinition> = {
+  'campaign': {
+    id: 'campaign',
+    name: 'Campaign Mode',
+    tagline: 'Five-Sector Offline Expedition',
+    icon: '🗺️',
+    description: 'Travel through Sky Isles, Verdant Wilds, Crimson Dunes, Crystal Heights, and conquer Obsidian Core.',
+    rules: [
+      { label: '5 Structured Sectors', allowed: true, description: 'Sequential world gating with objective stars.' },
+      { label: 'Sector Checkpoints', allowed: true, description: 'Earn bonus shards and unlock new sectors.' },
+      { label: 'Dynamic Challenge', allowed: true, description: 'Velocity and obstacle complexity escalates per world.' },
+      { label: 'Epic Core Victory', allowed: true, description: 'Reach 11,250m to trigger the final campaign extraction.' },
+    ],
+    hasLeaderboard: true,
+    allowsRevive: true,
+    targetLabel: '11,250m Final Core',
+  },
+
+  'endless': {
+    id: 'endless',
+    name: 'Endless Mode',
+    tagline: 'Infinite Looping Flight',
+    icon: '♾️',
+    description: 'Survive as long as possible. The five worlds repeat in sequence with escalating speed and density.',
+    rules: [
+      { label: 'Infinite World Loops', allowed: true, description: 'Cycles smoothly through all 5 worlds without end.' },
+      { label: 'Ramping Difficulty', allowed: true, description: 'Speed and obstacle frequency increase with distance.' },
+      { label: 'Local Best Distance', allowed: true, description: 'Track separate endless high score and distance.' },
+      { label: 'Revives Permitted', allowed: true, description: 'Use data shards to reboot neural link when crashed.' },
+    ],
+    hasLeaderboard: true,
+    allowsRevive: true,
+    targetLabel: 'Target: New Distance PB',
+  },
+
   'standard-run': {
     id: 'standard-run',
     name: 'Standard Run',
@@ -314,6 +348,8 @@ export function createDefaultGameModeSaveData(): GameModeSaveData {
     version: GAME_MODE_VERSION,
     selectedMode: 'standard-run',
     records: {
+      'campaign': { ...DEFAULT_PERSONAL_RECORD },
+      'endless': { ...DEFAULT_PERSONAL_RECORD },
       'standard-run': { ...DEFAULT_PERSONAL_RECORD },
       'score-attack': { ...DEFAULT_PERSONAL_RECORD },
       'time-trial': { ...DEFAULT_PERSONAL_RECORD },
@@ -323,6 +359,8 @@ export function createDefaultGameModeSaveData(): GameModeSaveData {
     claimedDailyChallenges: {},
     claimedWeeklyChallenges: {},
     totalRunsByMode: {
+      'campaign': 0,
+      'endless': 0,
       'standard-run': 0,
       'score-attack': 0,
       'time-trial': 0,

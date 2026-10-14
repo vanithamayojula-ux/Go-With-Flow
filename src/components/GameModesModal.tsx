@@ -399,7 +399,7 @@ export const GameModesModal: React.FC<GameModesModalProps> = ({
                 MODE SUMMARY STATS:
               </span>
               <div className="space-y-2">
-                {(['standard-run', 'score-attack', 'time-trial', 'survival'] as GameModeId[]).map((mId) => {
+                {(['campaign', 'endless', 'standard-run', 'score-attack', 'time-trial', 'survival'] as GameModeId[]).map((mId) => {
                   const mDef = GAME_MODE_DEFINITIONS[mId];
                   const rec = records[mId] || { highestScore: 0, longestDistance: 0, bestTimeSeconds: 0, longestSurvivalTime: 0, completedCount: 0 };
                   return (

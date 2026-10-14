@@ -45,6 +45,7 @@ export interface GameEngineOptions {
   onStatsUpdate: (stats: PlayerStats, fps: number, drawCalls: number, instanceCount: number) => void;
   onNotification: (msg: string) => void;
   onGameOver?: () => void;
+  onCampaignVictory?: (stats: PlayerStats) => void;
 }
 
 export class GameEngine {
@@ -91,6 +92,7 @@ export class GameEngine {
   public onStatsUpdate: (stats: PlayerStats, fps: number, drawCalls: number, instanceCount: number) => void;
   public onNotification: (msg: string) => void;
   public onGameOver?: () => void;
+  public onCampaignVictory?: (stats: PlayerStats) => void;
 
   // Input State
   public keys = {
@@ -154,6 +156,7 @@ export class GameEngine {
     this.onStatsUpdate = options.onStatsUpdate;
     this.onNotification = options.onNotification;
     this.onGameOver = options.onGameOver;
+    this.onCampaignVictory = options.onCampaignVictory;
 
     const width = Math.max(this.container.clientWidth || window.innerWidth || 800, 100);
     const height = Math.max(this.container.clientHeight || window.innerHeight || 600, 100);
@@ -683,6 +686,39 @@ export class GameEngine {
         this.audio.playBiomeShiftSound(worldToAnnounce.id);
       }
 
+      // 4. Mode-specific difficulty scaling & campaign objective evaluation
+      if (this.gameModeMgr.activeModeId === 'campaign') {
+        this.worldMgr.setLooping(false);
+        const campaignMgr = this.gameModeMgr.campaignManager;
+        const worldCfg = campaignMgr.getCurrentWorldConfig(playerDistance);
+        this.playerMgr.speedMultiplier = worldCfg.speedMultiplier;
+        this.obstacleMgr.setDifficultyScaling(worldCfg.speedMultiplier, worldCfg.obstacleGapMultiplier);
+
+        const sectorResult = campaignMgr.evaluateSectorProgress(this.playerMgr.stats, this.progressionMgr);
+        if (sectorResult) {
+          if (sectorResult.isCampaignComplete) {
+            this.onNotification('🎉 CAMPAIGN COMPLETE! OBSIDIAN CORE EXTRACTED!');
+            if (this.onCampaignVictory) {
+              this.onCampaignVictory(this.playerMgr.stats);
+            }
+          } else {
+            this.onNotification(`✅ SECTOR ${sectorResult.sectorIndex} CLEARED! (+${sectorResult.shardsAwarded} SHARDS)`);
+          }
+        }
+      } else if (this.gameModeMgr.activeModeId === 'endless') {
+        this.worldMgr.setLooping(true);
+        const loop = metrics.loopNumber || 1;
+        const distanceSpeedBonus = Math.min(0.6, (playerDistance / 10000) * 0.15) + (loop - 1) * 0.12;
+        const speedMul = 1.0 + distanceSpeedBonus;
+        const gapMul = Math.max(0.70, 1.0 - (loop - 1) * 0.06 - (playerDistance / 15000) * 0.1);
+        this.playerMgr.speedMultiplier = speedMul;
+        this.obstacleMgr.setDifficultyScaling(speedMul, gapMul);
+      } else {
+        this.worldMgr.setLooping(true);
+        this.playerMgr.speedMultiplier = 1.0;
+        this.obstacleMgr.setDifficultyScaling(1.0, 1.0);
+      }
+
       // Biome & Tier Shifts (Legacy fallback compatibility)
       if (currentBiome !== this.lastBiome) {
         this.lastBiome = currentBiome;
@@ -1076,14 +1112,24 @@ export class GameEngine {
     }
   }
 
-  public resetRun(): void {
+  public resetRun(startingZ?: number, startingWorldId?: any): void {
     resetBiomeState();
+    const mode = this.gameModeMgr.activeModeId;
+    let initialZ = 0;
+    let initialWorld = 'sky-isles';
+
+    if (startingZ !== undefined && startingWorldId) {
+      initialZ = startingZ;
+      initialWorld = startingWorldId;
+    } else if (mode === 'campaign') {
+      const cMgr = this.gameModeMgr.campaignManager;
+      initialWorld = cMgr.getSelectedStartingWorld();
+      initialZ = cMgr.getStartingDistance();
+    }
+
     this.lastBiome = 'sky-realm';
-    this.worldMgr.setWorld('sky-isles');
+    this.worldMgr.setWorld(initialWorld as any);
     this.playerMgr.resetRun();
-    this.obstacleMgr.reset();
-    this.terrainMgr.rebuildAroundPlayer(0, 0, 3);
-    this.foliageMgr.updateFoliage(this.terrainMgr.chunks, 0, 0, this.graphicsConfig.vegetationDensity);
 
     if (this.obsidianCoreWorld) {
       this.obsidianCoreWorld.dispose();
@@ -1105,7 +1151,23 @@ export class GameEngine {
       this.skyIslesWorld.dispose();
       this.skyIslesWorld = null;
     }
-    this.skyIslesWorld = new SkyIslesWorld(this.scene, this.graphicsConfig);
+
+    if (initialZ > 0) {
+      const roadH = getTerrainHeight(0, initialZ);
+      this.playerMgr.position.set(0, roadH + this.playerMgr.hoverHeight, initialZ);
+      this.playerMgr.stats.distance = Math.round(initialZ);
+      const metrics = this.worldMgr.updateByDistance(initialZ);
+      this.syncActiveWorld(metrics.metrics);
+      this.terrainMgr.rebuildAroundPlayer(initialZ, 0, 3);
+      this.foliageMgr.updateFoliage(this.terrainMgr.chunks, initialZ, 0, this.graphicsConfig.vegetationDensity);
+    } else {
+      this.terrainMgr.rebuildAroundPlayer(0, 0, 3);
+      this.foliageMgr.updateFoliage(this.terrainMgr.chunks, 0, 0, this.graphicsConfig.vegetationDensity);
+      this.skyIslesWorld = new SkyIslesWorld(this.scene, this.graphicsConfig);
+      this.worldMgr.updateByDistance(0);
+    }
+
+    this.obstacleMgr.reset();
     this.gameModeMgr.onRunStart();
   }
 

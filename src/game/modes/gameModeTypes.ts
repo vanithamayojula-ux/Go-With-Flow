@@ -6,6 +6,8 @@
 import { PlayerStats } from '../../types';
 
 export type GameModeId =
+  | 'campaign'
+  | 'endless'
   | 'standard-run'
   | 'score-attack'
   | 'time-trial'

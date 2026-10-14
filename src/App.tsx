@@ -14,11 +14,13 @@ import { SettingsModal } from './components/SettingsModal';
 import { ProgressionModal } from './components/ProgressionModal';
 import { GameModesModal } from './components/GameModesModal';
 import { CompetitiveModal } from './components/CompetitiveModal';
+import { CampaignVictoryModal } from './components/CampaignVictoryModal';
 import { AudioManager } from './game/audio';
 import { HEROES } from './game/heroes';
 import { ProgressionManager } from './game/progression';
 import { CosmeticManager } from './game/cosmetics';
 import { GameModeManager } from './game/modes';
+import { CampaignManager } from './game/campaign';
 import { SocialManager } from './game/social';
 import {
   CosmeticsConfig,
@@ -216,13 +218,21 @@ export default function App() {
     cosmeticMgrRef.current = new CosmeticManager();
   }
 
+  // 5-World Campaign Manager Instance
+  const campaignMgrRef = useRef<CampaignManager | null>(null);
+  if (!campaignMgrRef.current) {
+    campaignMgrRef.current = new CampaignManager();
+  }
+  const [isCampaignVictoryOpen, setIsCampaignVictoryOpen] = useState(false);
+
   // Phase 15 Game Mode System Instance
   const gameModeMgrRef = useRef<GameModeManager | null>(null);
   if (!gameModeMgrRef.current) {
-    gameModeMgrRef.current = new GameModeManager();
+    gameModeMgrRef.current = new GameModeManager(campaignMgrRef.current);
   }
   const [isModesOpen, setIsModesOpen] = useState(false);
-  const [activeModeName, setActiveModeName] = useState<string>(() => gameModeMgrRef.current?.activeMode.name || 'Standard Run');
+  const [activeModeName, setActiveModeName] = useState<string>(() => gameModeMgrRef.current?.activeMode.name || 'Campaign Mode');
+  const [activeModeId, setActiveModeId] = useState<string>(() => gameModeMgrRef.current?.activeModeId || 'campaign');
 
   // Phase 16 Social & Competitive System Instance
   const socialMgrRef = useRef<SocialManager | null>(null);
@@ -699,6 +709,22 @@ export default function App() {
           playerLevel={playerLevel}
           graphicsConfig={graphicsConfig}
           shaderParams={shaderParams}
+          campaignMgr={campaignMgrRef.current || undefined}
+          activeModeId={activeModeId}
+          onSelectMode={(modeId) => {
+            if (gameModeMgrRef.current) {
+              gameModeMgrRef.current.setMode(modeId);
+              setActiveModeId(gameModeMgrRef.current.activeModeId);
+              setActiveModeName(gameModeMgrRef.current.activeMode.name);
+              triggerNotification(`Engaged Mode: ${gameModeMgrRef.current.activeMode.name}`);
+            }
+          }}
+          onSelectStartingWorld={(worldId) => {
+            if (campaignMgrRef.current) {
+              campaignMgrRef.current.setSelectedStartingWorld(worldId);
+              triggerNotification(`Sector set to: ${worldId.toUpperCase()}`);
+            }
+          }}
         />
       ) : (
         /* 2. Active 3D Game Stage */
@@ -722,6 +748,10 @@ export default function App() {
             isPaused={isPaused}
             onNotification={triggerNotification}
             onGameOver={handleGameOver}
+            onCampaignVictory={() => {
+              setIsCampaignVictoryOpen(true);
+              triggerNotification('🎉 CAMPAIGN COMPLETE! OBSIDIAN CORE EXTRACTION ACHIEVED!');
+            }}
             restartTrigger={restartCount}
             reviveTrigger={reviveCount}
             shieldTrigger={shieldCount}
@@ -908,6 +938,29 @@ export default function App() {
               setBankedShards(totalShards);
             }
           }}
+        />
+      )}
+
+      {/* Campaign 5-World Victory Modal */}
+      {isCampaignVictoryOpen && campaignMgrRef.current && (
+        <CampaignVictoryModal
+          stats={stats}
+          campaignMgr={campaignMgrRef.current}
+          onReplayCampaign={() => {
+            setIsCampaignVictoryOpen(false);
+            campaignMgrRef.current?.setSelectedStartingWorld('sky-isles');
+            setRestartCount((c) => c + 1);
+          }}
+          onEnterEndless={() => {
+            setIsCampaignVictoryOpen(false);
+            if (gameModeMgrRef.current) {
+              gameModeMgrRef.current.setMode('endless');
+              setActiveModeId('endless');
+              setActiveModeName(gameModeMgrRef.current.activeMode.name);
+            }
+            setRestartCount((c) => c + 1);
+          }}
+          onMainMenu={handleQuitToMenu}
         />
       )}
 

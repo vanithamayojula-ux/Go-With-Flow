@@ -70,6 +70,13 @@ export class WorldManager {
   }
 
   /**
+   * Set whether worlds loop infinitely (Endless mode) or stop at final sector (Campaign mode).
+   */
+  public setLooping(looping: boolean): void {
+    this._transitionManager.setLooping(looping);
+  }
+
+  /**
    * Update world progression based on distance. Returns transition metrics and blended environment.
    */
   public updateByDistance(distance: number): {

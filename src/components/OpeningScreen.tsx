@@ -64,6 +64,10 @@ export interface OpeningScreenProps {
   playerLevel?: number;
   graphicsConfig?: GraphicsConfig;
   shaderParams?: ShaderParams;
+  campaignMgr?: import('../game/campaign/CampaignManager').CampaignManager;
+  activeModeId?: string;
+  onSelectMode?: (modeId: any) => void;
+  onSelectStartingWorld?: (worldId: any) => void;
 }
 
 const BOARDS = [
@@ -200,6 +204,10 @@ export const OpeningScreen: React.FC<OpeningScreenProps> = ({
   playerLevel = 1,
   graphicsConfig,
   shaderParams,
+  campaignMgr,
+  activeModeId = 'campaign',
+  onSelectMode,
+  onSelectStartingWorld,
 }) => {
   const playButtonRef = useRef<HTMLButtonElement | null>(null);
   const [isTouchDevice, setIsTouchDevice] = useState(false);
@@ -503,20 +511,90 @@ export const OpeningScreen: React.FC<OpeningScreenProps> = ({
           </div>
 
           {/* Massive Action Section: PLAY BUTTON & MODES */}
-          <div className="relative z-10 space-y-3 max-w-lg mx-auto w-full">
-            {/* Game Mode Selector Button */}
+          <div className="relative z-10 space-y-2.5 max-w-lg mx-auto w-full">
+            {/* Primary Mode Selector: Campaign vs Endless */}
+            <div className="grid grid-cols-2 gap-2">
+              <button
+                type="button"
+                onClick={() => onSelectMode?.('campaign')}
+                className={`p-3 rounded-2xl border text-left transition-all cursor-pointer relative overflow-hidden ${
+                  activeModeId === 'campaign'
+                    ? 'bg-amber-950/60 border-amber-400 shadow-[0_0_20px_rgba(251,191,36,0.3)] ring-1 ring-amber-400/50'
+                    : 'bg-white/5 border-white/10 hover:border-white/30 text-white/60'
+                }`}
+              >
+                <div className="flex items-center justify-between mb-1">
+                  <span className="text-xs font-black text-amber-300 flex items-center space-x-1">
+                    <span>🗺️</span>
+                    <span>CAMPAIGN</span>
+                  </span>
+                  <span className="text-[10px] font-mono px-1.5 py-0.5 rounded bg-black/60 text-amber-400 font-bold">
+                    S{campaignMgr?.highestSectorUnlocked || 1}/5
+                  </span>
+                </div>
+                <div className="text-[10px] text-white/80 line-clamp-1">5-Sector Expedition</div>
+                <div className="text-[9px] text-amber-400/90 font-mono mt-0.5">
+                  ⭐ {campaignMgr?.getTotalStarsEarned() || 0}/15 Stars
+                </div>
+              </button>
+
+              <button
+                type="button"
+                onClick={() => onSelectMode?.('endless')}
+                className={`p-3 rounded-2xl border text-left transition-all cursor-pointer relative overflow-hidden ${
+                  activeModeId === 'endless' || activeModeId === 'standard-run'
+                    ? 'bg-cyan-950/60 border-cyan-400 shadow-[0_0_20px_rgba(0,240,255,0.3)] ring-1 ring-cyan-400/50'
+                    : 'bg-white/5 border-white/10 hover:border-white/30 text-white/60'
+                }`}
+              >
+                <div className="flex items-center justify-between mb-1">
+                  <span className="text-xs font-black text-cyan-300 flex items-center space-x-1">
+                    <span>♾️</span>
+                    <span>ENDLESS</span>
+                  </span>
+                  <span className="text-[10px] font-mono px-1.5 py-0.5 rounded bg-black/60 text-cyan-400 font-bold">
+                    LOOPING
+                  </span>
+                </div>
+                <div className="text-[10px] text-white/80 line-clamp-1">Infinite 5 Worlds</div>
+                <div className="text-[9px] text-cyan-400/90 font-mono mt-0.5">
+                  Best: {bestDistance.toLocaleString()}m
+                </div>
+              </button>
+            </div>
+
+            {/* Campaign Sector Selection (if Campaign mode is active) */}
+            {activeModeId === 'campaign' && campaignMgr && (
+              <div className="p-2.5 rounded-xl bg-slate-950/80 border border-amber-500/30 flex items-center justify-between text-xs">
+                <span className="text-[10px] text-amber-400/80 uppercase font-bold">DEPLOY SECTOR:</span>
+                <select
+                  id="campaign-starting-world"
+                  value={campaignMgr.getSelectedStartingWorld()}
+                  onChange={(e) => onSelectStartingWorld?.(e.target.value)}
+                  className="bg-black border border-amber-500/50 rounded-lg px-2 py-1 text-xs text-amber-200 font-bold font-mono focus:outline-none focus:ring-1 focus:ring-amber-400 cursor-pointer"
+                >
+                  <option value="sky-isles">Sector 1: Sky Isles (0m)</option>
+                  {campaignMgr.highestSectorUnlocked >= 2 && <option value="verdant-wilds">Sector 2: Verdant Wilds (2,250m)</option>}
+                  {campaignMgr.highestSectorUnlocked >= 3 && <option value="crimson-dunes">Sector 3: Crimson Dunes (4,500m)</option>}
+                  {campaignMgr.highestSectorUnlocked >= 4 && <option value="crystal-heights">Sector 4: Crystal Heights (6,750m)</option>}
+                  {campaignMgr.highestSectorUnlocked >= 5 && <option value="obsidian-core">Sector 5: Obsidian Core (9,000m)</option>}
+                </select>
+              </div>
+            )}
+
+            {/* Game Mode Selector Button (All Modes & Challenges) */}
             {onOpenModes && (
               <button
                 onClick={onOpenModes}
-                className="w-full py-2.5 px-3 rounded-xl bg-amber-950/50 hover:bg-amber-950/70 border border-amber-500/50 text-amber-300 text-xs font-black uppercase tracking-wider flex items-center justify-between transition-all cursor-pointer shadow-md shadow-amber-950/40 active:scale-95"
+                className="w-full py-2 px-3 rounded-xl bg-slate-900/80 hover:bg-slate-900 border border-white/10 hover:border-cyan-500/40 text-white/70 text-xs font-bold uppercase tracking-wider flex items-center justify-between transition-all cursor-pointer shadow-sm active:scale-95"
               >
                 <div className="flex items-center space-x-2">
-                  <span className="text-sm">🎯</span>
-                  <span className="text-[10px] text-white/60">ACTIVE MODE:</span>
-                  <span className="text-white font-black">{activeModeName || 'STANDARD RUN'}</span>
+                  <span className="text-xs">🎯</span>
+                  <span className="text-[10px] text-white/50">OPERATIONAL MODE:</span>
+                  <span className="text-white font-bold">{activeModeName || 'CAMPAIGN MODE'}</span>
                 </div>
-                <div className="flex items-center space-x-1 text-[10px] text-amber-400 font-bold">
-                  <span>CHANGE MODE / TRIALS</span>
+                <div className="flex items-center space-x-1 text-[10px] text-cyan-400 font-bold">
+                  <span>ALL MODES & TRIALS</span>
                   <ChevronRight className="w-3.5 h-3.5" />
                 </div>
               </button>

@@ -80,36 +80,46 @@ export class CrimsonDunesDecorations {
     // Directly evokes the iconic hero stone portal in the visual reference artwork
     this.desertArchTemplate = new THREE.Group();
 
-    // Arch Left Pillar (stepped sandstone blocks)
-    const baseGeom = new THREE.BoxGeometry(3.0, 5.0, 3.0);
-    const pL = new THREE.Mesh(baseGeom, this.sandstoneMaterial);
-    pL.position.set(-6.2, 2.5, 0);
+    // Arch Left and Right Pillars (stepped sandstone blocks with carved capitals)
+    const baseGeom = new THREE.BoxGeometry(3.2, 4.5, 3.2);
+    const midGeom = new THREE.BoxGeometry(2.6, 7.5, 2.6);
+    const capGeom = new THREE.BoxGeometry(3.0, 1.8, 3.0);
 
-    const midGeom = new THREE.BoxGeometry(2.5, 7.0, 2.5);
-    const pLMid = new THREE.Mesh(midGeom, this.sandstoneMaterial);
-    pLMid.position.set(-6.2, 7.5, 0);
+    for (const sign of [-1, 1]) {
+      const pBase = new THREE.Mesh(baseGeom, this.sandstoneMaterial);
+      pBase.position.set(sign * 6.8, 2.25, 0);
 
-    // Arch Right Pillar
-    const pR = new THREE.Mesh(baseGeom, this.sandstoneMaterial);
-    pR.position.set(6.2, 2.5, 0);
-    const pRMid = new THREE.Mesh(midGeom, this.sandstoneMaterial);
-    pRMid.position.set(6.2, 7.5, 0);
+      const pMid = new THREE.Mesh(midGeom, this.sandstoneMaterial);
+      pMid.position.set(sign * 6.8, 7.8, 0);
+
+      const pCap = new THREE.Mesh(capGeom, this.sandstoneRedMaterial);
+      pCap.position.set(sign * 6.8, 12.0, 0);
+
+      // Flanking wind-carved sandstone buttress
+      const buttressGeom = new THREE.ConeGeometry(1.2, 4.0, 4);
+      const buttress = new THREE.Mesh(buttressGeom, this.sandstoneMaterial);
+      buttress.position.set(sign * 8.6, 2.0, 0);
+      buttress.rotation.z = sign * -0.15;
+
+      this.desertArchTemplate.add(pBase, pMid, pCap, buttress);
+    }
 
     // Curved Top Vault / Keystone (Torus & Keystone block)
-    const vaultGeom = new THREE.TorusGeometry(6.2, 1.35, 7, 14, Math.PI);
+    const vaultGeom = new THREE.TorusGeometry(6.8, 1.35, 7, 16, Math.PI);
     const vault = new THREE.Mesh(vaultGeom, this.sandstoneMaterial);
-    vault.position.set(0, 11.0, 0);
+    vault.position.set(0, 12.0, 0);
 
-    const keystoneGeom = new THREE.BoxGeometry(2.6, 2.2, 3.2);
+    const keystoneGeom = new THREE.BoxGeometry(2.8, 2.4, 3.4);
     const keystone = new THREE.Mesh(keystoneGeom, this.sandstoneRedMaterial);
-    keystone.position.set(0, 16.5, 0);
+    keystone.position.set(0, 18.0, 0);
 
     // Floating Solar Amber Relic in Arch Apex
-    const relicGeom = new THREE.OctahedronGeometry(1.2, 0);
+    const relicGeom = new THREE.OctahedronGeometry(1.5, 0);
     const relic = new THREE.Mesh(relicGeom, this.solarCrystalMaterial);
-    relic.position.set(0, 11.2, 0);
+    relic.position.set(0, 12.2, 0);
+    relic.scale.set(1.0, 1.4, 1.0);
 
-    this.desertArchTemplate.add(pL, pLMid, pR, pRMid, vault, keystone, relic);
+    this.desertArchTemplate.add(vault, keystone, relic);
 
     // 2. Sand-Buried Obelisk
     this.obeliskTemplate = new THREE.Group();

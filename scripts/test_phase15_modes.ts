@@ -8,6 +8,8 @@
 import {
   GameModeManager,
   StandardRunMode,
+  CampaignRunMode,
+  EndlessRunMode,
   ScoreAttackMode,
   TimeTrialMode,
   SurvivalMode,
@@ -92,7 +94,9 @@ console.log('====================================================\n');
 
 // Group 1: Configuration & Registry
 console.log('--- Group 1: Mode Definitions & Modifiers ---');
-assert(Object.keys(GAME_MODE_DEFINITIONS).length === 5, 'All 5 game modes registered (Standard, Score Attack, Time Trial, Survival, Challenges)');
+assert(Object.keys(GAME_MODE_DEFINITIONS).length === 7, 'All 7 game modes registered (Campaign, Endless, Standard, Score Attack, Time Trial, Survival, Challenges)');
+assert(GAME_MODE_DEFINITIONS['campaign'].allowsRevive === true, 'Campaign permits revives');
+assert(GAME_MODE_DEFINITIONS['endless'].allowsRevive === true, 'Endless permits revives');
 assert(GAME_MODE_DEFINITIONS['standard-run'].allowsRevive === true, 'Standard Run permits revives');
 assert(GAME_MODE_DEFINITIONS['time-trial'].allowsRevive === false, 'Time Trial prohibits revives');
 assert(GAME_MODE_DEFINITIONS['survival'].allowsRevive === false, 'Survival prohibits revives');
@@ -111,6 +115,37 @@ assert(stdMode.getScore() === 8500, 'Standard run score directly preserves playe
 const stdSummary = stdMode.getSummary();
 assert(stdSummary.finalScore === 8500, 'Standard summary matches final score');
 assert(stdSummary.isCompleted === false, 'Standard run is endless exploration');
+
+// Group 2B: Campaign & Endless Mode Execution
+console.log('\n--- Group 2B: Campaign & Endless Mode Execution ---');
+const campMode = new CampaignRunMode();
+campMode.initialize();
+assert(campMode.id === 'campaign', 'Campaign mode identifier is campaign');
+assert(campMode.allowsRevive === true, 'Campaign mode retains revives');
+const campStatsMid = createMockStats({ score: 14000, distance: 4500 });
+campMode.update(30, campStatsMid);
+assert(campMode.isObjectiveCompleted() === false, 'Campaign not complete at 4,500m (Sector 2)');
+const campMetricsMid = campMode.getHudMetrics();
+assert(campMetricsMid.primaryLabel.includes('SECTOR'), 'Campaign HUD displays current sector');
+
+// Reaching 11,250m triggers campaign completion
+const campStatsEnd = createMockStats({ score: 38000, distance: 11250 });
+campMode.update(50, campStatsEnd);
+assert(campMode.isObjectiveCompleted() === true, 'Campaign completes at 11,250m (Obsidian Core Conquered)');
+const campSummary = campMode.getSummary();
+assert(campSummary.isCompleted === true, 'Campaign summary marks isCompleted true');
+assert(campSummary.claimedReward?.badgeId === 'badge:campaign-master', 'Campaign completion awards Campaign Master badge');
+
+// Endless Mode Testing
+const endlessMode = new EndlessRunMode();
+endlessMode.initialize();
+assert(endlessMode.id === 'endless', 'Endless mode identifier is endless');
+assert(endlessMode.allowsRevive === true, 'Endless mode retains revives');
+endlessMode.update(20, createMockStats({ distance: 12000 }));
+assert(endlessMode.getCurrentLoop() === 2, 'Endless distance 12,000m correctly computes Loop 2');
+assert(endlessMode.isObjectiveCompleted() === false, 'Endless mode is infinite');
+const endlessHud = endlessMode.getHudMetrics();
+assert(endlessHud.primaryLabel === 'LOOP 2', 'Endless HUD displays current loop');
 
 // Group 3: Score Attack Mechanics
 console.log('\n--- Group 3: Score Attack Mechanics ---');

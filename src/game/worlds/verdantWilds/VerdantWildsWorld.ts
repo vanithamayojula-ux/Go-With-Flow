@@ -64,8 +64,8 @@ export class VerdantWildsWorld {
       this.treeGeoms.set(arch.id, geom);
     }
 
-    // Standard 60m ground embankment chunk
-    this.groundGeom = createForestFloorEmbankmentGeometry(70, 60, 16, 16, 77);
+    // Standard 60m ground embankment chunk, widened to 140m for panoramic forest coverage
+    this.groundGeom = createForestFloorEmbankmentGeometry(140, 60, 20, 16, 77);
   }
 
   public update(playerZ: number, dt: number, time: number, graphicsConfig: GraphicsConfig): void {
@@ -134,20 +134,26 @@ export class VerdantWildsWorld {
       spawnedMeshes.push(ground);
     }
 
-    // 2. Forest Trees along flanks (Strictly kept away from playable central corridor |X| > 9.5)
-    let treeDensity = 4;
-    if (graphicsConfig.preset === 'mobile-opt') treeDensity = 2;
-    if (graphicsConfig.preset === 'webgl-min') treeDensity = 1;
+    // 2. Forest Trees along flanks (Midground & Distant Layers, outside |X| >= 11.5)
+    let treeDensity = 6;
+    if (graphicsConfig.preset === 'mobile-opt') treeDensity = 4;
+    if (graphicsConfig.preset === 'webgl-min') treeDensity = 2;
 
     for (let t = 0; t < treeDensity; t++) {
       const side = t % 2 === 0 ? -1 : 1;
-      const posX = side * (11.0 + rnd(t * 3 + 1) * 18.0);
-      const posZ = centerZ + (rnd(t * 3 + 2) - 0.5) * 45.0;
+      const isDistant = t >= 4;
+      
+      const posX = isDistant
+        ? side * (45.0 + rnd(t * 3 + 1) * 65.0)
+        : side * (12.5 + rnd(t * 3 + 1) * 16.0);
+      const posZ = isDistant
+        ? centerZ + 60.0 + rnd(t * 3 + 2) * 120.0
+        : centerZ + (rnd(t * 3 + 2) - 0.5) * 48.0;
 
       // Select archetype
       const pick = rnd(t * 3 + 3);
       let archId = 'canopy-broadleaf';
-      if (pick > 0.7) archId = 'ancient-greatwood';
+      if (pick > 0.55 || isDistant) archId = 'ancient-greatwood';
       else if (pick < 0.25) archId = 'slender-willow';
 
       const geom = this.treeGeoms.get(archId);
@@ -155,53 +161,63 @@ export class VerdantWildsWorld {
         const tree = new THREE.Mesh(geom, this.materials.treeMaterial);
         tree.position.set(posX, 0, posZ);
         tree.rotation.y = rnd(t * 3 + 4) * Math.PI * 2;
-        const scale = 0.85 + rnd(t * 3 + 5) * 0.4;
+        const scale = isDistant
+          ? 1.8 + rnd(t * 3 + 5) * 1.2
+          : 0.95 + rnd(t * 3 + 5) * 0.45;
         tree.scale.set(scale, scale, scale);
-        tree.castShadow = graphicsConfig.enableShadows && archId === 'ancient-greatwood';
+        tree.castShadow = graphicsConfig.enableShadows && !isDistant;
         tree.receiveShadow = graphicsConfig.enableShadows;
         this.group.add(tree);
         spawnedMeshes.push(tree);
       }
     }
 
-    // 3. Ancient Mossy Ruins Landmarks (Span over the track or sit on the roadside)
-    if (rnd(10) > 0.65) {
-      // Spawn Ancient Mossy Arch across the road
-      const arch = this.decorations.spawnRuinArch(new THREE.Vector3(0, 0, centerZ + 10), 1.0);
+    // 3. Ancient Mossy Ruins Landmarks
+    // Guarantee grand arch bridging across the highway every ~120m (even chunks)
+    const chunkIdx = Math.abs(Math.round(centerZ / 60));
+    if (chunkIdx % 2 === 0) {
+      // Grand Ancient Mossy Arch spanning the highway
+      const arch = this.decorations.spawnRuinArch(new THREE.Vector3(0, 0, centerZ + 10), 1.05);
       spawnedDecs.push(arch);
-    } else if (rnd(11) > 0.5) {
-      // Spawn roadside broken pillar
+    } else {
+      // Flanking broken pillars on alternate chunks
       const side = rnd(12) > 0.5 ? 1 : -1;
       const pillar = this.decorations.spawnRuinPillar(
-        new THREE.Vector3(side * 8.5, 0, centerZ + 5),
-        0.95
+        new THREE.Vector3(side * 8.2, 0, centerZ + (rnd(13) - 0.5) * 20),
+        1.1
       );
       spawnedDecs.push(pillar);
     }
 
-    // 4. Bioluminescent Mushrooms & Ferns
+    // 4. Bioluminescent Mushrooms & Ferns along roadside shoulders (Foreground Layer)
     if (graphicsConfig.preset !== 'webgl-min') {
-      const shroomSide = rnd(13) > 0.5 ? 1 : -1;
+      const shroomSide = rnd(14) > 0.5 ? 1 : -1;
       const shrooms = this.decorations.spawnMushrooms(
-        new THREE.Vector3(shroomSide * 8.2, 0, centerZ - 12),
-        1.1
+        new THREE.Vector3(shroomSide * 7.2, 0, centerZ - 8),
+        1.2
       );
       spawnedDecs.push(shrooms);
 
-      if (rnd(14) > 0.4) {
-        const ferns = this.decorations.spawnFerns(
-          new THREE.Vector3(-shroomSide * 8.5, 0, centerZ + 15),
-          1.0
+      const ferns1 = this.decorations.spawnFerns(
+        new THREE.Vector3(-shroomSide * 7.5, 0, centerZ + 12),
+        1.1
+      );
+      spawnedDecs.push(ferns1);
+
+      if (graphicsConfig.preset === 'desktop-full') {
+        const ferns2 = this.decorations.spawnFerns(
+          new THREE.Vector3(shroomSide * 8.5, 0, centerZ + 22),
+          0.9
         );
-        spawnedDecs.push(ferns);
+        spawnedDecs.push(ferns2);
       }
     }
 
     // 5. Roadside Forest Stream Channel
-    if (graphicsConfig.preset === 'desktop-full' && rnd(15) > 0.55) {
+    if (graphicsConfig.preset === 'desktop-full' && rnd(15) > 0.45) {
       const streamSide = rnd(16) > 0.5 ? 1 : -1;
       const stream = this.decorations.createStreamRibbon(
-        new THREE.Vector3(streamSide * 10.5, 0.05, centerZ),
+        new THREE.Vector3(streamSide * 9.8, 0.05, centerZ),
         55,
         2.8
       );

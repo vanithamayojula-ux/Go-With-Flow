@@ -64,47 +64,50 @@ export class ObsidianCoreDecorations {
   }
 
   private buildTemplates(): void {
-    // 1. Landmark: Monumental Obsidian Citadel & Volcano Forge
-    // Directly evokes the massive final fortress in the center of the hero concept art
+    // 1. Landmark: Monumental Obsidian Citadel Fortress Gateway
+    // Spans over the highway with twin colossal bastion spires and high arched tunnel corridor
     this.citadelTemplate = new THREE.Group();
 
-    // Fortress Base Foundation (Tiered black obsidian fortress blocks)
-    const baseBlock = new THREE.Mesh(new THREE.BoxGeometry(28.0, 16.0, 18.0), this.obsidianDarkMaterial);
-    baseBlock.position.set(0, 8.0, 0);
+    // Twin Fortress Bastions (Left and Right, placed at |X| = 9.8 to clear road corridor)
+    const bastionBaseGeom = new THREE.BoxGeometry(5.5, 14.0, 6.0);
+    const bastionTowerGeom = new THREE.CylinderGeometry(2.2, 3.5, 26.0, 6);
+    const magmaVeinGeom = new THREE.BoxGeometry(0.8, 18.0, 0.4);
 
-    // Central Citadel Cathedral Tower
-    const centerTower = new THREE.Mesh(
-      new THREE.CylinderGeometry(3.5, 5.5, 38.0, 6),
-      this.obsidianDarkMaterial
-    );
-    centerTower.position.set(0, 27.0, 0);
-
-    // Fortress Spire Pinnacles (Left and Right)
     for (const sign of [-1, 1]) {
-      const pTower = new THREE.Mesh(
-        new THREE.CylinderGeometry(2.2, 3.8, 28.0, 5),
-        this.obsidianDarkMaterial
-      );
-      pTower.position.set(sign * 10.5, 22.0, 0);
-      this.citadelTemplate.add(pTower);
+      const bBase = new THREE.Mesh(bastionBaseGeom, this.obsidianDarkMaterial);
+      bBase.position.set(sign * 9.8, 7.0, 0);
+
+      const bTower = new THREE.Mesh(bastionTowerGeom, this.obsidianDarkMaterial);
+      bTower.position.set(sign * 9.8, 24.0, 0);
+
+      // Glowing magma energy vein running down the inner bastion wall
+      const vein = new THREE.Mesh(magmaVeinGeom, this.moltenCoreMaterial);
+      vein.position.set(sign * 7.2, 9.0, 0);
+
+      this.citadelTemplate.add(bBase, bTower, vein);
     }
 
-    // Molten Magma Core Beam / Waterfall in Citadel Center Gate
-    const coreBeam = new THREE.Mesh(
-      new THREE.CylinderGeometry(1.6, 2.2, 32.0, 6),
-      this.moltenCoreMaterial
+    // Grand Fortress Vault Span (High clearance: Y=13.0 to 18.0, completely open beneath)
+    const vaultGeom = new THREE.BoxGeometry(16.0, 3.5, 5.5);
+    const vault = new THREE.Mesh(vaultGeom, this.obsidianDarkMaterial);
+    vault.position.set(0, 14.5, 0);
+
+    // Central Citadel Cathedral Spire rising high above the vault
+    const centerTower = new THREE.Mesh(
+      new THREE.CylinderGeometry(2.8, 4.8, 32.0, 6),
+      this.obsidianDarkMaterial
     );
-    coreBeam.position.set(0, 16.0, 9.2);
+    centerTower.position.set(0, 31.0, 0);
 
     // Glowing Magma Crown atop Central Citadel
     const crown = new THREE.Mesh(
-      new THREE.TorusGeometry(4.2, 1.2, 6, 16),
+      new THREE.TorusGeometry(3.8, 1.1, 6, 16),
       this.moltenCoreMaterial
     );
-    crown.position.set(0, 46.0, 0);
+    crown.position.set(0, 48.0, 0);
     crown.rotateX(Math.PI / 2);
 
-    this.citadelTemplate.add(baseBlock, centerTower, coreBeam, crown);
+    this.citadelTemplate.add(vault, centerTower, crown);
 
     // 2. Magma Brazier / Flame Beacon Pillar
     // Line the edges of the volcanic highway bridge (inspired by concept art)

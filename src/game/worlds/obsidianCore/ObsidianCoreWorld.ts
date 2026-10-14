@@ -135,19 +135,25 @@ export class ObsidianCoreWorld {
       spawnedMeshes.push(ground);
     }
 
-    // 2. Flanking Basalt Spires and Jagged Obsidian Crags (|X| >= 11.5 for clear corridor)
-    let rockDensity = 3;
-    if (graphicsConfig.preset === 'mobile-opt') rockDensity = 2;
-    if (graphicsConfig.preset === 'webgl-min') rockDensity = 1;
+    // 2. Flanking Volcanic Formations (Midground & Distant Layers, outside |X| >= 12.0)
+    let rockDensity = 5;
+    if (graphicsConfig.preset === 'mobile-opt') rockDensity = 3;
+    if (graphicsConfig.preset === 'webgl-min') rockDensity = 2;
 
     for (let r = 0; r < rockDensity; r++) {
       const side = r % 2 === 0 ? -1 : 1;
-      const posX = side * (12.5 + rnd(r * 4 + 1) * 18.0);
-      const posZ = centerZ + (rnd(r * 4 + 2) - 0.5) * 45.0;
+      const isDistant = r >= 3;
+
+      const posX = isDistant
+        ? side * (48.0 + rnd(r * 4 + 1) * 60.0)
+        : side * (12.5 + rnd(r * 4 + 1) * 16.0);
+      const posZ = isDistant
+        ? centerZ + 80.0 + rnd(r * 4 + 2) * 130.0
+        : centerZ + (rnd(r * 4 + 2) - 0.5) * 48.0;
 
       const pick = rnd(r * 4 + 3);
       let archId = 'basalt-cluster';
-      if (pick > 0.65) archId = 'obsidian-spire';
+      if (pick > 0.55 || isDistant) archId = 'obsidian-spire';
       else if (pick < 0.25) archId = 'jagged-rock';
 
       const geom = this.rockGeoms.get(archId);
@@ -155,59 +161,73 @@ export class ObsidianCoreWorld {
         const rockMesh = new THREE.Mesh(geom, this.materials.volcanicRockMaterial);
         rockMesh.position.set(posX, 0, posZ);
         rockMesh.rotation.y = rnd(r * 4 + 4) * Math.PI * 2;
-        const scale = 0.85 + rnd(r * 4 + 5) * 0.35;
+        const scale = isDistant
+          ? 2.0 + rnd(r * 4 + 5) * 1.2
+          : 0.95 + rnd(r * 4 + 5) * 0.4;
         rockMesh.scale.set(scale, scale, scale);
-        rockMesh.castShadow = graphicsConfig.enableShadows && archId === 'obsidian-spire';
+        rockMesh.castShadow = graphicsConfig.enableShadows && archId === 'obsidian-spire' && !isDistant;
         rockMesh.receiveShadow = graphicsConfig.enableShadows;
         this.group.add(rockMesh);
         spawnedMeshes.push(rockMesh);
       }
     }
 
-    // 3. Towering Horizon Caldera Volcano (Placed distant on the flank/horizon)
-    if (graphicsConfig.preset !== 'webgl-min' && rnd(10) > 0.5) {
+    // 3. Towering Horizon Caldera Volcano (Distant Horizon Landmark)
+    if (graphicsConfig.preset !== 'webgl-min') {
       const cGeom = this.rockGeoms.get('caldera-peak');
       if (cGeom) {
         const volcano = new THREE.Mesh(cGeom, this.materials.volcanicRockMaterial);
         const sideSign = rnd(11) > 0.5 ? 1 : -1;
-        const vX = sideSign * (130.0 + rnd(12) * 60.0);
-        const vZ = centerZ + 180.0 + rnd(13) * 100.0;
+        const vX = sideSign * (90.0 + rnd(12) * 65.0);
+        const vZ = centerZ + 120.0 + rnd(13) * 120.0;
         volcano.position.set(vX, -6.0, vZ);
-        volcano.scale.set(1.4, 1.4, 1.4);
+        volcano.scale.set(1.5, 1.5, 1.5);
         this.group.add(volcano);
         spawnedMeshes.push(volcano);
       }
     }
 
-    // 4. Final Destination Landmark: Monumental Obsidian Citadel
-    // Spawns periodically ahead as the player advances towards the volcanic core
-    if (rnd(14) > 0.68) {
-      const citadel = this.decorations.spawnCitadel(
-        new THREE.Vector3(0, 0, centerZ + 16),
-        1.1
-      );
-      spawnedDecs.push(citadel);
-    } else if (rnd(15) > 0.45) {
-      // Spawn Ancient Magma Forge Arch over the highway
-      const arch = this.decorations.spawnForgeArch(
-        new THREE.Vector3(0, 0, centerZ + 10),
-        1.0
-      );
-      spawnedDecs.push(arch);
+    // 4. Final Destination Landmark: Monumental Obsidian Citadel or Forge Arch
+    // Spawns gateway spanning the roadbed every ~120m (even chunks)
+    const chunkIdx = Math.abs(Math.round(centerZ / 60));
+    if (chunkIdx % 2 === 0) {
+      if (chunkIdx % 4 === 0) {
+        // Colossal Citadel Fortress Gateway
+        const citadel = this.decorations.spawnCitadel(
+          new THREE.Vector3(0, 0, centerZ + 14),
+          1.0
+        );
+        spawnedDecs.push(citadel);
+      } else {
+        // Ancient Magma Forge Arch over the highway
+        const arch = this.decorations.spawnForgeArch(
+          new THREE.Vector3(0, 0, centerZ + 10),
+          1.05
+        );
+        spawnedDecs.push(arch);
+      }
     }
 
-    // 5. Roadside Magma Braziers
-    if (graphicsConfig.preset !== 'webgl-min' && rnd(16) > 0.35) {
+    // 5. Roadside Magma Braziers (Foreground Layer)
+    if (graphicsConfig.preset !== 'webgl-min') {
       const bSide = rnd(17) > 0.5 ? 1 : -1;
       const brazier = this.decorations.spawnBrazier(
-        new THREE.Vector3(bSide * 8.2, 0, centerZ + (rnd(18) - 0.5) * 15),
-        1.0
+        new THREE.Vector3(bSide * 7.6, 0, centerZ + (rnd(18) - 0.5) * 16),
+        1.05
       );
       spawnedDecs.push(brazier);
+
+      if (graphicsConfig.preset === 'desktop-full') {
+        const brazier2 = this.decorations.spawnBrazier(
+          new THREE.Vector3(-bSide * 7.8, 0, centerZ + 20),
+          0.95
+        );
+        spawnedDecs.push(brazier2);
+      }
     }
 
     // 6. Magma Falls pouring off flank cliffs
-    if (graphicsConfig.preset === 'desktop-full' && rnd(19) > 0.5) {
+    if (graphicsConfig.preset === 'desktop-full' && rnd(19) > 0.35) {
       const fSide = rnd(20) > 0.5 ? 1 : -1;
       const fall = this.decorations.createMagmaFall(
         new THREE.Vector3(fSide * 16.5, -1.0, centerZ),

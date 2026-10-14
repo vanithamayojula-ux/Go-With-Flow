@@ -34,6 +34,7 @@ interface GameCanvasProps {
   isPaused?: boolean;
   onNotification: (msg: string) => void;
   onGameOver?: () => void;
+  onCampaignVictory?: (stats: PlayerStats) => void;
   restartTrigger?: number;
   reviveTrigger?: number;
   shieldTrigger?: number;
@@ -57,6 +58,7 @@ export const GameCanvas: React.FC<GameCanvasProps> = ({
   isPaused = false,
   onNotification,
   onGameOver,
+  onCampaignVictory,
   restartTrigger,
   reviveTrigger,
   shieldTrigger,
@@ -67,6 +69,9 @@ export const GameCanvas: React.FC<GameCanvasProps> = ({
   // Synchronized callback refs
   const onGameOverRef = useRef(onGameOver);
   onGameOverRef.current = onGameOver;
+
+  const onCampaignVictoryRef = useRef(onCampaignVictory);
+  onCampaignVictoryRef.current = onCampaignVictory;
 
   const onStatsUpdateRef = useRef(onStatsUpdate);
   onStatsUpdateRef.current = onStatsUpdate;
@@ -103,6 +108,9 @@ export const GameCanvas: React.FC<GameCanvasProps> = ({
       },
       onGameOver: () => {
         onGameOverRef.current?.();
+      },
+      onCampaignVictory: (victoryStats) => {
+        onCampaignVictoryRef.current?.(victoryStats);
       },
     });
 
