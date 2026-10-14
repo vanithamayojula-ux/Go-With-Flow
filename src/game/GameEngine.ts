@@ -130,6 +130,7 @@ export class GameEngine {
   private screenShakeIntensity: number = 0;
   private nearMissSlowMoTimer: number = 0;
   private statsUpdateTimer: number = 0;
+  private lastFrameDt: number = 0;
   private lastSentGameState: string = 'playing';
   private lastBiome: BiomeType = 'neon-undercity';
   private lastTier: string = 'Chill';
@@ -374,10 +375,14 @@ export class GameEngine {
     if (code === 'ShiftLeft' || code === 'ShiftRight') {
       this.keys.drift = true;
     }
-    if (code === 'Digit1') this.playerMgr.triggerTrick('spin', this.audio);
-    if (code === 'Digit2') this.playerMgr.triggerTrick('flip', this.audio);
-    if (code === 'Digit3') this.playerMgr.triggerTrick('grab', this.audio);
-    if (code === 'Digit4') this.playerMgr.triggerTrick('pose', this.audio);
+    // Tricks: J/K/L/I (shown in the HUD stunt rig) or 1-4. Ignore OS key
+    // auto-repeat so holding a key doesn't chain tricks.
+    if (!e.repeat) {
+      if (code === 'KeyJ' || code === 'Digit1') this.triggerTrick('spin');
+      if (code === 'KeyK' || code === 'Digit2') this.triggerTrick('flip');
+      if (code === 'KeyL' || code === 'Digit3') this.triggerTrick('grab');
+      if (code === 'KeyI' || code === 'Digit4') this.triggerTrick('pose');
+    }
   }
 
   private onKeyUp(e: KeyboardEvent): void {
@@ -443,6 +448,7 @@ export class GameEngine {
   public update(now: number): void {
     const rawDt = Math.min((now - this.lastTime) / 1000, 0.05);
     this.lastTime = now;
+    this.lastFrameDt = rawDt;
     const timeSeconds = now * 0.001;
     const currentBiome = this.playerMgr.stats.currentBiome;
 
@@ -495,7 +501,7 @@ export class GameEngine {
             'bioluminescent-jungle': 'BIOLUMINESCENT JUNGLE',
             'ember-core': 'EMBER CORE // MAGMA OBSIDIAN',
             'nebula-drift': 'NEBULA DRIFT // STELLAR VOID',
-            'sky-realm': 'SKY REALM // GHIBLI NATURE',
+            'sky-realm': 'SKY REALM // CLOUD ISLES',
             'quantum-desert': 'QUANTUM DESERT // AMBER MESAS',
             'cyber-forest': 'CYBER FOREST // BIOLUMINESCENT CANOPY',
             'orbital-ring': 'ORBITAL RING // STELLAR VOID',
@@ -695,7 +701,11 @@ export class GameEngine {
   }
 
   public render(now: number): void {
-    const rawDt = Math.min((now - this.lastTime) / 1000, 0.05);
+    // update() runs first and has already advanced lastTime to `now`, so the
+    // frame delta must come from update(); recomputing it here always gave 0,
+    // which froze the HUD (stats were never emitted), the FOV lerp and
+    // screen-shake decay.
+    const rawDt = this.lastFrameDt;
     const timeSeconds = now * 0.001;
     const currentBiome = this.playerMgr.stats.currentBiome;
 
@@ -751,6 +761,11 @@ export class GameEngine {
       this.terrainMgr.terrainMaterial.uniforms.uTime.value = timeSeconds;
     }
 
+    // Glitch timers drive both camera jitter (above) and the post-process
+    // shader, so they must decay even when post-processing is off.
+    if (this.boostGlitchTimer > 0) this.boostGlitchTimer = Math.max(0, this.boostGlitchTimer - rawDt);
+    if (this.stumbleGlitchTimer > 0) this.stumbleGlitchTimer = Math.max(0, this.stumbleGlitchTimer - rawDt);
+
     // Render Scene passes
     if (this.graphicsConfig.enablePostProcess) {
       const currentSpeed = this.playerMgr.stats.speed;
@@ -772,12 +787,10 @@ export class GameEngine {
       let chromaticAberration = this.shaderParams.chromaticAberration ?? 0.0005;
 
       if (this.boostGlitchTimer > 0) {
-        this.boostGlitchTimer -= rawDt;
         glitchIntensity = Math.max(glitchIntensity, this.boostGlitchTimer * 0.85);
         chromaticAberration = Math.max(chromaticAberration, this.boostGlitchTimer * 0.008);
       }
       if (this.stumbleGlitchTimer > 0) {
-        this.stumbleGlitchTimer -= rawDt;
         glitchIntensity = Math.max(glitchIntensity, this.stumbleGlitchTimer * 0.7);
         chromaticAberration = Math.max(chromaticAberration, this.stumbleGlitchTimer * 0.006);
       }
@@ -1006,6 +1019,10 @@ export class GameEngine {
 
   public resetRun(): void {
     resetBiomeState();
+    this.screenShakeTimer = 0;
+    this.boostGlitchTimer = 0;
+    this.stumbleGlitchTimer = 0;
+    this.nearMissSlowMoTimer = 0;
     this.lastBiome = 'neon-undercity';
     this.worldMgr.setWorld('sky-isles');
     this.playerMgr.resetRun();
@@ -1054,8 +1071,12 @@ export class GameEngine {
   }
 
   public triggerTrick(trick: TrickType): void {
-    this.progressionMgr.recordTrick();
-    this.playerMgr.triggerTrick(trick, this.audio);
+    // Shared by keyboard and on-screen buttons. No tricks while paused or
+    // after a crash, and only tricks that actually fire count for XP.
+    if (this.isPaused || this.playerMgr.gameState !== 'playing') return;
+    if (this.playerMgr.triggerTrick(trick, this.audio)) {
+      this.progressionMgr.recordTrick();
+    }
   }
 
   public dispose(): void {

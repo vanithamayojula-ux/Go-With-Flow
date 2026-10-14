@@ -85,6 +85,8 @@ export interface LeaderboardEntry {
   seasonId: string;
   timestamp: number;
   isCurrentPlayer?: boolean;
+  /** Built-in practice score shipped with the game (not a real player). */
+  isSample?: boolean;
 }
 
 export interface FriendChallenge {

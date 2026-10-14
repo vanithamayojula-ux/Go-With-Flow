@@ -1,7 +1,7 @@
 /**
- * GoWithFlow — Server-Authoritative Score Validation & Recalculation Pipeline
+ * GoWithFlow — Local Score Sanity Checks (client-side only)
  * Phase 17 Section 5-9: Multi-stage pipeline verifying schema, auth, physics plausibility,
- * world progression coherence, authoritative score recalculation, and replay deduplication.
+ * world progression coherence, local score recalculation, and replay deduplication.
  */
 
 import {
@@ -11,19 +11,22 @@ import {
 } from './securityConfig';
 import { CURRENT_SEASON_ID } from '../social/socialConfig';
 import { GameModeId } from '../modes/gameModeTypes';
+import { WORLD_ORDER, WORLD_LENGTH_DISTANCE } from '../WorldConfig';
 
-const MAX_VELOCITY_MPS = 25.0; // 90 km/h aerodynamic ceiling
+// Hard cap on forward speed in player.ts (boost gates clamp to 65 m/s).
+// The old 25 m/s limit rejected normal runs once the speed ramp kicked in.
+const MAX_VELOCITY_MPS = 65.0;
 const MIN_DURATION_MS = 3000;
-const MAX_SHARDS_PER_METER = 0.05; // ~50 shards per 1,000m max
+// Shards include coins, terrain orbs and +3 per near miss; with the magnet a
+// good run can exceed one per 20 m. Keep generous headroom (300 per 1,000 m).
+const MAX_SHARDS_PER_METER = 0.3;
 
-// World boundary thresholds (meters)
-const WORLD_DISTANCE_THRESHOLDS: Record<string, number> = {
-  'sky-isles': 0,
-  'verdant-wilds': 2000,
-  'crimson-dunes': 4000,
-  'crystal-heights': 6000,
-  'obsidian-core': 8000,
-};
+// World boundary thresholds (meters), derived from the real world layout so
+// they can't drift from WorldConfig again (they were hard-coded at 2000m
+// spacing while worlds are WORLD_LENGTH_DISTANCE = 2250m long).
+const WORLD_DISTANCE_THRESHOLDS: Record<string, number> = Object.fromEntries(
+  WORLD_ORDER.map((id, i) => [id, i * WORLD_LENGTH_DISTANCE])
+);
 
 export class ScoreValidationPipeline {
   private _processedRunFingerprints: Set<string> = new Set();
@@ -36,9 +39,11 @@ export class ScoreValidationPipeline {
   }
 
   /**
-   * Authoritatively recalculates theoretical score based on telemetry metrics
+   * Locally recalculates theoretical score based on telemetry metrics
    */
-  public recalculateAuthoritativeScore(run: AuthoritativeCompetitiveRun): {
+  public recalculateAuthoritativeScore(
+    run: Pick<AuthoritativeCompetitiveRun, 'distance' | 'durationMs' | 'shardsCollected' | 'nearMisses' | 'obstaclesPassed' | 'modeId'>
+  ): {
     calculatedScore: number;
     maxPlausibleScore: number;
   } {
@@ -46,37 +51,31 @@ export class ScoreValidationPipeline {
     const shards = Math.max(0, run.shardsCollected);
     const nearMisses = Math.max(0, run.nearMisses);
     const obstacles = Math.max(0, run.obstaclesPassed);
+    const durationSec = Math.max(0, run.durationMs / 1000);
 
-    let baseScore = 0;
-    let maxMultiplier = 1.0;
+    // Ceiling derived from the scoring rules in player.ts / GameEngine.ts:
+    //   riding    4 pts/m, x2 with the 2x power-up, x2 while grinding  -> 16 pts/m
+    //   tricks    one per 0.3s, 350 x combo (combo <= 8)               -> ~3,000 pts/s sustained
+    //   shards    up to 200 + 120 x 2 pts each
+    //   near miss 300 pts; portal warps 1,500 per 450m zone
+    // The previous formula (1 pt/m) rejected every honest run over a few hundred metres.
+    const portals = Math.ceil(dist / 450);
+    let baseScore = Math.floor(
+      dist * 16 + durationSec * 3000 + shards * 440 + nearMisses * 300 + obstacles * 50 + portals * 1500
+    );
 
     switch (run.modeId) {
       case 'score-attack':
-        // Overdrive combo multiplier caps at 10.0x
-        maxMultiplier = 10.0;
-        baseScore = Math.floor(
-          dist * 1.0 + (shards * 100 + nearMisses * 250 + obstacles * 50) * maxMultiplier
-        );
+        baseScore *= 10; // chain multiplier caps at 10x
         break;
-
-      case 'time-trial':
-        baseScore = Math.floor(dist * 1.5 + shards * 120 + nearMisses * 300);
-        break;
-
       case 'survival':
-        const durationSec = run.durationMs / 1000;
-        baseScore = Math.floor(durationSec * 150 + dist * 0.8 + shards * 100 + nearMisses * 200);
+        baseScore += Math.floor(durationSec * 150);
         break;
-
-      case 'standard-run':
-      case 'challenge-run':
       default:
-        // Standard baseline: distance + pickups + grazes + obstacle hurdles
-        baseScore = Math.floor(dist * 1.0 + shards * 100 + nearMisses * 250 + obstacles * 50);
         break;
     }
 
-    // Allow 15% tolerance buffer for discrete timing & combo momentum float calculations
+    // 15% tolerance plus a flat buffer for very short runs.
     const maxPlausibleScore = Math.floor(baseScore * 1.15) + 500;
 
     return {
@@ -86,7 +85,7 @@ export class ScoreValidationPipeline {
   }
 
   /**
-   * Execute full multi-stage authoritative validation pipeline
+   * Execute full multi-stage local validation pipeline
    */
   public validate(run: AuthoritativeCompetitiveRun): ScoreValidationResult {
     const flags: SuspiciousFlag[] = [];
@@ -222,7 +221,7 @@ export class ScoreValidationPipeline {
       };
     }
 
-    // Stage 4: Authoritative Score Recalculation
+    // Stage 4: Local Score Recalculation
     const { calculatedScore, maxPlausibleScore } = this.recalculateAuthoritativeScore(run);
     if (run.score > maxPlausibleScore) {
       flags.push({

@@ -551,8 +551,8 @@ export const CosmeticsModal: React.FC<CosmeticsModalProps> = ({
                                       ...cosmetics,
                                       characterStyle: item.visualData.characterStyle as any,
                                       armorVariant: item.visualData.armorVariant as any,
-                                      visorColor: item.visualData.visorColor,
-                                      capeColor: item.visualData.capeColor,
+                                      visorColor: item.visualData.visorColor ?? cosmetics.visorColor,
+                                      capeColor: item.visualData.capeColor ?? cosmetics.capeColor,
                                       boardId: (item.visualData.boardId as any) || cosmetics.boardId,
                                     });
                                   } else if (item.category === 'trail') {
@@ -601,8 +601,8 @@ export const CosmeticsModal: React.FC<CosmeticsModalProps> = ({
                                 ...cosmetics,
                                 characterStyle: previewItem.visualData.characterStyle as any,
                                 armorVariant: previewItem.visualData.armorVariant as any,
-                                visorColor: previewItem.visualData.visorColor,
-                                capeColor: previewItem.visualData.capeColor,
+                                visorColor: previewItem.visualData.visorColor ?? cosmetics.visorColor,
+                                capeColor: previewItem.visualData.capeColor ?? cosmetics.capeColor,
                                 boardId: (previewItem.visualData.boardId as any) || cosmetics.boardId,
                               });
                             } else if (previewItem.category === 'trail') {

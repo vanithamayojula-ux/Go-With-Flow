@@ -41,6 +41,8 @@ interface CompetitiveModalProps {
   progressionMgr?: ProgressionManager;
   onClose: () => void;
   onLaunchFriendChallenge?: (challengeId: string) => void;
+  /** Adds shards to the player's bank (the one shown in the menu and spent in shops). */
+  onCreditShards?: (amount: number, source: string) => void;
 }
 
 export const CompetitiveModal: React.FC<CompetitiveModalProps> = ({
@@ -48,6 +50,7 @@ export const CompetitiveModal: React.FC<CompetitiveModalProps> = ({
   progressionMgr,
   onClose,
   onLaunchFriendChallenge,
+  onCreditShards,
 }) => {
   const [activeTab, setActiveTab] = useState<'leaderboard' | 'challenges' | 'profile' | 'season'>('leaderboard');
   const [category, setCategory] = useState<LeaderboardCategory>('score');
@@ -74,6 +77,7 @@ export const CompetitiveModal: React.FC<CompetitiveModalProps> = ({
   const handleClaimChallenge = (id: string) => {
     const res = liveOps.claimChallengeReward(id, profile.id, progressionMgr);
     if (res.success) {
+      if (res.shardsAwarded > 0) onCreditShards?.(res.shardsAwarded, 'Live Challenge');
       setClaimFeedback(`Claimed +${res.xpAwarded} XP & +${res.shardsAwarded} Shards!`);
       setTimeout(() => setClaimFeedback(null), 3000);
     } else {
@@ -85,6 +89,10 @@ export const CompetitiveModal: React.FC<CompetitiveModalProps> = ({
   const handleClaimTier = (tierNumber: number) => {
     const res = liveOps.claimSeasonPassTier(tierNumber, profile.id, progressionMgr);
     if (res.success) {
+      const tier = res.tier;
+      if (tier && tier.rewardType === 'shards' && typeof tier.rewardValue === 'number') {
+        onCreditShards?.(tier.rewardValue, `Season Tier ${tierNumber}`);
+      }
       setClaimFeedback(`Tier ${tierNumber} reward claimed!`);
       setTimeout(() => setClaimFeedback(null), 3000);
     } else {
@@ -149,7 +157,7 @@ export const CompetitiveModal: React.FC<CompetitiveModalProps> = ({
                 COMPETITIVE REPLAY & SOCIAL
               </h2>
               <p className="text-[11px] text-white/50">
-                GLOBAL RANKINGS // ASYNCHRONOUS TRIALS // {CURRENT_SEASON_NAME}
+                LOCAL RANKINGS // SAVED ON THIS DEVICE // {CURRENT_SEASON_NAME}
               </p>
             </div>
           </div>
@@ -185,7 +193,7 @@ export const CompetitiveModal: React.FC<CompetitiveModalProps> = ({
             }`}
           >
             <Swords className="w-4 h-4" />
-            <span className="hidden sm:inline">FRIEND TRIALS</span>
+            <span className="hidden sm:inline">PRACTICE TRIALS</span>
             <span className="sm:hidden">TRIALS</span>
           </button>
           <button
@@ -290,6 +298,7 @@ export const CompetitiveModal: React.FC<CompetitiveModalProps> = ({
             <div className="space-y-1.5">
               {leaderboards.map((entry) => {
                 const isMe = entry.playerId === profile.id;
+                const isSample = entry.isSample || entry.playerId.startsWith('usr_top_');
                 return (
                   <div
                     key={entry.playerId}
@@ -331,6 +340,14 @@ export const CompetitiveModal: React.FC<CompetitiveModalProps> = ({
                               YOU
                             </span>
                           )}
+                          {isSample && !isMe && (
+                            <span
+                              className="text-[9px] px-1 py-0.2 rounded bg-white/10 text-white/60 font-bold"
+                              title="Built-in practice score, not a real player"
+                            >
+                              SAMPLE
+                            </span>
+                          )}
                         </div>
                         <div className="text-[10px] text-white/50 flex items-center space-x-2">
                           <span>{entry.modeId.toUpperCase()}</span>
@@ -363,9 +380,9 @@ export const CompetitiveModal: React.FC<CompetitiveModalProps> = ({
           <div className="flex-1 overflow-y-auto p-4 sm:p-5 space-y-4 text-left">
             <div className="p-3.5 rounded-xl bg-pink-950/30 border border-pink-500/30 flex items-center justify-between">
               <div>
-                <h3 className="font-black text-sm text-white uppercase">ASYNCHRONOUS PILOT TRIALS</h3>
+                <h3 className="font-black text-sm text-white uppercase">PRACTICE CHALLENGES</h3>
                 <p className="text-xs text-white/60">
-                  Accept challenges posted by peer runners. Beat their target scores to earn +300 XP.
+                  Built-in rival targets. Beat their scores to earn +300 XP.
                 </p>
               </div>
               <Swords className="w-6 h-6 text-pink-400 shrink-0" />
@@ -449,7 +466,7 @@ export const CompetitiveModal: React.FC<CompetitiveModalProps> = ({
                   <span>Focus: {activeSeason.theme.focusWorld.replace('-', ' ').toUpperCase()}</span>
                 </span>
                 <span className="text-white/30">•</span>
-                <span>Authoritative Server Sync: {liveOps.isOnline() ? 'ONLINE' : 'OFFLINE (CACHED)'}</span>
+                <span>Season schedule: built in (works offline)</span>
               </div>
             </div>
 
@@ -760,7 +777,7 @@ export const CompetitiveModal: React.FC<CompetitiveModalProps> = ({
               </span>
               <div className="flex items-center justify-between p-2 rounded-lg bg-white/5">
                 <div>
-                  <div className="text-xs font-bold text-white">Public Leaderboard Visibility</div>
+                  <div className="text-xs font-bold text-white">Show Me On Local Leaderboard</div>
                   <div className="text-[10px] text-white/50">Allow your best scores to be ranked on community boards</div>
                 </div>
                 <button

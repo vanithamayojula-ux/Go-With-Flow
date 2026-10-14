@@ -86,7 +86,7 @@ export class LiveOpsManager {
       console.warn('[LiveOpsManager] Corrupted cached snapshot, generating fallback:', validation.errors);
     }
 
-    // Generate immediate clean fallback snapshot from server
+    // Generate an immediate snapshot from the local simulator
     const fallback = this._server.generateSnapshot();
     this.saveCachedSnapshot(fallback);
     return fallback;
@@ -121,7 +121,7 @@ export class LiveOpsManager {
   }
 
   /**
-   * Non-blocking background sync with server
+   * Refresh from the local simulator (there is no remote server)
    */
   public async syncWithServerInBackground(): Promise<boolean> {
     try {
@@ -130,7 +130,7 @@ export class LiveOpsManager {
         return false;
       }
 
-      // Fetch fresh authoritative snapshot
+      // Fetch a fresh snapshot from the local simulator
       const fresh = this._server.generateSnapshot();
       const validation = this._server.validateSnapshot(fresh);
 
@@ -289,7 +289,7 @@ export class LiveOpsManager {
       return { success: false, error: 'Reward already claimed', xpAwarded: 0, shardsAwarded: 0 };
     }
 
-    // Authoritative idempotency check via SecurityManager if available
+    // Local idempotency check via SecurityManager if available
     if (this._securityManager) {
       const grantRes = this._securityManager.rewardService.claimReward(
         playerId,
@@ -350,7 +350,7 @@ export class LiveOpsManager {
       return { success: false, error: 'Tier reward already claimed' };
     }
 
-    // Server-authoritative idempotency check via SecurityManager
+    // Local idempotency check via SecurityManager
     if (this._securityManager) {
       const grantRes = this._securityManager.rewardService.claimReward(
         playerId,

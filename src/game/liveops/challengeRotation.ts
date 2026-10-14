@@ -132,7 +132,7 @@ const ONE_DAY_MS = 24 * 60 * 60 * 1000;
 const ONE_WEEK_MS = 7 * ONE_DAY_MS;
 
 /**
- * Generate a deterministic rotating Daily Challenge for any given server timestamp
+ * Generate a deterministic rotating Daily Challenge for any given timestamp
  */
 export function getDeterministicDailyChallenge(serverTime: number): RotatingChallenge {
   const dayIndex = Math.floor(serverTime / ONE_DAY_MS);
@@ -163,7 +163,7 @@ export function getDeterministicDailyChallenge(serverTime: number): RotatingChal
 }
 
 /**
- * Generate a deterministic rotating Weekly Challenge for any given server timestamp
+ * Generate a deterministic rotating Weekly Challenge for any given timestamp
  */
 export function getDeterministicWeeklyChallenge(serverTime: number): RotatingChallenge {
   const weekIndex = Math.floor(serverTime / ONE_WEEK_MS);

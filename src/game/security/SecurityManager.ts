@@ -42,7 +42,7 @@ export class SecurityManager {
   }
 
   /**
-   * Authoritatively validate a competitive run submission through all security stages.
+   * Locally validate a competitive run submission through all security stages.
    * Includes rate limiting, player suspension checks, authorization, and the score recalculation pipeline.
    */
   public validateCompetitiveSubmission(
@@ -99,7 +99,7 @@ export class SecurityManager {
       }
     }
 
-    // 4. Authoritative Multi-Stage Score Pipeline
+    // 4. Local Multi-Stage Score Pipeline
     const validationResult = this.scorePipeline.validate(run);
 
     if (!validationResult.isValid) {

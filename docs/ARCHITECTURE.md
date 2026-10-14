@@ -62,7 +62,7 @@ Three.js Scene Graph & WebGLRenderer
 
 ## 2. World System Architecture
 
-The campaign is organized into five authoritative worlds:
+The campaign is organized into five worlds:
 
 ```text
 1. Sky Isles       (#7DD3FC sky, islands structures, clouds atmosphere)
@@ -100,7 +100,7 @@ When implementing new worlds or extending the campaign:
    export type WorldId = ... | 'new-world-id';
    ```
 
-2. **Append to Authoritative Campaign Order:**
+2. **Append to Campaign Order:**
    Update `WORLD_ORDER` in `src/game/WorldConfig.ts`.
 
 3. **Define World Configuration:**
@@ -144,3 +144,27 @@ To maintain 60 FPS performance on Intel Iris Xe / integrated GPUs:
 - **Explicit Cleanup:** Every manager must provide a `dispose()` method freeing geometries, materials, render targets, and textures.
 - **Audio Disposal:** `AudioManager.dispose()` stops oscillators, detaches window unlock listeners, and closes `AudioContext`.
 - **Pure React Updaters:** Never execute side effects (like `localStorage.setItem`) inside React `setState` callbacks.
+
+
+---
+
+## Worlds vs. zones
+
+Two layers drive what the player sees:
+
+- **Worlds** (`WorldManager`, `src/game/worlds/`): five campaign sectors of `WORLD_LENGTH_DISTANCE` (2,250 m). They own sky, fog and lighting (blended across a transition corridor), decorations, atmosphere particles and audio signature. The HUD banner shows them as `SECTOR n OF 5`.
+- **Zones** (`getBiomeAt()` in `terrain.ts`): 14 track themes that rotate every 450 m, or immediately via a warp portal. They own the road surface, skyline, friction and obstacle styling. The HUD badge shows them as `ZONE n`.
+
+`compatibleBiomes` in each world config is currently unused; zones rotate independently of the world.
+
+## Local-only systems
+
+`src/game/social/`, `src/game/liveops/` and `src/game/security/` run entirely in the browser and persist to `localStorage`. Names such as `LiveOpsServer`, `authService` or `authoritativeScore` are historical; there is no network code in the project. The leaderboard is seeded with five sample rivals (`isSample: true`).
+
+Run validation lives in `security/scoreValidationPipeline.ts` and `social/runSubmission.ts`. Both share one score ceiling derived from the scoring rules in `player.ts`, and the 65 m/s speed cap from the engine. If you change scoring or speed, update `recalculateAuthoritativeScore()` too, or honest runs will be rejected.
+
+## Frame timing
+
+`GameEngine.update()` computes the frame delta (clamped to 50 ms) and stores it in `lastFrameDt`; `render()` reuses it. Don't recompute the delta in `render()`, because `update()` has already advanced `lastTime` and the result would be 0.
+
+Gameplay counters must be frame-rate independent. Accumulate fractions rather than rounding per frame. `scripts/test_framerate_independence.ts` guards this.

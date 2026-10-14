@@ -1,6 +1,6 @@
 /**
- * GoWithFlow — Authoritative Live Operations Server Engine
- * Phase 18 Section 2, 14-15, 28-29: Authoritative snapshots, versioning, season transitions,
+ * GoWithFlow — Local Live Operations Simulator (runs in the browser, no network)
+ * Phase 18 Section 2, 14-15, 28-29: Local snapshots, versioning, season transitions,
  * configuration validation, and emergency controls.
  */
 

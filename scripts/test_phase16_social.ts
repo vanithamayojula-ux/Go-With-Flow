@@ -186,7 +186,7 @@ const mockSummary: GameModeSummary = {
   modeName: 'Score Attack',
   score: 82450,
   finalScore: 82450,
-  distance: 6400,
+  distance: 7000, // Crystal Heights starts at 3 x 2250m = 6750m
   durationSeconds: 320,
   shardsCollected: 45,
   nearMisses: 12,
@@ -195,7 +195,7 @@ const mockSummary: GameModeSummary = {
   isCompleted: false,
   isNewRecord: true,
   breakdown: [
-    { label: 'Distance Progression', value: '6,400m' },
+    { label: 'Distance Progression', value: '7,000m' },
     { label: 'Near Miss Grazes', value: '+3,000' },
   ],
   xpAwarded: 650,

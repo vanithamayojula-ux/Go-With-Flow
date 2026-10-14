@@ -87,7 +87,7 @@ export class SocialManager {
 
     submission.clientSignature = RunSubmissionValidator.signSubmission(submission);
 
-    // 4. Authoritative Multi-Stage Security Validation
+    // 4. Local Multi-Stage Security Validation
     const session = this.securityManager.authService.createSession(profile.id, profile.username, 'player');
     const secValidation = this.securityManager.validateCompetitiveSubmission(session, {
       submissionId: submission.submissionId,
@@ -113,7 +113,7 @@ export class SocialManager {
       };
     }
 
-    // Authoritatively enforced score
+    // Locally enforced score
     submission.score = secValidation.authoritativeScore;
 
     // 5. Submit to Leaderboard Service

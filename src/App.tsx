@@ -111,7 +111,17 @@ export default function App() {
   const [graphicsConfig, setGraphicsConfig] = useState<GraphicsConfig>(() => {
     try {
       const saved = localStorage.getItem('skyflow_graphics_config');
-      return saved ? { ...DEFAULT_GRAPHICS_CONFIG, ...JSON.parse(saved) } : DEFAULT_GRAPHICS_CONFIG;
+      if (saved) return { ...DEFAULT_GRAPHICS_CONFIG, ...JSON.parse(saved) };
+      // First launch on a phone/tablet: start on Balanced instead of Ultra
+      // (no shadows, 1.2x DPR cap). Players can still switch in Settings.
+      const isTouchDevice =
+        typeof window !== 'undefined' &&
+        typeof window.matchMedia === 'function' &&
+        window.matchMedia('(pointer: coarse)').matches;
+      if (isTouchDevice) {
+        return { ...DEFAULT_GRAPHICS_CONFIG, preset: 'mobile-opt', vegetationDensity: 0.65, enableShadows: false };
+      }
+      return DEFAULT_GRAPHICS_CONFIG;
     } catch {
       return DEFAULT_GRAPHICS_CONFIG;
     }
@@ -179,6 +189,18 @@ export default function App() {
       return ['shadow', 'cyber-phantom', 'electric-cyan', 'carbon-fiber'];
     }
   });
+
+  // Heroes with a price must be unlocked before use. A saved selection or a
+  // ?hero= link can point at a locked hero; fall back to the default.
+  // (Dev builds keep ?hero= working for the hero-lab capture scripts.)
+  useEffect(() => {
+    if (import.meta.env.DEV) return;
+    const hero = HEROES.find(h => h.id === cosmeticsConfig.heroId);
+    const locked = !hero || (hero.cost > 0 && !unlockedItems.includes(hero.id));
+    if (locked && cosmeticsConfig.heroId !== 'custom') {
+      setCosmeticsConfig(prev => ({ ...prev, heroId: 'custom' }));
+    }
+  }, [cosmeticsConfig.heroId, unlockedItems]);
 
   const [hasStarted, setHasStarted] = useState<boolean>(() => {
     try {
@@ -345,6 +367,19 @@ export default function App() {
       });
       triggerNotification(`🎉 +${rewardToGrant} Shards Mission Reward Claimed!`);
     }
+  }, [triggerNotification]);
+
+  // Adds shards to the persistent bank (used by challenge/achievement claims).
+  const creditShards = useCallback((amount: number, source: string) => {
+    if (!Number.isFinite(amount) || amount <= 0) return;
+    setBankedShards(prev => {
+      const next = (Number.isFinite(prev) ? prev : 0) + amount;
+      try {
+        localStorage.setItem('skyflow_banked_shards', String(next));
+      } catch {}
+      return next;
+    });
+    triggerNotification(`🎉 +${amount} Shards ${source} Reward Claimed!`);
   }, [triggerNotification]);
 
   const handleStatsUpdate = useCallback((newStats: PlayerStats, currentFps: number, calls: number, instances: number) => {
@@ -894,19 +929,17 @@ export default function App() {
               setPlayerLevel(progressionMgrRef.current.getLevel());
             }
           }}
-          onClaimChallenge={(id) => {
+          onClaimChallenge={(_id, shards) => {
             if (progressionMgrRef.current) {
               setPlayerLevel(progressionMgrRef.current.getLevel());
-              const totalShards = progressionMgrRef.current.getData().walletShards;
-              setBankedShards(totalShards);
             }
+            creditShards(shards, 'Challenge');
           }}
-          onClaimAchievement={(id) => {
+          onClaimAchievement={(_id, shards) => {
             if (progressionMgrRef.current) {
               setPlayerLevel(progressionMgrRef.current.getLevel());
-              const totalShards = progressionMgrRef.current.getData().walletShards;
-              setBankedShards(totalShards);
             }
+            creditShards(shards, 'Achievement');
           }}
         />
       )}
@@ -932,6 +965,7 @@ export default function App() {
         <CompetitiveModal
           socialMgr={socialMgrRef.current}
           progressionMgr={progressionMgrRef.current || undefined}
+          onCreditShards={creditShards}
           onClose={() => setIsCompetitiveOpen(false)}
           onLaunchFriendChallenge={(chalId) => {
             if (gameModeMgrRef.current) {

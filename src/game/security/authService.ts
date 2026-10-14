@@ -59,7 +59,7 @@ export class AuthService {
   }
 
   /**
-   * Create an authoritative session for a player with specified role.
+   * Create an local session for a player with specified role.
    */
   public createSession(playerId: string, username: string, role: UserRole = 'player'): AuthSession {
     const sessionId = 'sid_' + Date.now().toString(36) + '_' + Math.random().toString(36).substring(2, 8);

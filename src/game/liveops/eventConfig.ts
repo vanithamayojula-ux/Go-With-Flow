@@ -72,7 +72,7 @@ export const CURATED_EVENTS: LiveEvent[] = [
 ];
 
 /**
- * Checks whether an event is active according to the given server timestamp
+ * Checks whether an event is active according to the given timestamp
  */
 export function isEventActive(event: LiveEvent, currentServerTime: number): boolean {
   return (

@@ -1,12 +1,15 @@
 /**
- * GoWithFlow — Run Submission & Server-Side Anti-Cheat Validation
+ * GoWithFlow — Run Submission & Local Sanity Checks (client-side only)
  * Phase 16 Section 9-13: Validation rules, rate limiting, signature verification, and exploit mitigation.
  */
 
 import { RunSubmission, ValidationResult, CURRENT_SEASON_ID } from './socialConfig';
+import { ScoreValidationPipeline } from '../security/scoreValidationPipeline';
 
-// Maximum physically achievable speed in GoWithFlow (player physics ceiling ~65 km/h ≈ 18.0 m/s)
-const MAX_THEORETICAL_SPEED_METERS_PER_SEC = 25.0; // 90 km/h with high boost tolerance
+// Forward speed is hard-capped at 65 m/s in player.ts (boost gates). The old
+// 25 m/s value rejected normal runs once the distance speed ramp kicked in.
+const MAX_THEORETICAL_SPEED_METERS_PER_SEC = 65.0;
+const scoreCeiling = new ScoreValidationPipeline();
 const MIN_DURATION_FOR_RANKING_MS = 3000; // Runs shorter than 3s are invalid/abandoned
 
 // In-memory rate limiting store (prevent client flooding)
@@ -15,7 +18,7 @@ const MAX_SUBMISSIONS_PER_MINUTE = 10;
 
 export class RunSubmissionValidator {
   /**
-   * Server-authoritative run validation engine.
+   * Local run sanity checks. Runs in the browser, so it guards against bugs, not determined cheaters.
    * Rejects impossible speed, corrupted timestamps, spoofed modes, and replayed submissions.
    */
   public static validate(submission: RunSubmission): ValidationResult {
@@ -59,14 +62,22 @@ export class RunSubmissionValidator {
       };
     }
 
-    // 4. Score-to-Distance Ratio Sanity Check
-    // Maximum possible score density per meter (even in Score Attack 10x overdrive with continuous coin lines is ~60 pts/m)
-    const MAX_SCORE_PER_METER = 75.0;
-    if (submission.distance > 50 && (submission.score / submission.distance) > MAX_SCORE_PER_METER) {
+    // 4. Score plausibility, using the same ceiling as the score pipeline so
+    // the two checks can't disagree. (A flat 75 pts/m limit rejected short,
+    // trick-heavy runs, since tricks score by time, not distance.)
+    const { maxPlausibleScore } = scoreCeiling.recalculateAuthoritativeScore({
+      distance: submission.distance,
+      durationMs: submission.durationMs,
+      shardsCollected: submission.shardsCollected ?? 0,
+      nearMisses: submission.nearMisses ?? 0,
+      obstaclesPassed: submission.obstaclesPassed ?? 0,
+      modeId: submission.modeId,
+    });
+    if (submission.score > maxPlausibleScore) {
       flags.push('IMPOSSIBLE_SCORE_DENSITY');
       return {
         isValid: false,
-        reason: 'Score disproportionately high relative to distance covered',
+        reason: 'Score disproportionately high relative to run length',
         antiCheatFlags: flags,
       };
     }

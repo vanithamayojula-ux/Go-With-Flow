@@ -555,12 +555,16 @@ export class ObstacleManager {
     }
     ObstacleManager.isPreloading = true;
 
-    const defs: { id: string; name: string; url: string; targetHeight: number; yaw: number; fallbackUrl?: string }[] = [
-      { id: 'sentinel', name: 'Cyber Sentinel', url: '/obstacle01.glb', targetHeight: 2.2, yaw: -Math.PI / 2 },
-      { id: 'frost-drake', name: 'Frost Drake', url: '/0bstacle02.glb', targetHeight: 2.2, yaw: -Math.PI / 2 },
-      { id: 'bio-predator', name: 'Bio Predator', url: '/obstacle03.glb', targetHeight: 2.2, yaw: -Math.PI / 2 },
-      { id: 'xenobeast', name: 'Cyber Beast', url: '/obstacle04.glb', targetHeight: 2.1, yaw: -Math.PI / 2 },
-    ];
+    // Optional GLB obstacle models. None ship with the game today, so the
+    // procedural obstacles are used. To add one, put the file in public/models/
+    // and list it here, e.g.:
+    //   { id: 'sentinel', name: 'Cyber Sentinel', url: 'models/obstacle01.glb', targetHeight: 2.2, yaw: -Math.PI / 2 },
+    const defs: { id: string; name: string; url: string; targetHeight: number; yaw: number; fallbackUrl?: string }[] = [];
+    if (defs.length === 0) {
+      ObstacleManager.isPreloading = false;
+      ObstacleManager.preloadPromise = Promise.resolve();
+      return ObstacleManager.preloadPromise;
+    }
 
     const loader = new GLTFLoader();
 
@@ -638,6 +642,7 @@ export class ObstacleManager {
         }
       }
 
+      ObstacleManager.isPreloading = false;
       // Notify and upgrade any waiting obstacles
       while (ObstacleManager.pendingSpawnCallbacks.length > 0) {
         const cb = ObstacleManager.pendingSpawnCallbacks.shift();
@@ -869,12 +874,16 @@ export class ObstacleManager {
         edgeMesh2.position.set(0, 0.15, 0);
         modelContainer.add(edgeMesh2);
 
-        // Queue callback to upgrade to 3D model once loaded
-        ObstacleManager.pendingSpawnCallbacks.push(() => {
-          if (blockGroup.parent) {
-            applyModel();
-          }
-        });
+        // Queue callback to upgrade to 3D model once loaded. Only while a
+        // preload is actually in flight: once it has finished the queue is
+        // never drained again, so queuing would leak every spawned obstacle.
+        if (ObstacleManager.isPreloading) {
+          ObstacleManager.pendingSpawnCallbacks.push(() => {
+            if (blockGroup.parent) {
+              applyModel();
+            }
+          });
+        }
       }
     };
 

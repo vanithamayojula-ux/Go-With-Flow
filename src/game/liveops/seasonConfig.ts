@@ -1,7 +1,7 @@
 /**
  * GoWithFlow — Season Definitions & Lifecycle Configuration
  * Phase 18 Section 2-4: Five-season progression model, curated seasonal themes,
- * authoritative lifecycle states, and season boundary preservation.
+ * local lifecycle states, and season boundary preservation.
  */
 
 import { Season, SeasonStatus } from './liveOpsConfig';
@@ -111,7 +111,7 @@ export const CURATED_SEASONS: Season[] = [
 ];
 
 /**
- * Determine dynamic season lifecycle status based on authoritative server timestamp
+ * Determine dynamic season lifecycle status based on timestamp
  */
 export function evaluateSeasonStatus(season: Season, currentServerTime: number): SeasonStatus {
   // If season is already archived, respect archived state
@@ -138,7 +138,7 @@ export function evaluateSeasonStatus(season: Season, currentServerTime: number):
 }
 
 /**
- * Retrieve the active season for a given authoritative timestamp
+ * Retrieve the active season for a given timestamp
  */
 export function getActiveSeasonForTime(serverTime: number): Season {
   for (const s of CURATED_SEASONS) {

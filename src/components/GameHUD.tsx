@@ -121,37 +121,37 @@ export const GameHUD: React.FC<GameHUDProps> = ({
     switch (biome) {
       case 'dune-nomad':
       case 'dunes':
-        return { name: 'DUNE NOMAD // AMBER MESAS', tag: 'WORLD 2', color: 'border-amber-400 text-amber-300' };
+        return { name: 'DUNE NOMAD // AMBER MESAS', tag: 'ZONE 2', color: 'border-amber-400 text-amber-300' };
       case 'aurora-frost':
-        return { name: 'AURORA FROST // GLACIER TUNDRA', tag: 'WORLD 3', color: 'border-cyan-300 text-cyan-200' };
+        return { name: 'AURORA FROST // GLACIER TUNDRA', tag: 'ZONE 3', color: 'border-cyan-300 text-cyan-200' };
       case 'bioluminescent-jungle':
-        return { name: 'BIOLUMINESCENT JUNGLE', tag: 'WORLD 4', color: 'border-emerald-400 text-emerald-300' };
+        return { name: 'BIOLUMINESCENT JUNGLE', tag: 'ZONE 4', color: 'border-emerald-400 text-emerald-300' };
       case 'ember-core':
-        return { name: 'EMBER CORE // MAGMA OBSIDIAN', tag: 'WORLD 5', color: 'border-red-500 text-red-400' };
+        return { name: 'EMBER CORE // MAGMA OBSIDIAN', tag: 'ZONE 5', color: 'border-red-500 text-red-400' };
       case 'nebula-drift':
-        return { name: 'NEBULA DRIFT // STELLAR VOID', tag: 'WORLD 6', color: 'border-purple-400 text-purple-300' };
+        return { name: 'NEBULA DRIFT // STELLAR VOID', tag: 'ZONE 6', color: 'border-purple-400 text-purple-300' };
       case 'sky-realm':
       case 'sky-islands':
-        return { name: 'SKY REALM // GHIBLI NATURE', tag: 'WORLD 7', color: 'border-sky-300 text-sky-200' };
+        return { name: 'SKY REALM // CLOUD ISLES', tag: 'ZONE 7', color: 'border-sky-300 text-sky-200' };
       case 'quantum-desert':
-        return { name: 'QUANTUM DESERT // SOLAR DUNES', tag: 'WORLD 8', color: 'border-amber-500 text-amber-400' };
+        return { name: 'QUANTUM DESERT // SOLAR DUNES', tag: 'ZONE 8', color: 'border-amber-500 text-amber-400' };
       case 'cyber-forest':
       case 'forest':
-        return { name: 'CYBER FOREST // BIOLUMINESCENT CANOPY', tag: 'WORLD 9', color: 'border-emerald-300 text-emerald-200' };
+        return { name: 'CYBER FOREST // BIOLUMINESCENT CANOPY', tag: 'ZONE 9', color: 'border-emerald-300 text-emerald-200' };
       case 'orbital-ring':
-        return { name: 'ORBITAL RING // STRATOSPHERE', tag: 'WORLD 10', color: 'border-fuchsia-400 text-fuchsia-300' };
+        return { name: 'ORBITAL RING // STRATOSPHERE', tag: 'ZONE 10', color: 'border-fuchsia-400 text-fuchsia-300' };
       case 'the-grid':
-        return { name: 'THE GRID // VECTOR CYBERSPACE', tag: 'WORLD 11', color: 'border-green-400 text-green-300' };
+        return { name: 'THE GRID // VECTOR CYBERSPACE', tag: 'ZONE 11', color: 'border-green-400 text-green-300' };
       case 'volcanic-forge':
-        return { name: 'VOLCANIC FORGE // MAGMA CORE', tag: 'WORLD 12', color: 'border-orange-500 text-orange-400' };
+        return { name: 'VOLCANIC FORGE // MAGMA CORE', tag: 'ZONE 12', color: 'border-orange-500 text-orange-400' };
       case 'crystal-glacier':
-        return { name: 'CRYSTAL GLACIER // FROST REALM', tag: 'WORLD 13', color: 'border-cyan-400 text-cyan-300' };
+        return { name: 'CRYSTAL GLACIER // FROST REALM', tag: 'ZONE 13', color: 'border-cyan-400 text-cyan-300' };
       case 'derelict-station':
-        return { name: 'DERELICT STATION // HAZARD ZONE', tag: 'WORLD 14', color: 'border-yellow-500 text-yellow-400' };
+        return { name: 'DERELICT STATION // HAZARD ZONE', tag: 'ZONE 14', color: 'border-yellow-500 text-yellow-400' };
       case 'meadow':
-        return { name: 'NEON MEADOW // GREEN FIELDS', tag: 'WORLD 15', color: 'border-lime-400 text-lime-300' };
+        return { name: 'NEON MEADOW // GREEN FIELDS', tag: 'ZONE 15', color: 'border-lime-400 text-lime-300' };
       default:
-        return { name: 'NEON UNDERCITY // SECTOR-01', tag: 'WORLD 1', color: 'border-fuchsia-400 text-fuchsia-300' };
+        return { name: 'NEON UNDERCITY // SECTOR-01', tag: 'ZONE 1', color: 'border-fuchsia-400 text-fuchsia-300' };
     }
   };
 

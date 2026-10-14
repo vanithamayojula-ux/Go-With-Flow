@@ -1,3 +1,5 @@
+> **Historical document.** This records the Phase 1 snapshot as originally written. Some claims here were not accurate when re-checked in October 2026: `tsc --noEmit` reported 6 errors, and five hero model paths pointed at files that didn't exist. See `CHANGELOG.md` for what was fixed.
+
 # Neon Drift Production Baseline — Phase 1 Stabilization
 
 > **Status**: Completed & Verified Clean  

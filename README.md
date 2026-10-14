@@ -1,189 +1,156 @@
-# ⚡ NEON DRIFT // GO-WITH-FLOW
+# NEON DRIFT // GO-WITH-FLOW
 
-<div align="center">
+A 3D cyberpunk hoverboard runner for the browser. Ride a three-lane neon highway through five campaign worlds, dodge barriers, grind rails, hit boost arches and chain aerial tricks.
 
-**High-Octane 3D Cyberpunk Highway Surfer & Stunt Action Engine**
+Built with React 19, TypeScript, Three.js r0.186, Vite 8 and Tailwind v4. Everything runs client-side; progress is saved in the browser.
 
-*Built with React 19, TypeScript, Three.js (r0.186 imperative), Vite 8, and Tailwind v4*
-
-[![Live Demo](https://img.shields.io/badge/Live%20Deploy-Vercel-00F0FF?style=for-the-badge&logo=vercel)](https://flowrider.vercel.app)
-[![TypeScript](https://img.shields.io/badge/TypeScript-ES2022-3178C6?style=for-the-badge&logo=typescript)](https://www.typescriptlang.org/)
-[![Three.js](https://img.shields.io/badge/Three.js-r0.186-black?style=for-the-badge&logo=three.js)](https://threejs.org/)
-
-</div>
+**Play:** [flowrider.vercel.app](https://flowrider.vercel.app)
 
 ---
 
-## 🎮 Live Game
+## Controls
 
-Play directly in browser: **[flowrider.vercel.app](https://flowrider.vercel.app)**
+### Keyboard
 
----
-
-## 🕹️ Controls & Navigation
-
-### 💻 Desktop Keyboard
 | Key | Action |
 | :--- | :--- |
-| <kbd>A</kbd> / <kbd>←</kbd> | Switch Lane Left |
-| <kbd>D</kbd> / <kbd>→</kbd> | Switch Lane Right |
-| <kbd>Space</kbd> / <kbd>W</kbd> / <kbd>↑</kbd> | Jump / Air Launch |
-| <kbd>S</kbd> / <kbd>↓</kbd> | Fast Slide / Crouch Under Barriers |
-| <kbd>Space</kbd> (Double Tap) | Deploy Holo-Defense Shield |
-| <kbd>J</kbd> / <kbd>1</kbd> | **Cyber Corkscrew 360°** (Spin Trick) |
-| <kbd>K</kbd> / <kbd>2</kbd> | **Laser Invert Backflip** (Flip Trick) |
-| <kbd>L</kbd> / <kbd>3</kbd> | **Neon Rail Grab** (Grab Trick) |
-| <kbd>I</kbd> / <kbd>4</kbd> | **Sonic Air Glide** (Pose Trick) |
-| <kbd>ESC</kbd> / <kbd>P</kbd> | Pause Game / Neural Link Standby |
+| <kbd>A</kbd> / <kbd>←</kbd> | Lane left |
+| <kbd>D</kbd> / <kbd>→</kbd> | Lane right |
+| <kbd>Space</kbd> / <kbd>W</kbd> / <kbd>↑</kbd> | Jump |
+| <kbd>S</kbd> / <kbd>↓</kbd> | Slide under barriers |
+| <kbd>Space</kbd> twice quickly | Deploy shield |
+| <kbd>J</kbd> / <kbd>1</kbd> | 360° Spin |
+| <kbd>K</kbd> / <kbd>2</kbd> | Flip |
+| <kbd>L</kbd> / <kbd>3</kbd> | Rail Grab |
+| <kbd>I</kbd> / <kbd>4</kbd> | Air Glide |
+| <kbd>Esc</kbd> / <kbd>P</kbd> | Pause |
 
-### 📱 Mobile Touch & Gestures
-- **Swipe Left / Right**: Instant responsive 3-lane dodge
-- **Swipe Up**: High-trajectory jump
-- **Swipe Down**: Aerodynamic low-profile slide
-- **Double Tap**: Holo-Shield activation
-- **On-Screen Stunt Rig**: Dedicated buttons for stunt tricks (Spin, Flip, Grab, Glide) with hold-charge indicators
+### Touch
 
----
-
-## ⚡ Core Gameplay & High-Velocity Systems
-
-1. **3-Lane Track Navigation**:
-   - Precision grid physics (`LANE_WIDTH = 2.6m`, `RAIL_X = 4.5m`).
-   - Smoothstep lane transition easing with real-time carving roll and camera bank tilt.
-
-2. **Neon Grind Rails & Boost Arches**:
-   - **Grind Rails**: Jump onto elevated rails for continuous gold spark friction, $+100\%$ score multiplier bonus, and high-speed overdrive meter charging.
-   - **Boost Gates**: Pass through pulsing holographic gateways for instant $+18\,\text{m/s}$ speed surges and FOV warp kicks.
-
-3. **Aerial Stunts & Perfect Landing Mechanics**:
-   - Chain multiple aerial maneuvers to build combo tiers (Blue $\to$ Cyan $\to$ Magenta $\to$ White-Hot).
-   - Time trick execution before touching ground for **Perfect Landing** score bonuses.
-   - Four distinct style tiers: `Chill` $\to$ `Breeze` $\to$ `Flow` $\to$ `Transcendent`.
-
-4. **Multi-Row Obstacle Sequences & Slalom**:
-   - Procedural slalom patterns (`L-C-R` / `R-C-L`) with guaranteed reachability and fair reaction gaps.
-   - Dynamic jump/duck conflict prevention across consecutive obstacle rows.
-
-5. **Daily Protocol Missions**:
-   - Complete daily challenges (Near-Misses, High Score Targets, Distance Goals) to earn Data Shards for upgrades.
+- Swipe left/right to change lanes, up to jump, down to slide
+- Double tap for the shield
+- On-screen buttons for the four tricks
 
 ---
 
-## 🌌 Biomes & Themes
+## Gameplay
 
-The highway cycles through dynamic biomes every 450 meters or via warp portals:
+- **Three lanes, rising speed.** You start at about 6 m/s; speed ramps with distance, overdrive, grinding and boost arches (engine cap 65 m/s).
+- **Grind rails** double the riding score while you're on them.
+- **Boost arches** add +18 m/s and a FOV kick.
+- **Tricks.** One trick at a time (0.3 s lockout). Each trick in the same airborne chain raises the combo (max ×8) and scores 350 × combo. Landing ends the chain.
+- **Style tiers:** Chill → Breeze → Flow → Transcendent, driven by overdrive and combo.
+- **Near misses** add shards, overdrive and a brief slow-motion.
+- **Daily missions** (near misses, score target, distance target) pay out shards.
+- **Modes:** Standard Run, Score Attack, Time Trial, Survival and Curated Challenges.
 
-- **Neon Undercity**: Wet reflective asphalt, towering skyscraper skylines, holographic advertisements.
-- **Dune Nomad**: Golden amber sandstorms, glowing mesas, warm sunset haze.
-- **Aurora Frost**: Glacier tundra, crystal ice highways, ethereal aurora borealis.
-- **Bioluminescent Jungle**: Glowing fungal canopies, emerald spore clouds, dense foliage.
-- **Ember Core**: Magma obsidian crusts, volcanic spires, blazing crimson embers.
-- **Nebula Drift**: Deep space zero-g highways, celestial starfields, violet cosmic dust.
-- **Sky Realm**: Floating cloud islands, celestial marble pillars, bright golden hour sunlight.
-- **The Grid**: Wireframe digital vector cyberspace, laser highway delimiters.
+### Worlds and zones
 
----
+The campaign has **five worlds**, each 2,250 m long, with their own lighting, fog, decorations and audio:
 
-## 🏄 5 Distinct Cyber-Surfboards
+| Sector | World | Distance |
+| :--- | :--- | :--- |
+| 1 | Sky Isles | 0 – 2,249 m |
+| 2 | Verdant Wilds | 2,250 – 4,499 m |
+| 3 | Crimson Dunes | 4,500 – 6,749 m |
+| 4 | Crystal Heights | 6,750 – 8,999 m |
+| 5 | Obsidian Core | 9,000 m + |
 
-Equip unique hoverboards in the **Loadout Bay**:
-
-1. **Cyber Phantom** (Default): Sleek dark carbon composite deck, balanced cyan perimeter rails, titanium stabilizer fins, dual plasma ion thrusters.
-2. **Laser Edge**: Aggressive razor-sharp stealth speed wedge, crimson/ember edge rails, twin hot orange stringers, knife-edge fins, fiery hyper-afterburners.
-3. **Grid Runner**: Faceted matrix composite deck, matrix-green neon rails, double circuit grid lines, triple emerald ion fins, dual turbine accelerators.
-4. **Tokyo Neon**: Wide swallow-tail cruiser, asymmetric hot magenta/cyan neon rails, gold-anodized fins, dual high-output pulse thrusters.
-5. **Void Stalker**: Ultra-black dark matter deck, twin-fork split nose, glowing purple void rails, obsidian dagger fins, triple antimatter micro-thrusters.
-
----
-
-## 🦸 5 Playable Heroes
-
-- **Shadow Blade**: Teleport dash, phase shift capability (Default).
-- **Flame Emperor**: Immolation trail, burns obstacles on contact (150 Shards).
-- **Thunder Rider**: Chain lightning speed burst and high-voltage overcharge (320 Shards).
-- **Frost Guardian**: Glacial halt time-dilation wave (500 Shards).
-- **Void Walker**: Antimatter phase shift through physical barriers (800 Shards).
+Within a world, the track surface and skyline rotate through **14 zones** every 450 m (or when you ride through a warp portal): Neon Undercity, Dune Nomad, Aurora Frost, Bioluminescent Jungle, Ember Core, Nebula Drift, Sky Realm, Quantum Desert, Cyber Forest, Orbital Ring, The Grid, Volcanic Forge, Crystal Glacier and Derelict Station.
 
 ---
 
-## 🌍 The Five-World Campaign Progression
+## Unlockables
 
-GoWithFlow features a seamless 5-world procedural journey, each spanning a 2,250-meter sector with signature atmospheric lighting, dynamic fog blending, and custom procedural sound signatures:
+Shards are earned during runs and from missions, challenges and achievements.
 
-```text
-☁️ Sector 1: Sky Isles (0m – 2,249m)
-   "The Beginning" — Floating archipelago, ethereal airy synth chimes, high visibility cyan skies.
-      ↓
-🌿 Sector 2: Verdant Wilds (2,250m – 4,499m)
-   "The Living Forest" — Ancient ruins, mossy overgrowth, warm major 7th chord ambience.
-      ↓
-🏜️ Sector 3: Crimson Dunes (4,500m – 6,749m)
-   "The Endless Desert" — Sun-bleached sandstone canyons, golden dunes, mystic fifth acoustic timbre.
-      ↓
-💎 Sector 4: Crystal Heights (6,750m – 8,999m)
-   "The Celestial Realm" — Monolithic crystal spires, harmonic celestial bells, cosmic violet skybox.
-      ↓
-🌋 Sector 5: Obsidian Core (9,000m+)
-   "The Final Challenge" — Basalt columns, magma fissures, volcanic sub-bass drone, high-density obstacles.
-```
+### Heroes
 
-- **Transition Corridors**: Seamless 300m crossfade zones (`t = 0.0 -> 1.0` via Hermite smoothstep) with zero loading screens, zero pop-in, and preloaded upcoming assets.
-- **Directionality**: Continuous forward momentum highway runner.
+| Hero | Cost |
+| :--- | :--- |
+| Cyber Surfer | Free (default) |
+| Shadow Blade | Free |
+| Flame Emperor | 150 shards |
+| Thunder Rider | 320 shards |
+| Frost Guardian | 500 shards |
+| Void Walker | 800 shards |
 
----
+Heroes are cosmetic: each has its own 3D model. The ability tags shown in the roster (e.g. DASH) are placeholders and don't change gameplay yet.
 
-## 🖥️ Graphics Fidelity Presets & Hardware Optimization
+### Hoverboards
 
-Configurable in **Settings & Engine** modal or persisted via `localStorage`:
+Cyber Phantom (free), Laser Edge (75), Grid Runner (150), Tokyo Neon (250), Void Stalker (400).
 
-| Preset | Target FPS | Shadows | Post-Processing | Vegetation Density | Target Hardware |
-| :--- | :--- | :--- | :--- | :--- | :--- |
-| **Ultra (PC)** (`desktop-full`) | 60 FPS | Dynamic Directional | Full (Bloom, Glitch, Aberration) | 100% | Discrete GPUs / High-end Laptops |
-| **Balanced** (`mobile-opt`) | 60 FPS | Disabled | Optimized Screen Pass | 65% | Intel Core i5 / Intel Iris Xe / Mobile |
-| **Economy** (`webgl-min`) | 30–60 FPS | Disabled | Disabled | 40% | Low-spec laptops / Chromebooks |
+### Tech Bay upgrades
 
-- **Adaptive DPR Clamping**: Clamped to $\le 1.5$ on desktop and $\le 1.2$ on mobile to prevent fillrate bottlenecks on integrated Intel Iris Xe graphics.
-- **Accessibility (`reducedFlash`)**: Photo-sensitive safe mode that suppresses screen shake, high-frequency glitch artifacts, and sudden flashes.
+Magnet, jetpack, overdrive core and shield capacitor, each with several levels.
 
 ---
 
-## 🛠️ Tech Stack & Architecture
+## Leaderboards and live ops are local
 
-- **Framework**: [React 19](https://react.dev/) + TypeScript (ES2022 / bundler resolution)
-- **3D Graphics**: [Three.js r0.186](https://threejs.org/) (Imperative scene management, custom GLSL vertex & fragment shaders, instanced meshes)
-- **Styling**: [Tailwind CSS v4](https://tailwindcss.com/)
-- **Bundler**: [Vite 8](https://vitejs.dev/)
-- **Audio**: Web Audio API Procedural Synthwave Engine (Real-time 16-step bassline sequencer, 808 drums, FM laser SFX, world acoustic signatures)
+The leaderboard, practice challenges, seasons, live events, profile and "security" checks all run in the browser and save to `localStorage`. There is no backend.
+
+- Your runs are ranked against five built-in **SAMPLE** rivals, not real players.
+- Run validation (speed, score and world-progression sanity checks) catches bugs and corrupted saves. It does not stop a determined cheater, because anyone can edit `localStorage`.
+- Making leaderboards global would need a server that stores runs and repeats the validation in `src/game/security/scoreValidationPipeline.ts`.
 
 ---
 
-## 🚀 Local Development & Verification
+## Graphics presets
+
+Change these in **Settings**. Your choice is saved in the browser.
+
+| Preset | Shadows | Post-processing | Vegetation | Pixel ratio cap |
+| :--- | :--- | :--- | :--- | :--- |
+| **Ultra** (`desktop-full`) | On | Bloom, aberration, speed lines | 100% | 1.5 |
+| **Balanced** (`mobile-opt`) | Off | On | 65% | 1.2 |
+| **Economy** (`webgl-min`) | Off | Off | 40% | 1.0 |
+
+The first launch uses Ultra on desktop and Balanced on touch devices. **Reduced flash** in Settings turns off screen shake and glitch effects.
+
+---
+
+## Development
 
 ```bash
-# 1. Clone repository
-git clone https://github.com/vanithamayojula-ux/Go-With-Flow.git
-cd Go-With-Flow
-
-# 2. Install dependencies
 npm install
-
-# 3. Start development server
-npm run dev
-
-# 4. Type check & build production bundle
-npm run lint    # runs tsc --noEmit (0 errors)
-npm run build   # builds optimized static bundle to /dist
-npm run preview # runs local production preview server
-
-# 5. Automated Verification Suites
-npx tsx scripts/test_phase8_performance.ts # Performance & budget benchmark
-npx tsx scripts/test_phase9_polish.ts      # Game feel & audio audit
-npx tsx scripts/test_phase10_release.ts    # Comprehensive release regression suite
-npx tsx scripts/test_phase12_stability.ts  # Post-launch stability gate & regression checks
+npm run dev       # http://localhost:3000
+npm run lint      # tsc --noEmit
+npm test          # gameplay regression tests + phase suites (Node, no browser)
+npm run build     # production bundle in dist/
+npm run preview   # serve dist/
 ```
+
+No environment variables are needed.
+
+`hero-lab.html` (linked from the **LAB** button on the main menu) shows the selected hero's 3D model and poses. The other scripts in `scripts/` are one-off Playwright diagnostics and expect a dev server on specific ports.
+
+### Project layout
+
+```text
+src/
+  App.tsx                 React shell: menus, HUD state, saves
+  components/             UI: HUD, modals, GameCanvas (mounts the engine)
+  game/
+    GameEngine.ts         render loop, input, wiring between systems
+    player.ts             movement, tricks, scoring
+    obstacles.ts          barriers, rails, boost arches, portals, pickups
+    terrain.ts            track streaming and the 14-zone rotation
+    WorldManager.ts       5-world campaign progression and blending
+    worlds/               per-world decorations and atmosphere
+    heroes.ts             hero roster, prices, model paths
+    modes/ progression/ cosmetics/
+    social/ liveops/ security/   local-only systems (see above)
+public/
+  model.glb               Cyber Surfer
+  models/                 Shadow, Flame, Thunder, Frost, Void
+```
+
+See `docs/ARCHITECTURE.md` for more detail and `CHANGELOG.md` for recent fixes.
 
 ---
 
-## 📜 License
+## License
 
-MIT License © 2026 Neon Drift / Go-With-Flow
+MIT © 2026 Neon Drift / Go-With-Flow

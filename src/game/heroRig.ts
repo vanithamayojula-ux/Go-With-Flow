@@ -1,6 +1,5 @@
 import * as THREE from 'three';
 import { GLTFLoader } from 'three/examples/jsm/loaders/GLTFLoader.js';
-import { MeshoptDecoder } from 'three/examples/jsm/libs/meshopt_decoder.module.js';
 import * as SkeletonUtils from 'three/examples/jsm/utils/SkeletonUtils.js';
 import { HeroId } from '../types';
 import { heroById } from './heroes';
@@ -65,8 +64,49 @@ export interface HeroRig {
 }
 
 const cache = new Map<HeroId, Promise<LoadedHeroData | null> | LoadedHeroData>();
+// No hero model uses EXT_meshopt_compression (model.glb was decoded), so the
+// WebAssembly meshopt decoder isn't loaded. That keeps heroes working on hosts
+// whose CSP blocks WebAssembly. If you add a meshopt-compressed model, import
+// MeshoptDecoder from three/examples/jsm/libs/meshopt_decoder.module.js and
+// call loader.setMeshoptDecoder(MeshoptDecoder) here.
 const loader = new GLTFLoader();
-loader.setMeshoptDecoder(MeshoptDecoder);
+
+// Load embedded GLB textures through <img> (TextureLoader) instead of
+// ImageBitmapLoader. ImageBitmapLoader fetch()es the blob: URLs GLTFLoader
+// creates for embedded images, and hosts with a strict Content-Security-Policy
+// (connect-src 'self') refuse that, leaving the hero untextured or unloaded.
+// This is the same path three.js already uses on Safari.
+if (typeof document !== 'undefined') {
+  loader.register((parser: any) => {
+    parser.textureLoader = new THREE.TextureLoader(parser.options.manager);
+    if (parser.options.crossOrigin) parser.textureLoader.setCrossOrigin(parser.options.crossOrigin);
+    return { name: 'GWF_img_texture_loader' } as any;
+  });
+}
+
+/**
+ * Fetch a model as raw bytes. Plain .glb files are used as-is; a `.b64.txt`
+ * file holds the same GLB as base64 text, for static hosts that only serve
+ * text and media types. Only same-origin fetches are made, so no data: or
+ * blob: requests are needed.
+ */
+async function fetchModelBytes(url: string): Promise<ArrayBuffer> {
+  const res = await fetch(url);
+  if (!res.ok) throw new Error(`HTTP ${res.status} loading ${url}`);
+  if (url.endsWith('.b64.txt')) {
+    const bin = atob((await res.text()).trim());
+    const bytes = new Uint8Array(bin.length);
+    for (let i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i);
+    return bytes.buffer;
+  }
+  return res.arrayBuffer();
+}
+
+async function loadGltfFromUrl(url: string): Promise<any> {
+  const bytes = await fetchModelBytes(url);
+  const resourcePath = url.includes('/') ? url.slice(0, url.lastIndexOf('/') + 1) : '';
+  return loader.parseAsync(bytes, resourcePath);
+}
 
 export async function loadHeroModel(heroId: HeroId): Promise<LoadedHeroData | null> {
   const cached = cache.get(heroId);
@@ -84,7 +124,7 @@ export async function loadHeroModel(heroId: HeroId): Promise<LoadedHeroData | nu
       const proc = (globalThis as any).process;
       const cwd = proc && typeof proc.cwd === 'function' ? proc.cwd() : '.';
       const heroDef = heroById(heroId);
-      const modelRelPath = heroDef?.modelUrl || `/models/${heroId}.glb`;
+      const modelRelPath = heroDef?.modelUrl || `models/${heroId}.glb`;
       const filePath = path.resolve(cwd, modelRelPath.startsWith('/') ? `public${modelRelPath}` : `public/${modelRelPath}`);
       const buf = fs.readFileSync(filePath);
       const arrayBuf = buf.buffer.slice(buf.byteOffset, buf.byteOffset + buf.byteLength);
@@ -117,51 +157,26 @@ export async function loadHeroModel(heroId: HeroId): Promise<LoadedHeroData | nu
   }
 
   const heroDef = heroById(heroId);
-  const primaryPath = heroDef?.modelUrl || `/models/${heroId}.glb`;
-  const fallbackPath = primaryPath.startsWith('/') ? primaryPath.slice(1) : primaryPath;
+  const modelPath = heroDef?.modelUrl || `models/${heroId}.glb`;
 
-  const p = new Promise<LoadedHeroData | null>((resolve) => {
-    loader.load(
-      primaryPath,
-      (gltf) => {
-        const skinned: THREE.SkinnedMesh[] = [];
-        gltf.scene.traverse((o: THREE.Object3D) => {
-          if ((o as THREE.SkinnedMesh).isSkinnedMesh) {
-            skinned.push(o as THREE.SkinnedMesh);
-          }
-        });
-        if (skinned.length === 0) {
-          console.warn(`[HeroRig] No SkinnedMesh found in ${primaryPath}`);
+  const p = (async (): Promise<LoadedHeroData | null> => {
+    try {
+      const gltf = await loadGltfFromUrl(modelPath);
+      const skinned: THREE.SkinnedMesh[] = [];
+      gltf.scene.traverse((o: THREE.Object3D) => {
+        if ((o as THREE.SkinnedMesh).isSkinnedMesh) {
+          skinned.push(o as THREE.SkinnedMesh);
         }
-        const data: LoadedHeroData = { gltf, skinned };
-        cache.set(heroId, data);
-        resolve(data);
-      },
-      undefined,
-      (err) => {
-        // Fallback check
-        loader.load(
-          fallbackPath,
-          (gltf) => {
-            const skinned: THREE.SkinnedMesh[] = [];
-            gltf.scene.traverse((o: THREE.Object3D) => {
-              if ((o as THREE.SkinnedMesh).isSkinnedMesh) {
-                skinned.push(o as THREE.SkinnedMesh);
-              }
-            });
-            const data: LoadedHeroData = { gltf, skinned };
-            cache.set(heroId, data);
-            resolve(data);
-          },
-          undefined,
-          (err2) => {
-            console.error(`[HeroRig] Failed to load model for ${heroId}`, err2);
-            resolve(null);
-          }
-        );
-      }
-    );
-  });
+      });
+      const data: LoadedHeroData = { gltf, skinned };
+      cache.set(heroId, data);
+      return data;
+    } catch (err) {
+      console.error(`[HeroRig] Failed to load model for ${heroId} from ${modelPath}`, err);
+      cache.delete(heroId); // allow a retry on the next selection
+      return null;
+    }
+  })();
 
   cache.set(heroId, p);
   return p;
@@ -177,7 +192,10 @@ export function buildHeroRig(heroId: HeroId): HeroRig | null {
   if (!entry || entry instanceof Promise) return null;
 
   const heroDef = heroById(heroId);
-  const isCustomGlb = heroDef.modelUrl.includes('model') || entry.skinned.length === 0;
+  // Rigid path for the unskinned Cyber Surfer (model.glb); skinned heroes use
+  // their bone rigs. (This used to test modelUrl.includes('model'), which also
+  // matched every 'models/*.glb' path and disabled the skinned rigs.)
+  const isCustomGlb = heroId === 'custom' || entry.skinned.length === 0;
 
   const root = new THREE.Group();
   root.name = `HeroRig_${heroId}`;

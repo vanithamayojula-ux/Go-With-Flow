@@ -20,8 +20,8 @@ import { getXPProgress } from '../game/progression/progressionConfig';
 interface ProgressionModalProps {
   progressionMgr: ProgressionManager;
   onClose: () => void;
-  onClaimChallenge?: (id: string) => void;
-  onClaimAchievement?: (id: string) => void;
+  onClaimChallenge?: (id: string, shards: number) => void;
+  onClaimAchievement?: (id: string, shards: number) => void;
 }
 
 export const ProgressionModal: React.FC<ProgressionModalProps> = ({
@@ -42,7 +42,7 @@ export const ProgressionModal: React.FC<ProgressionModalProps> = ({
     const res = progressionMgr.claimChallengeReward(id);
     if (res.success) {
       setData(progressionMgr.getData());
-      onClaimChallenge?.(id);
+      onClaimChallenge?.(id, res.shards);
     }
   };
 
@@ -50,7 +50,7 @@ export const ProgressionModal: React.FC<ProgressionModalProps> = ({
     const res = progressionMgr.claimAchievementReward(id);
     if (res.success) {
       setData(progressionMgr.getData());
-      onClaimAchievement?.(id);
+      onClaimAchievement?.(id, res.shards);
     }
   };
 
@@ -174,7 +174,7 @@ export const ProgressionModal: React.FC<ProgressionModalProps> = ({
                       <div className="flex items-center space-x-2">
                         <span className="text-sm font-black text-white">{c.title}</span>
                         <span className="text-[10px] px-2 py-0.5 rounded bg-white/5 text-white/60 uppercase font-mono">
-                          {c.type}
+                          {c.category}
                         </span>
                       </div>
                       <p className="text-xs text-white/60 mt-0.5">{c.description}</p>
@@ -314,7 +314,7 @@ export const ProgressionModal: React.FC<ProgressionModalProps> = ({
                         {r.level}
                       </div>
                       <div>
-                        <div className="text-sm font-black text-white">{r.title}</div>
+                        <div className="text-sm font-black text-white">{r.name}</div>
                         <p className="text-xs text-white/60">{r.description}</p>
                       </div>
                     </div>

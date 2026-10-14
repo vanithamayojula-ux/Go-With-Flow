@@ -80,7 +80,7 @@ Each world spans an exact 2,250-meter sector along the neon highway, transitioni
 2. **Framework Preset**: `Vite`.
 3. **Build Command**: `npm run build` (or `vite build`).
 4. **Output Directory**: `dist`.
-5. **Environment Configuration**: No server secrets are required for client execution. Public placeholders in `.env.example` are documented.
+5. **Environment Configuration**: No environment variables or secrets are required.
 6. **Immutable Routing**: [`vercel.json`](file:///c:/Users/HP/Downloads/gowithflow/vercel.json) handles rewrites for SPA routing and static assets:
    ```json
    {

@@ -1,4 +1,5 @@
 import * as THREE from 'three';
+import { GAME_VERSION } from '../src/version';
 import { WorldManager } from '../src/game/WorldManager';
 import { WorldTransitionManager } from '../src/game/systems/worldTransition/WorldTransitionManager';
 import { PlayerManager } from '../src/game/player';
@@ -122,7 +123,7 @@ function runPhase12StabilityGate() {
 
   const dashboard = getGameHealthDashboard();
   assert(dashboard.status === 'OPTIMAL' || dashboard.status === 'DEGRADED', `Dashboard status resolved cleanly (${dashboard.status})`);
-  assert(dashboard.version === '1.0.0', `Dashboard exposes correct version (${dashboard.version})`);
+  assert(dashboard.version === GAME_VERSION, `Dashboard exposes correct version (${dashboard.version})`);
 
   console.log('\n================================================================');
   console.log(`[PHASE 12 STABILITY RESULT] Passed: ${passes}, Failed: ${fails}`);

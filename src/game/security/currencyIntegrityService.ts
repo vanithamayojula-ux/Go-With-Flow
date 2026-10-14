@@ -1,6 +1,6 @@
 /**
- * GoWithFlow — Authoritative Currency Integrity Service
- * Phase 17 Section 11: Single authoritative server currency representation, atomic transaction logging,
+ * GoWithFlow — Local Currency Integrity Service
+ * Phase 17 Section 11: Single local currency representation, atomic transaction logging,
  * balance non-negativity invariants, and double-deposit/double-spend prevention.
  */
 
@@ -71,7 +71,7 @@ export class CurrencyIntegrityService {
   }
 
   /**
-   * Get authoritative balance
+   * Get local balance
    */
   public getBalance(playerId: string): number {
     const wallet = this._wallets.get(playerId);
@@ -79,7 +79,7 @@ export class CurrencyIntegrityService {
   }
 
   /**
-   * Authoritatively credits shards or bonus currency
+   * Locally credits shards or bonus currency
    */
   public credit(
     playerId: string,
@@ -116,7 +116,7 @@ export class CurrencyIntegrityService {
   }
 
   /**
-   * Authoritatively debits shards (e.g. revive fee, shop unlock)
+   * Locally debits shards (e.g. revive fee, shop unlock)
    * Enforces balance >= amount invariant (no negative balances permitted!)
    */
   public debit(

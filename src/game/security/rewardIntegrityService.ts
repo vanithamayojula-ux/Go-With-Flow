@@ -1,6 +1,6 @@
 /**
- * GoWithFlow — Authoritative Reward Integrity Service
- * Phase 17 Section 10: Server-side idempotency ledger protecting XP, cosmetics, badges,
+ * GoWithFlow — Local Reward Integrity Service
+ * Phase 17 Section 10: Local idempotency ledger protecting XP, cosmetics, badges,
  * challenge bounties, and seasonal placements from fraudulent duplicate claims.
  */
 
@@ -67,7 +67,7 @@ export class RewardIntegrityService {
   }
 
   /**
-   * Authoritatively claims a reward.
+   * Locally claims a reward.
    * If already granted, returns alreadyClaimed: true with 0 duplicate reward.
    */
   public claimReward(

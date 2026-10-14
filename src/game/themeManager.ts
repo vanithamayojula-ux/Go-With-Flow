@@ -80,7 +80,7 @@ export const THEME_REGISTRY: Record<string, ThemeDefinition> = {
   },
   'sky-realm': {
     id: 'sky-realm',
-    name: 'Sky Realm // Ghibli Nature',
+    name: 'Sky Realm // Cloud Isles',
     color: '#FEF08A',
     secondaryColor: '#7DD3FC',
     skyTopColor: 0x7dd3fc,
@@ -151,6 +151,22 @@ export const THEME_REGISTRY: Record<string, ThemeDefinition> = {
     sunColor: 0xffbb00,
   },
 };
+
+// Legacy biome ids that still exist in BiomeType and are used by terrain/sky
+// code. Without entries here ThemeManager fell back to Neon Undercity for them.
+const LEGACY_THEME_ALIASES: Partial<Record<BiomeType, BiomeType>> = {
+  'sky-islands': 'sky-realm',
+  'meadow': 'sky-realm',
+  'dunes': 'dune-nomad',
+  'forest': 'cyber-forest',
+  'bleach-bypass-steel': 'derelict-station',
+};
+for (const [legacyId, targetId] of Object.entries(LEGACY_THEME_ALIASES)) {
+  const target = THEME_REGISTRY[targetId as string];
+  if (target && !THEME_REGISTRY[legacyId]) {
+    THEME_REGISTRY[legacyId] = { ...target, id: legacyId as BiomeType };
+  }
+}
 
 export class ThemeManager {
   scene: THREE.Scene;

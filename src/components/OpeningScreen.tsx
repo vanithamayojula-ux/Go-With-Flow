@@ -228,15 +228,20 @@ export const OpeningScreen: React.FC<OpeningScreenProps> = ({
         return;
       }
 
-      const currentIndex = heroes.findIndex((h) => h.id === selectedHero);
+      // Arrow keys cycle through heroes the player owns; locked heroes are
+      // bought with the UNLOCK button instead.
+      const owned = heroes.filter((h) => h.cost === 0 || unlocked.includes(h.id));
+      const currentIndex = owned.findIndex((h) => h.id === selectedHero);
       if (e.key === 'ArrowLeft' || e.key === 'ArrowUp') {
         e.preventDefault();
-        const prevIndex = (currentIndex - 1 + heroes.length) % heroes.length;
-        onSelectHero(heroes[prevIndex].id);
+        if (owned.length === 0) return;
+        const prevIndex = (Math.max(currentIndex, 0) - 1 + owned.length) % owned.length;
+        onSelectHero(owned[prevIndex].id);
       } else if (e.key === 'ArrowRight' || e.key === 'ArrowDown') {
         e.preventDefault();
-        const nextIndex = (currentIndex + 1) % heroes.length;
-        onSelectHero(heroes[nextIndex].id);
+        if (owned.length === 0) return;
+        const nextIndex = (currentIndex + 1) % owned.length;
+        onSelectHero(owned[nextIndex].id);
       } else if (e.key === 'Enter' || e.key === ' ') {
         // Space / Enter launches if play button or container is active
         if (
@@ -252,7 +257,7 @@ export const OpeningScreen: React.FC<OpeningScreenProps> = ({
 
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
-  }, [heroes, selectedHero, onSelectHero, onPlay]);
+  }, [heroes, selectedHero, onSelectHero, onPlay, unlocked]);
 
   return (
     <div

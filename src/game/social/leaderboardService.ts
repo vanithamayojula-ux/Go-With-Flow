@@ -15,11 +15,13 @@ import {
 import { RunSubmissionValidator } from './runSubmission';
 import { StorageSanitizer } from '../security/storageSanitizer';
 
-// High-fidelity pre-seeded community benchmarks for realistic leaderboards
+// Built-in sample rivals so the local leaderboard isn't empty on first launch.
+// They are not real players; the UI labels them SAMPLE.
 const SEED_GLOBAL_ENTRIES: LeaderboardEntry[] = [
   {
     rank: 1,
     playerId: 'usr_top_01',
+    isSample: true,
     username: 'Valkyrie_X',
     title: 'Void Drifter',
     avatarIcon: '👑',
@@ -34,6 +36,7 @@ const SEED_GLOBAL_ENTRIES: LeaderboardEntry[] = [
   {
     rank: 2,
     playerId: 'usr_top_02',
+    isSample: true,
     username: 'GhostRider_99',
     title: 'Overdrive Ace',
     avatarIcon: '🔥',
@@ -48,6 +51,7 @@ const SEED_GLOBAL_ENTRIES: LeaderboardEntry[] = [
   {
     rank: 3,
     playerId: 'usr_top_03',
+    isSample: true,
     username: 'Kitsune_Flow',
     title: 'Neon Nomad',
     avatarIcon: '🦊',
@@ -62,6 +66,7 @@ const SEED_GLOBAL_ENTRIES: LeaderboardEntry[] = [
   {
     rank: 4,
     playerId: 'usr_top_04',
+    isSample: true,
     username: 'CyberPulse',
     title: 'Sky Strider',
     avatarIcon: '⚡',
@@ -76,6 +81,7 @@ const SEED_GLOBAL_ENTRIES: LeaderboardEntry[] = [
   {
     rank: 5,
     playerId: 'usr_top_05',
+    isSample: true,
     username: 'SolarWarp',
     title: 'Dune Navigator',
     avatarIcon: '☀️',
@@ -112,11 +118,11 @@ export class LeaderboardService {
   }
 
   /**
-   * Submit a run result with server-side validation.
+   * Submit a run result with local sanity checks.
    * If network fails or is offline, queues the submission locally for synchronization.
    */
   public submitRun(submission: RunSubmission): { success: boolean; entry?: LeaderboardEntry; error?: string } {
-    // 1. Authoritative Validation Pass
+    // 1. Local Validation Pass
     const validation = RunSubmissionValidator.validate(submission);
     if (!validation.isValid) {
       return { success: false, error: validation.reason };

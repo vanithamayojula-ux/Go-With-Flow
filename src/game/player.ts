@@ -112,6 +112,7 @@ export class PlayerManager {
   scoreMultiplier = 1;
   highScore = 0;
   gameState: GameState = 'playing';
+  private scoreRemainder = 0;
 
   applyUpgrades(upgrades: PlayerUpgrades) {
     this.upgrades = { ...upgrades };
@@ -692,6 +693,12 @@ export class PlayerManager {
     }
     this.stats.score = 0;
     this.stats.distance = 0;
+    this.scoreRemainder = 0;
+    this.trickTimer = 0;
+    this.activeTrick = null;
+    this.stats.activeTrickName = null;
+    this.slowMoTimer = 0;
+    this.stats.slowMoActive = false;
     this.stats.windOrbsCollected = 0;
     this.stats.dataShardsCollected = 0;
     this.stats.gameState = 'playing';
@@ -744,6 +751,10 @@ export class PlayerManager {
   }
 
   triggerTrick(trick: TrickType, audioManager?: AudioManager | null): boolean {
+    // One trick at a time: ignore new trick input for the first 0.3s of the
+    // current trick. Without this, holding or mashing a trick key scored
+    // 350 x combo every frame (millions of points per minute).
+    if (this.trickTimer > 0.2) return false;
     if (this.isGrounded && this.jumpVelocity === 0) {
       this.jumpVelocity = 13.5;
       this.isGrounded = false;
@@ -896,7 +907,7 @@ export class PlayerManager {
     }
 
     // Dynamic distance-based speed scaling: starting slow at ~6.0, ramping up smoothly as distance increases (Subway Surfers style)
-    const distanceSpeedBonus = Math.min(28.0, (this.stats.distance / 120.0) * 2.0);
+    const distanceSpeedBonus = Math.min(28.0, (this.stats.distance / 80.0) * 2.0);
     let targetSpeed = 6.0 + distanceSpeedBonus;
 
     if (input.forward) targetSpeed += 12.0;
@@ -906,7 +917,13 @@ export class PlayerManager {
     const overdriveBonus = (this.overdriveMeter / 100) * 10.0;
     targetSpeed += overdriveBonus;
 
-    this.velocity.z = THREE.MathUtils.lerp(this.velocity.z, targetSpeed, 3.5 * effectiveDt);
+    if (this.gameState === 'playing') {
+      this.velocity.z = THREE.MathUtils.lerp(this.velocity.z, targetSpeed, 3.5 * effectiveDt);
+    } else {
+      // Stay put after a crash; otherwise the board eases back up to speed
+      // behind the game-over screen and keeps adding distance and score.
+      this.velocity.z = 0;
+    }
 
     // Forward translation FIRST so terrain height is computed at updated position
     this.position.z += this.velocity.z * effectiveDt;
@@ -966,6 +983,8 @@ export class PlayerManager {
       this.jumpVelocity = 0;
       this.isGrounded = true;
       this.stats.airTime = 0;
+      // A trick combo is one airborne chain; landing ends it.
+      if (wereAirborne) this.stats.combo = 0;
       this.spinAngle = THREE.MathUtils.lerp(this.spinAngle, 0, 10 * effectiveDt);
       this.flipAngle = THREE.MathUtils.lerp(this.flipAngle, 0, 10 * effectiveDt);
       this.grabPoseWeight = THREE.MathUtils.lerp(this.grabPoseWeight, 0, 12 * effectiveDt);
@@ -1105,9 +1124,20 @@ export class PlayerManager {
     this.stats.styleMeter = this.overdriveMeter;
     this.stats.isGrinding = this.isGrinding;
     this.stats.speed = Math.round(this.velocity.z * 3.6); // km/h
-    this.stats.distance += Math.round(this.velocity.z * effectiveDt * 1.5);
+    // Distance is the real metres travelled along the track, so the HUD,
+    // missions and world boundaries (which use position.z) always agree.
+    // Score accumulates fractional points so it is frame-rate independent;
+    // per-frame Math.round() previously truncated to 0 at 60 Hz and above.
+    this.stats.distance = Math.max(this.stats.distance, Math.floor(Math.max(0, this.position.z)));
     const grindScoreBonus = this.isGrinding ? 2.0 : 1.0;
-    this.stats.score += Math.round(this.velocity.z * effectiveDt * 4.0 * this.scoreMultiplier * grindScoreBonus);
+    if (this.gameState === 'playing') {
+      this.scoreRemainder += this.velocity.z * effectiveDt * 4.0 * this.scoreMultiplier * grindScoreBonus;
+    }
+    const wholePoints = Math.floor(this.scoreRemainder);
+    if (wholePoints > 0) {
+      this.stats.score += wholePoints;
+      this.scoreRemainder -= wholePoints;
+    }
     this.stats.highScore = Math.max(this.stats.highScore, this.stats.score);
     this.stats.currentLane = this.currentLane;
     this.stats.isSliding = this.isSliding;
