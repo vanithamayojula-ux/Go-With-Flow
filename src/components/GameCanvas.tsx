@@ -126,6 +126,13 @@ export const GameCanvas: React.FC<GameCanvasProps> = ({
     return () => {
       engine.dispose();
       engineRef.current = null;
+      // Drop the dev hooks so they don't keep the disposed engine alive.
+      if (typeof window !== 'undefined') {
+        (window as any).__gameEngine = undefined;
+        (window as any).__playerManager = undefined;
+        (window as any).__setActiveBiome = undefined;
+        (window as any).__clearBiomeOverride = undefined;
+      }
     };
   }, []);
 

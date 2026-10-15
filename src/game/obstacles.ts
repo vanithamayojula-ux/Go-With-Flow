@@ -2,7 +2,7 @@ import * as THREE from 'three';
 import { GLTFLoader } from 'three/examples/jsm/loaders/GLTFLoader.js';
 import { BiomeType, LaneIndex, PowerUpType } from '../types';
 import { getTerrainHeight, getBiomeAt } from './terrain';
-import { LANE_WIDTH, laneToWorldX } from './trackConfig';
+import { laneToWorldX } from './trackConfig';
 
 export interface Obstacle3DTemplate {
   id: string;
@@ -546,6 +546,10 @@ export class ObstacleManager {
   // Cached 3D obstacle models (Preloaded once and cloned on spawn)
   static cachedTemplates: Obstacle3DTemplate[] = [];
   static isPreloading = false;
+  // Templates are pushed one-per-GLB, so the set is only safe to index once
+  // the whole batch has resolved; otherwise a partially filled array collapses
+  // the deterministic cycle onto whichever models happened to load first.
+  static isPreloadComplete = false;
   static preloadPromise: Promise<void> | null = null;
   static pendingSpawnCallbacks: (() => void)[] = [];
 
@@ -555,11 +559,14 @@ export class ObstacleManager {
     }
     ObstacleManager.isPreloading = true;
 
-    // Optional GLB obstacle models. None ship with the game today, so the
-    // procedural obstacles are used. To add one, put the file in public/models/
-    // and list it here, e.g.:
-    //   { id: 'sentinel', name: 'Cyber Sentinel', url: 'models/obstacle01.glb', targetHeight: 2.2, yaw: -Math.PI / 2 },
-    const defs: { id: string; name: string; url: string; targetHeight: number; yaw: number; fallbackUrl?: string }[] = [];
+    // GLB obstacle models in public/. A model that fails to load is skipped and
+    // the procedural obstacles cover for it; with an empty list none are used.
+    const defs: { id: string; name: string; url: string; targetHeight: number; yaw: number; fallbackUrl?: string }[] = [
+      { id: 'sentinel', name: 'Cyber Sentinel', url: 'obstacle01.glb', targetHeight: 2.2, yaw: -Math.PI / 2 },
+      { id: 'frost-drake', name: 'Frost Drake', url: 'obstacle02.glb', targetHeight: 2.2, yaw: -Math.PI / 2 },
+      { id: 'bio-predator', name: 'Bio Predator', url: 'obstacle03.glb', targetHeight: 2.2, yaw: -Math.PI / 2 },
+      { id: 'xenobeast', name: 'Cyber Beast', url: 'obstacle04.glb', targetHeight: 2.1, yaw: -Math.PI / 2 },
+    ];
     if (defs.length === 0) {
       ObstacleManager.isPreloading = false;
       ObstacleManager.preloadPromise = Promise.resolve();
@@ -568,7 +575,10 @@ export class ObstacleManager {
 
     const loader = new GLTFLoader();
 
+    const loadFailures: string[] = [];
+
     ObstacleManager.preloadPromise = (async () => {
+      ObstacleManager.isPreloadComplete = false;
       for (const def of defs) {
         try {
           let gltf;
@@ -626,7 +636,8 @@ export class ObstacleManager {
           const scaledH = def.targetHeight;
           const scaledD = rawSize.z * scale;
 
-          ObstacleManager.cachedTemplates.push({
+          const existingIdx = ObstacleManager.cachedTemplates.findIndex((t) => t.id === def.id);
+          const template: Obstacle3DTemplate = {
             id: def.id,
             name: def.name,
             url: def.url,
@@ -636,8 +647,15 @@ export class ObstacleManager {
             width: scaledW,
             height: scaledH,
             depth: scaledD,
-          });
+          };
+          // Replace in place so a retried preload never duplicates entries.
+          if (existingIdx !== -1) {
+            ObstacleManager.cachedTemplates[existingIdx] = template;
+          } else {
+            ObstacleManager.cachedTemplates.push(template);
+          }
         } catch (err) {
+          loadFailures.push(def.url);
           console.warn(`[ObstacleManager] Failed to load 3D obstacle model ${def.url}:`, err);
         }
       }
@@ -649,6 +667,14 @@ export class ObstacleManager {
         if (cb) {
           try { cb(); } catch {}
         }
+      }
+
+      if (loadFailures.length > 0) {
+        // Let a later call retry the models that failed instead of latching
+        // a permanently degraded template set for the whole session.
+        ObstacleManager.preloadPromise = null;
+      } else {
+        ObstacleManager.isPreloadComplete = true;
       }
     })();
 
@@ -853,8 +879,8 @@ export class ObstacleManager {
         modelContainer.remove(modelContainer.children[0]);
       }
 
-      if (ObstacleManager.cachedTemplates.length > 0) {
-        // Cycle deterministically across the 4 3D obstacle models based on Z
+      if (ObstacleManager.isPreloadComplete && ObstacleManager.cachedTemplates.length > 0) {
+        // Cycle deterministically across the 3D obstacle models based on Z
         const templateIdx = Math.abs(Math.floor(z / 18)) % ObstacleManager.cachedTemplates.length;
         const template = ObstacleManager.cachedTemplates[templateIdx];
         const clonedPivot = template.pivot.clone(true);
@@ -1234,7 +1260,7 @@ export class ObstacleManager {
       if (!obs.nearMissed && Math.abs(dz) < 1.6 && dx >= (obsHalfWidth + 0.20) && dx <= (obsHalfWidth + 1.25)) {
         obs.nearMissed = true;
         result.nearMiss = true;
-        result.nearMissPos = this._nearMissPosScratch.set(obs.x, obs.y, obs.z);
+        result.nearMissPos = this._nearMissPosScratch.set(obs.x, obs.y, obs.z).clone();
       }
 
       // Physical Collision
@@ -1294,6 +1320,8 @@ export class ObstacleManager {
   }
 
   reset(): void {
+    // Callbacks retain despawned groups; drop them before recycling.
+    ObstacleManager.pendingSpawnCallbacks.length = 0;
     while (this.obstacles.length > 0) {
       const obs = this.obstacles.pop();
       if (obs) this.group.remove(obs.mesh);
@@ -1314,6 +1342,27 @@ export class ObstacleManager {
   dispose(): void {
     this.reset();
     this.scene.remove(this.group);
+
+    // Cached GLB templates are static and shared across managers; release their
+    // GPU buffers too, otherwise they live for the whole process lifetime.
+    for (const t of ObstacleManager.cachedTemplates) {
+      t.pivot.traverse((o) => {
+        const mesh = o as THREE.Mesh;
+        if (mesh.isMesh) {
+          mesh.geometry?.dispose();
+          const mat = mesh.material;
+          if (Array.isArray(mat)) mat.forEach((m) => m.dispose());
+          else if (mat) {
+            for (const value of Object.values(mat)) {
+              if (value instanceof THREE.Texture) value.dispose();
+            }
+            mat.dispose();
+          }
+        }
+      });
+    }
+    ObstacleManager.cachedTemplates.length = 0;
+    ObstacleManager.isPreloadComplete = false;
 
     // Dispose shared geometries
     this.solidMainGeom.dispose();

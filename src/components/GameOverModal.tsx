@@ -118,14 +118,14 @@ export const GameOverModal: React.FC<GameOverModalProps> = ({
             SYNC DATA HARVESTED
           </div>
           <div className="text-4xl sm:text-5xl font-black text-white font-mono tracking-tight text-shadow-[0_0_15px_rgba(0,240,255,0.6)]">
-            {stats.score.toLocaleString()}
+            {Math.floor(stats.score).toLocaleString()}
           </div>
 
           {/* High Score Badge */}
           <div className="mt-3 pt-3 border-t border-white/10 flex items-center justify-center space-x-2">
             <Trophy className={`w-4 h-4 ${isNewHighScore ? 'text-amber-400 animate-bounce' : 'text-cyan-400'}`} />
             <span className="text-xs font-bold text-white/80">
-              {isNewHighScore ? '⚡ NEW RECORD TELEMETRY!' : `BEST: ${stats.highScore.toLocaleString()}`}
+              {isNewHighScore ? '⚡ NEW RECORD TELEMETRY!' : `BEST: ${Math.floor(stats.highScore).toLocaleString()}`}
             </span>
           </div>
         </div>
@@ -150,7 +150,7 @@ export const GameOverModal: React.FC<GameOverModalProps> = ({
               <span className="text-[10px] font-bold uppercase tracking-wider">DISTANCE</span>
             </div>
             <span className="text-xl font-black text-pink-200">
-              {stats.distance}m
+              {Math.floor(stats.distance)}m
             </span>
           </div>
         </div>
@@ -220,7 +220,7 @@ export const GameOverModal: React.FC<GameOverModalProps> = ({
                           CLAIM
                         </button>
                       ) : (
-                        <span className="text-[10px] text-white/40 font-mono mt-1">{m.current}/{m.target}</span>
+                        <span className="text-[10px] text-white/40 font-mono mt-1">{Math.floor(m.current)}/{m.target}</span>
                       )}
                     </div>
                   </div>

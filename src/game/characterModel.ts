@@ -5,6 +5,7 @@ import { buildHeroRig, loadHeroModel, HeroRig } from './heroRig';
 export interface PlayerCharacter {
   group: THREE.Group;
   board: THREE.Group;
+  _spinPhase: number;
   boards?: Record<string, THREE.Object3D>;
   helmets?: Record<string, THREE.Object3D>;
   armors?: Record<string, THREE.Object3D>;
@@ -849,6 +850,7 @@ export function createPlayerCharacter(heroId?: HeroId): PlayerCharacter {
   const playerChar: PlayerCharacter = {
     group: rootGroup,
     board: boardGroup,
+    _spinPhase: 0,
     boards,
     helmets,
     armors,
@@ -879,10 +881,16 @@ export function createPlayerCharacter(heroId?: HeroId): PlayerCharacter {
         if (rig) {
           if (playerChar.heroRig?.root) {
             boardGroup.remove(playerChar.heroRig.root);
+            // Cloned rigs share geometry/material with the cached hero scene, so
+            // only drop the graph node here; the cache owns the resources.
+            disposeRigGraph(playerChar.heroRig.root);
           }
           boardGroup.add(rig.root);
           spineGroup.visible = false;
-          // When using custom 3D model, hide procedural board meshes so they don't clip with model's built-in hoverboard
+          // Custom 3D heroes carry their own board, so hide the procedural one to
+          // avoid clipping. Skinned heroes need a procedural board visible — that
+          // branch must not be gated on `skinned`, or every hero here (all
+          // unskinned) would leave the board hidden with no way to restore it.
           if (!rig.skinned) {
             Object.values(boards).forEach((b) => {
               b.visible = false;
@@ -905,6 +913,12 @@ export function createPlayerCharacter(heroId?: HeroId): PlayerCharacter {
     // Fallback to procedural character
     if (playerChar.heroRig?.root) {
       boardGroup.remove(playerChar.heroRig.root);
+      disposeRigGraph(playerChar.heroRig.root);
+    }
+    // Re-show a procedural board; the custom-hero path hides them and this
+    // fallback would otherwise leave the rider with no board at all.
+    if (boards['cyber-phantom']) {
+      boards['cyber-phantom'].visible = true;
     }
     spineGroup.visible = true;
     playerChar.board.visible = true;
@@ -925,6 +939,18 @@ export function createPlayerCharacter(heroId?: HeroId): PlayerCharacter {
 
 export function createProceduralCharacter(): PlayerCharacter {
   return createPlayerCharacter();
+}
+
+// Trick spin rate in rad/sec; one full corkscrew every ~0.26s.
+const SPIN_RATE_RAD_PER_SEC = 24.0;
+
+// Detach a rig's child nodes without touching geometry/material: SkeletonUtils.clone
+// shares those with the cached hero scene, so disposing them here would leave the
+// live model rendering with destroyed GPU resources.
+function disposeRigGraph(root: THREE.Object3D): void {
+  for (let i = root.children.length - 1; i >= 0; i--) {
+    root.remove(root.children[i]);
+  }
 }
 
 /**
@@ -965,7 +991,9 @@ export function animatePlayerCharacter(
   // A. Hero Rig Animation (Skinned GLTF Mesh)
   if (pc.heroRig) {
     const b = pc.heroRig.drivers;
-    const hipsBaseY = pc.heroRig.hipsRestY ?? 0.885;
+    // Rigid (unskinned) heroes report hipsRestY 0 because the model is aligned to
+// the ground plane; only genuinely skinned rigs carry a real hip rest height.
+const hipsBaseY = pc.heroRig.hipsRestY !== undefined ? pc.heroRig.hipsRestY : 0.885;
 
     // 1. Continuous Micro-Movement & Idle Bounce Loop (Character NEVER static)
     // 4Hz riding bounce loop + breathing motion
@@ -1132,7 +1160,7 @@ export function animatePlayerCharacter(
     // 3. Stylized Arcade Tricks (Exaggerated & Dynamic)
     if (activeTrick === 'spin' || state.activeTrickName?.includes('Spin')) {
       targetHipsY = hipsBaseY + 0.22;
-      targetSpineRotY = time * 24.0;
+      targetSpineRotY = pc._spinPhase;
       targetLeftThighRotX = -0.65;
       targetRightThighRotX = -0.65;
       targetLeftShinRotX = 1.0;
@@ -1208,7 +1236,11 @@ export function animatePlayerCharacter(
 
     b.spine.rotation.x = approachAngle(b.spine.rotation.x, targetSpineRotX, dt, rate);
     if (activeTrick === 'spin' || state.activeTrickName?.includes('Spin')) {
-      b.spine.rotation.y = targetSpineRotY;
+      // Advance a phase accumulator instead of deriving rotation from absolute
+      // wall-clock time: `time * RATE` grew without bound, so the spin had to
+      // unwind thousands of radians through the clamped decay after the trick.
+      pc._spinPhase = (pc._spinPhase + dt * SPIN_RATE_RAD_PER_SEC) % (Math.PI * 2);
+      b.spine.rotation.y = pc._spinPhase;
     } else {
       b.spine.rotation.y = approachAngle(b.spine.rotation.y, targetSpineRotY, dt, rate);
     }

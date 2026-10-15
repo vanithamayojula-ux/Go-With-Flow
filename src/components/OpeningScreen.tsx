@@ -312,7 +312,7 @@ export const OpeningScreen: React.FC<OpeningScreenProps> = ({
             title="Personal Best Score"
           >
             <Trophy className="w-3.5 h-3.5 text-amber-400" />
-            <span className="text-xs font-black text-amber-100">{highScore.toLocaleString()}</span>
+            <span className="text-xs font-black text-amber-100">{Math.floor(highScore).toLocaleString()}</span>
           </div>
 
           {/* Audio Mute Toggle */}
@@ -493,7 +493,7 @@ export const OpeningScreen: React.FC<OpeningScreenProps> = ({
           <div className="relative z-10 my-4 grid grid-cols-3 gap-2 sm:gap-3 max-w-lg mx-auto w-full">
             <div className="p-2.5 sm:p-3 rounded-xl bg-slate-950/80 border border-cyan-500/30 flex flex-col items-center">
               <span className="text-[9px] sm:text-[10px] uppercase font-bold text-cyan-400">BEST SCORE</span>
-              <span className="text-base sm:text-xl font-black text-white font-mono">{highScore.toLocaleString()}</span>
+              <span className="text-base sm:text-xl font-black text-white font-mono">{Math.floor(highScore).toLocaleString()}</span>
             </div>
 
             <div className="p-2.5 sm:p-3 rounded-xl bg-slate-950/80 border border-pink-500/30 flex flex-col items-center">
@@ -857,7 +857,7 @@ export const OpeningScreen: React.FC<OpeningScreenProps> = ({
                           </button>
                         ) : (
                           <span className="text-[8px] text-white/40 font-mono">
-                            {m.current}/{m.target}
+                            {Math.floor(m.current)}/{m.target}
                           </span>
                         )}
                       </div>

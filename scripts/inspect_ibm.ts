@@ -1,5 +1,6 @@
 import * as fs from 'fs';
 import * as path from 'path';
+import { heroById } from '../src/game/heroes';
 import * as THREE from 'three';
 
 const heroes = ['shadow', 'flame', 'thunder', 'frost', 'void'];
@@ -27,7 +28,7 @@ function parseGLB(buffer: Buffer) {
 }
 
 for (const heroId of heroes) {
-  const filePath = path.resolve(process.cwd(), 'public/models', `${heroId}.glb`);
+  const filePath = path.resolve(process.cwd(), 'public', heroById(heroId).modelUrl.replace(/^\//, ''));
   const { json, binaryBuffer } = parseGLB(fs.readFileSync(filePath));
   console.log(`\n=================== HERO: ${heroId} ===================`);
   const skin = json.skins[0];

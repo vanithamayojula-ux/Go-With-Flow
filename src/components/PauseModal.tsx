@@ -55,7 +55,7 @@ export const PauseModal: React.FC<PauseModalProps> = ({
         <div className="grid grid-cols-3 gap-2.5 mb-4 bg-slate-950/80 border border-cyan-500/30 rounded-xl p-3.5 shadow-inner">
           <div className="flex flex-col items-center">
             <span className="text-[10px] uppercase font-bold text-cyan-400">SCORE</span>
-            <span className="text-lg font-black text-white">{stats.score.toLocaleString()}</span>
+            <span className="text-lg font-black text-white">{Math.floor(stats.score).toLocaleString()}</span>
           </div>
           <div className="flex flex-col items-center">
             <span className="text-[10px] uppercase font-bold text-fuchsia-400">SHARDS</span>
@@ -63,7 +63,7 @@ export const PauseModal: React.FC<PauseModalProps> = ({
           </div>
           <div className="flex flex-col items-center">
             <span className="text-[10px] uppercase font-bold text-amber-400">DISTANCE</span>
-            <span className="text-lg font-black text-amber-200">{stats.distance}m</span>
+            <span className="text-lg font-black text-amber-200">{Math.floor(stats.distance)}m</span>
           </div>
         </div>
 
@@ -104,7 +104,7 @@ export const PauseModal: React.FC<PauseModalProps> = ({
                           CLAIM
                         </button>
                       ) : (
-                        <span className="text-[10px] text-white/40 font-mono mt-1">{m.current}/{m.target}</span>
+                        <span className="text-[10px] text-white/40 font-mono mt-1">{Math.floor(m.current)}/{m.target}</span>
                       )}
                     </div>
                   </div>
