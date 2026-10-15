@@ -79,8 +79,7 @@ export async function loadHeroModel(heroId: HeroId): Promise<LoadedHeroData | nu
       const path: any = await import(/* @vite-ignore */ pathMod);
       const proc = (globalThis as any).process;
       const cwd = proc && typeof proc.cwd === 'function' ? proc.cwd() : '.';
-      const heroDef = heroById(heroId);
-      const modelRelPath = heroDef?.modelUrl || `/models/${heroId}.glb`;
+      const modelRelPath = heroById(heroId).modelUrl;
       const filePath = path.resolve(cwd, modelRelPath.startsWith('/') ? `public${modelRelPath}` : `public/${modelRelPath}`);
       const buf = fs.readFileSync(filePath);
       const arrayBuf = buf.buffer.slice(buf.byteOffset, buf.byteOffset + buf.byteLength);
@@ -112,15 +111,11 @@ export async function loadHeroModel(heroId: HeroId): Promise<LoadedHeroData | nu
     }
   }
 
-  const heroDef = heroById(heroId);
-  const primaryPath = heroDef?.modelUrl || `/models/${heroId}.glb`;
-  // Fallback to the per-hero asset in /models/, which actually exists. Stripping
-  // the leading slash produced a relative URL that could never resolve.
-  const fallbackPath = `/models/${heroId}.glb`;
+  const modelPath = heroById(heroId).modelUrl;
 
   const p = new Promise<LoadedHeroData | null>((resolve) => {
     loader.load(
-      primaryPath,
+      modelPath,
       (gltf) => {
         const skinned: THREE.SkinnedMesh[] = [];
         gltf.scene.traverse((o: THREE.Object3D) => {
@@ -128,35 +123,16 @@ export async function loadHeroModel(heroId: HeroId): Promise<LoadedHeroData | nu
             skinned.push(o as THREE.SkinnedMesh);
           }
         });
-        if (skinned.length === 0) {
-          console.warn(`[HeroRig] No SkinnedMesh found in ${primaryPath}`);
-        }
         const data: LoadedHeroData = { gltf, skinned };
         cache.set(heroId, data);
         resolve(data);
       },
       undefined,
       (err) => {
-        // Fallback check
-        loader.load(
-          fallbackPath,
-          (gltf) => {
-            const skinned: THREE.SkinnedMesh[] = [];
-            gltf.scene.traverse((o: THREE.Object3D) => {
-              if ((o as THREE.SkinnedMesh).isSkinnedMesh) {
-                skinned.push(o as THREE.SkinnedMesh);
-              }
-            });
-            const data: LoadedHeroData = { gltf, skinned };
-            cache.set(heroId, data);
-            resolve(data);
-          },
-          undefined,
-          (err2) => {
-            console.error(`[HeroRig] Failed to load model for ${heroId}`, err2);
-            resolve(null);
-          }
-        );
+        console.error(`[HeroRig] Failed to load model for ${heroId} from ${modelPath}`, err);
+        // Drop the failed promise so a later selection can retry the load.
+        cache.delete(heroId);
+        resolve(null);
       }
     );
   });

@@ -44,7 +44,7 @@ async function initObstacleLab() {
   // Obstacle models to load with yaw offsets to face oncoming players (towards -Z / camera)
   const obstacleFiles = [
     { name: 'obstacle01', url: '/obstacle01.glb', x: -4.5, yaw: -Math.PI / 2 },
-    { name: 'obstacle02', url: '/0bstacle02.glb', x: -1.5, yaw: -Math.PI / 2 },
+    { name: 'obstacle02', url: '/obstacle02.glb', x: -1.5, yaw: -Math.PI / 2 },
     { name: 'obstacle03', url: '/obstacle03.glb', x: 1.5, yaw: -Math.PI / 2 },
     { name: 'obstacle04', url: '/obstacle04.glb', x: 4.5, yaw: -Math.PI / 2 },
   ];

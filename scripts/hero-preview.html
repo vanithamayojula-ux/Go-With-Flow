@@ -1,0 +1,79 @@
+<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8" />
+  <title>Hero Preview Renderer</title>
+  <style>html,body{margin:0;background:#020617;overflow:hidden}canvas{display:block}</style>
+</head>
+<body>
+<script type="module">
+  // Renders a single hero GLB as a square select-screen portrait.
+  // Query params: url (GLB path), color (hex accent, no #), yaw (radians).
+  import * as THREE from 'three';
+  import { GLTFLoader } from 'three/examples/jsm/loaders/GLTFLoader.js';
+  import { MeshoptDecoder } from 'three/examples/jsm/libs/meshopt_decoder.module.js';
+  import { RoomEnvironment } from 'three/examples/jsm/environments/RoomEnvironment.js';
+
+  const params = new URLSearchParams(location.search);
+  const url = params.get('url');
+  const accent = new THREE.Color(`#${params.get('color') || '00f0ff'}`);
+  const yaw = parseFloat(params.get('yaw') || '0');
+  const SIZE = 512;
+
+  const renderer = new THREE.WebGLRenderer({ antialias: true, preserveDrawingBuffer: true });
+  renderer.setSize(SIZE, SIZE);
+  renderer.outputColorSpace = THREE.SRGBColorSpace;
+  renderer.toneMapping = THREE.ACESFilmicToneMapping;
+  document.body.appendChild(renderer.domElement);
+
+  const scene = new THREE.Scene();
+  const bg = document.createElement('canvas');
+  bg.width = bg.height = 256;
+  const g = bg.getContext('2d');
+  const grad = g.createRadialGradient(128, 110, 10, 128, 128, 180);
+  grad.addColorStop(0, `#${accent.clone().multiplyScalar(0.45).getHexString()}`);
+  grad.addColorStop(1, '#020617');
+  g.fillStyle = grad;
+  g.fillRect(0, 0, 256, 256);
+  const bgTex = new THREE.CanvasTexture(bg);
+  bgTex.colorSpace = THREE.SRGBColorSpace;
+  scene.background = bgTex;
+  scene.environment = new THREE.PMREMGenerator(renderer).fromScene(new RoomEnvironment(), 0.04).texture;
+
+  scene.add(new THREE.HemisphereLight(0xffffff, 0x1a2438, 1.2));
+  const key = new THREE.DirectionalLight(0xffffff, 2.6);
+  key.position.set(2, 4, 5);
+  scene.add(key);
+  const rim = new THREE.DirectionalLight(accent, 3.0);
+  rim.position.set(-3, 2, -4);
+  scene.add(rim);
+
+  const camera = new THREE.PerspectiveCamera(30, 1, 0.01, 100);
+
+  const loader = new GLTFLoader();
+  loader.setMeshoptDecoder(MeshoptDecoder);
+  loader.load(url, (gltf) => {
+    const model = gltf.scene;
+    model.rotation.y = yaw;
+    model.updateMatrixWorld(true);
+    const box = new THREE.Box3().setFromObject(model);
+    const size = box.getSize(new THREE.Vector3());
+    const center = box.getCenter(new THREE.Vector3());
+    model.position.sub(center);
+    scene.add(model);
+
+    // Fit the larger of height/width into the frame with a little headroom.
+    const extent = Math.max(size.y, size.x * 0.8, size.z * 0.6);
+    const dist = (extent * 0.55) / Math.tan(THREE.MathUtils.degToRad(camera.fov / 2));
+    camera.position.set(dist * 0.35, size.y * 0.12, dist);
+    camera.lookAt(0, 0, 0);
+
+    renderer.render(scene, camera);
+    window.__ready = true;
+  }, undefined, (err) => {
+    console.error(err);
+    window.__error = String(err);
+  });
+</script>
+</body>
+</html>

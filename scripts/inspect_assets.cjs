@@ -9,7 +9,7 @@ const files = [
   'public/model05.glb',
   'public/model06.glb',
   'public/obstacle01.glb',
-  'public/0bstacle02.glb',
+  'public/obstacle02.glb',
   'public/obstacle03.glb',
   'public/obstacle04.glb',
 ];
