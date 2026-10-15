@@ -12,10 +12,7 @@ export type LightingMode =
   | 'volcanic-red'
   | 'crystal-ice';
 
-export type QualityPreset = 'desktop-full' | 'mobile-opt' | 'webgl-min' | 'desktop-ultra';
-
-export type ShadowQuality = 'low' | 'medium' | 'high' | 'ultra';
-export type AAQuality = 'off' | 'fxaa' | 'taa';
+export type QualityPreset = 'desktop-full' | 'mobile-opt' | 'webgl-min';
 
 export type BiomeType =
   | 'neon-undercity'
@@ -106,14 +103,6 @@ export interface GraphicsConfig {
   enableShadows: boolean;
   lodDistance: number;
   reducedFlash?: boolean;
-  shadowQuality?: ShadowQuality;
-  ssaoEnabled?: boolean;
-  ssrEnabled?: boolean;
-  volumetricLighting?: boolean;
-  aaQuality?: AAQuality;
-  dofEnabled?: boolean;
-  particleQuality?: number;
-  lodBias?: number;
 }
 
 export type LaneIndex = -1 | 0 | 1;

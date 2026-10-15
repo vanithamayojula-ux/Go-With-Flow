@@ -7,22 +7,8 @@ import { PlayerManager } from '../game/player';
 import { ObstacleManager } from '../game/obstacles';
 import { AudioManager } from '../game/audio';
 import { ThemeManager } from '../game/themeManager';
-import { PostPipeline } from '../graphics/postPipeline';
-import { BiomeType, CosmeticsConfig, GraphicsConfig, LightingMode, PlayerStats, PlayerUpgrades, ShaderParams, ShadowQuality, TrickType } from '../types';
-
-/** Map the quality setting to a shadow filtering mode with the right cost/quality trade. */
-function shadowTypeFor(quality?: ShadowQuality): THREE.ShadowMapType {
-  switch (quality) {
-    case 'ultra':
-      return THREE.VSMShadowMap;
-    case 'high':
-      return THREE.PCFSoftShadowMap;
-    case 'medium':
-      return THREE.PCFShadowMap;
-    default:
-      return THREE.PCFShadowMap;
-  }
-}
+import { PostProcessShader } from '../graphics/shaders';
+import { BiomeType, CosmeticsConfig, GraphicsConfig, LightingMode, PlayerStats, PlayerUpgrades, ShaderParams, TrickType } from '../types';
 
 interface GameCanvasProps {
   graphicsConfig: GraphicsConfig;
@@ -79,13 +65,9 @@ export const GameCanvas: React.FC<GameCanvasProps> = ({
 
   // Post-processing
   const renderTargetRef = useRef<THREE.WebGLRenderTarget | null>(null);
+  const postSceneRef = useRef<THREE.Scene | null>(null);
+  const postCameraRef = useRef<THREE.OrthographicCamera | null>(null);
   const postMaterialRef = useRef<THREE.ShaderMaterial | null>(null);
-  const pipelineRef = useRef<PostPipeline | null>(null);
-
-  // Reused per-frame vectors for the post pipeline's sun projection. Allocating
-  // these inside the render loop produced steady GC pressure at 60fps.
-  const sunWorldScratch = useRef(new THREE.Vector3()).current;
-  const sunColorScratch = useRef(new THREE.Color()).current;
 
   // Biome & tier tracking for audio & announcements
   const lastBiomeRef = useRef<BiomeType>('neon-undercity');
@@ -204,28 +186,61 @@ export const GameCanvas: React.FC<GameCanvasProps> = ({
     cameraRef.current = camera;
 
     const renderer = new THREE.WebGLRenderer({
-      antialias: false, // MSAA happens on the HDR target; canvas AA would double it
+      antialias: true,
       powerPreference: 'high-performance',
-      stencil: false,
-      depth: true,
     });
     renderer.setSize(width, height);
     renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2.5));
-    // The composite pass tonemaps and encodes sRGB itself, so the renderer must
-    // stay in linear NoToneMapping — double tone-mapping was washing out neons.
-    renderer.toneMapping = THREE.NoToneMapping;
-    renderer.outputColorSpace = THREE.SRGBColorSpace;
+    renderer.toneMapping = THREE.ACESFilmicToneMapping;
+    renderer.toneMappingExposure = 1.05;
     renderer.shadowMap.enabled = graphicsConfig.enableShadows;
-    renderer.shadowMap.type = shadowTypeFor(graphicsConfig.shadowQuality);
-    renderer.shadowMap.autoUpdate = true;
     rendererRef.current = renderer;
     container.appendChild(renderer.domElement);
 
-    // 3. Multi-pass post-processing pipeline (SSAO / SSR / volumetrics / DoF / AA)
-    const pipeline = new PostPipeline(renderer, scene, camera, width, height, graphicsConfig, shaderParams);
-    pipelineRef.current = pipeline;
-    renderTargetRef.current = pipeline.sceneTarget;
-    postMaterialRef.current = pipeline.compositeMaterial;
+    // 3. Post-processing render target & quad
+    const dpr = renderer.getPixelRatio();
+    const rt = new THREE.WebGLRenderTarget(width * dpr, height * dpr, {
+      minFilter: THREE.LinearFilter,
+      magFilter: THREE.LinearFilter,
+      format: THREE.RGBAFormat,
+      samples: 4,
+      depthBuffer: true,
+    });
+    renderTargetRef.current = rt;
+
+    const postScene = new THREE.Scene();
+    postSceneRef.current = postScene;
+    const postCamera = new THREE.OrthographicCamera(-1, 1, 1, -1, -1, 1);
+    postCameraRef.current = postCamera;
+
+    const postMaterial = new THREE.ShaderMaterial({
+      vertexShader: PostProcessShader.vertexShader,
+      fragmentShader: PostProcessShader.fragmentShader,
+      uniforms: {
+        tDiffuse: { value: rt.texture },
+        uTime: { value: 0 },
+        uFilmGrain: { value: shaderParams.filmGrainIntensity ?? 0.0 },
+        uBloom: { value: shaderParams.bloomIntensity ?? 0.35 },
+        uColorLift: { value: shaderParams.colorLift ?? 0.2 },
+        uRainIntensity: { value: shaderParams.rainIntensity ?? (playerMgrRef.current?.stats.weather === 'light-rain' ? 0.8 : 0.0) },
+        uHighSpeedBlur: { value: 0 },
+        uSpeedLines: { value: 0 },
+        uHeatShimmer: { value: 0 },
+        uChromaticAberration: { value: shaderParams.chromaticAberration ?? 0.0005 },
+        uScanlines: { value: shaderParams.scanlineIntensity ?? 0.0 },
+        uGlitch: { value: 0 },
+        uWarpIntensity: { value: 0 },
+        uResolution: { value: new THREE.Vector2(width * dpr, height * dpr) },
+      },
+      depthWrite: false,
+      depthTest: false,
+    });
+    postMaterialRef.current = postMaterial;
+
+    const quadGeom = new THREE.PlaneGeometry(2, 2);
+    const quadMesh = new THREE.Mesh(quadGeom, postMaterial);
+    quadMesh.frustumCulled = false;
+    postScene.add(quadMesh);
 
     // 4. Managers
     const skyMgr = new SkyManager(scene);
@@ -402,7 +417,7 @@ export const GameCanvas: React.FC<GameCanvasProps> = ({
 
     // 6. Resize Observer
     const resizeObserver = new ResizeObserver(() => {
-      if (!container || !renderer || !camera) return;
+      if (!container || !renderer || !camera || !rt) return;
       const w = container.clientWidth || window.innerWidth || 800;
       const h = container.clientHeight || window.innerHeight || 600;
       if (w <= 0 || h <= 0) return;
@@ -416,9 +431,11 @@ export const GameCanvas: React.FC<GameCanvasProps> = ({
       }
       camera.updateProjectionMatrix();
       renderer.setSize(w, h);
-      // The pipeline owns all render targets and resizes them together, so the
-      // scene target never drifts out of sync with the canvas.
-      pipeline.setSize(w, h);
+      const pr = renderer.getPixelRatio();
+      rt.setSize(w * pr, h * pr);
+      if (postMaterialRef.current && postMaterialRef.current.uniforms && postMaterialRef.current.uniforms.uResolution) {
+        postMaterialRef.current.uniforms.uResolution.value.set(w * pr, h * pr);
+      }
     });
     resizeObserver.observe(container);
 
@@ -721,92 +738,106 @@ export const GameCanvas: React.FC<GameCanvasProps> = ({
       }
 
       // Render Scene
-      // Dynamic speed line modulation based on player speed stats (Step 3: Forward speed streaks):
-      // As speed exceeds 25, smoothly increase forward streaks from 0.1 to 0.95
-      const currentSpeed = playerMgr.stats.speed;
-      let dynamicSpeedLines = 0.0;
-      if (currentSpeed > 24) {
-        const speedFactor = Math.min(1.0, (currentSpeed - 24) / 45.0);
-        dynamicSpeedLines = 0.15 + speedFactor * 0.75;
-      }
-      if (playerMgr.stats.isBoosting) {
-        dynamicSpeedLines = Math.max(dynamicSpeedLines, 0.95);
-      }
-      const effectiveSpeedLines = shaderParams.speedLineIntensity !== undefined && shaderParams.speedLineIntensity > 0
-        ? Math.max(shaderParams.speedLineIntensity, dynamicSpeedLines)
-        : dynamicSpeedLines;
-      const heatShimmerFactor = currentBiome === 'orbital-ring' ? 1.0 : 0.0;
+      if (graphicsConfig.enablePostProcess && rt && postScene && postCamera && postMaterial) {
+        // Dynamic speed line modulation based on player speed stats (Step 3: Forward speed streaks):
+        // As speed exceeds 25, smoothly increase forward streaks from 0.1 to 0.95
+        const currentSpeed = playerMgr.stats.speed;
+        let dynamicSpeedLines = 0.0;
+        if (currentSpeed > 24) {
+          const speedFactor = Math.min(1.0, (currentSpeed - 24) / 45.0);
+          dynamicSpeedLines = 0.15 + speedFactor * 0.75;
+        }
+        if (playerMgr.stats.isBoosting) {
+          dynamicSpeedLines = Math.max(dynamicSpeedLines, 0.95);
+        }
+        const effectiveSpeedLines = shaderParams.speedLineIntensity !== undefined && shaderParams.speedLineIntensity > 0
+          ? Math.max(shaderParams.speedLineIntensity, dynamicSpeedLines)
+          : dynamicSpeedLines;
+        const heatShimmerFactor = currentBiome === 'orbital-ring' ? 1.0 : 0.0;
 
-      // Glitch and chromatic aberration pulse during boost, combos, or stumble
-      let glitchIntensity = shaderParams.glitchIntensity ?? 0.0;
-      let chromaticAberration = shaderParams.chromaticAberration ?? 0.0005;
+        // Glitch and chromatic aberration pulse during boost, combos, or stumble
+        let glitchIntensity = shaderParams.glitchIntensity ?? 0.0;
+        let chromaticAberration = shaderParams.chromaticAberration ?? 0.0005;
 
-      if (boostGlitchTimer > 0) {
-        boostGlitchTimer -= dt;
-        glitchIntensity = Math.max(glitchIntensity, boostGlitchTimer * 0.85);
-        chromaticAberration = Math.max(chromaticAberration, boostGlitchTimer * 0.008);
-      }
-      if (stumbleGlitchTimer > 0) {
-        stumbleGlitchTimer -= dt;
-        glitchIntensity = Math.max(glitchIntensity, stumbleGlitchTimer * 0.7);
-        chromaticAberration = Math.max(chromaticAberration, stumbleGlitchTimer * 0.006);
-      }
-      if (playerMgr.stats.isBoosting || playerMgr.boostTimer > 0) {
-        chromaticAberration = Math.max(chromaticAberration, 0.0035);
-      }
-      if (playerMgr.stats.combo >= 3) {
-        chromaticAberration = Math.max(chromaticAberration, 0.002);
-      }
-      if (playerMgr.gameState === 'game-over') {
-        glitchIntensity = 0.85;
-        chromaticAberration = 0.008;
-      }
+        if (boostGlitchTimer > 0) {
+          boostGlitchTimer -= dt;
+          glitchIntensity = Math.max(glitchIntensity, boostGlitchTimer * 0.85);
+          chromaticAberration = Math.max(chromaticAberration, boostGlitchTimer * 0.008);
+        }
+        if (stumbleGlitchTimer > 0) {
+          stumbleGlitchTimer -= dt;
+          glitchIntensity = Math.max(glitchIntensity, stumbleGlitchTimer * 0.7);
+          chromaticAberration = Math.max(chromaticAberration, stumbleGlitchTimer * 0.006);
+        }
+        if (playerMgr.stats.isBoosting || playerMgr.boostTimer > 0) {
+          chromaticAberration = Math.max(chromaticAberration, 0.0035);
+        }
+        if (playerMgr.stats.combo >= 3) {
+          chromaticAberration = Math.max(chromaticAberration, 0.002);
+        }
+        if (playerMgr.gameState === 'game-over') {
+          glitchIntensity = 0.85;
+          chromaticAberration = 0.008;
+        }
 
-      if (graphicsConfig.reducedFlash) {
-        glitchIntensity = 0;
-        chromaticAberration = 0;
-        screenShakeTimer = 0;
-      }
+        if (graphicsConfig.reducedFlash) {
+          glitchIntensity = 0;
+          chromaticAberration = 0;
+          screenShakeTimer = 0;
+        }
 
-      const instances = (foliageMgr.grassMesh ? foliageMgr.grassMesh.count : 0) + (foliageMgr.treeMesh ? foliageMgr.treeMesh.count : 0);
+        if (postMaterial.uniforms.uTime) postMaterial.uniforms.uTime.value = timeSeconds;
+        if (postMaterial.uniforms.uFilmGrain) postMaterial.uniforms.uFilmGrain.value = shaderParams.filmGrainIntensity ?? 0.0;
+        if (postMaterial.uniforms.uColorLift) postMaterial.uniforms.uColorLift.value = shaderParams.colorLift ?? 0.2;
+        if (postMaterial.uniforms.uRainIntensity) {
+          postMaterial.uniforms.uRainIntensity.value = shaderParams.rainIntensity ?? (playerMgr.stats.weather === 'light-rain' ? 0.8 : 0.0);
+        }
+        if (postMaterial.uniforms.uHighSpeedBlur) postMaterial.uniforms.uHighSpeedBlur.value = 0.0;
+        if (postMaterial.uniforms.uBloom) postMaterial.uniforms.uBloom.value = shaderParams.bloomIntensity ?? 0.55;
+        if (postMaterial.uniforms.uChromaticAberration) postMaterial.uniforms.uChromaticAberration.value = chromaticAberration;
+        if (postMaterial.uniforms.uScanlines) postMaterial.uniforms.uScanlines.value = shaderParams.scanlineIntensity ?? 0.0;
+        if (postMaterial.uniforms.uGlitch) postMaterial.uniforms.uGlitch.value = glitchIntensity;
+        if (postMaterial.uniforms.uWarpIntensity) {
+          postMaterial.uniforms.uWarpIntensity.value = playerMgr.warpTimer > 0 ? playerMgr.warpTimer * 0.75 : 0.0;
+        }
+        if (postMaterial.uniforms.uSpeedLines) {
+          postMaterial.uniforms.uSpeedLines.value = effectiveSpeedLines;
+        }
+        if (postMaterial.uniforms.uHeatShimmer) postMaterial.uniforms.uHeatShimmer.value = heatShimmerFactor;
 
-      // Draw-call counts are read *after* the frame completes so the HUD
-      // reflects the scene plus every post-processing pass.
-      renderer.info.autoReset = false;
-      renderer.info.reset();
+        renderer.setRenderTarget(rt);
+        renderer.render(scene, camera);
+        const sceneCalls = renderer.info.render.calls;
+        const sceneTriangles = renderer.info.render.triangles;
 
-      if (graphicsConfig.enablePostProcess) {
-        const preset = LIGHTING_PRESETS[lightingMode] ?? LIGHTING_PRESETS['midnight-cyan'];
-        const sunDir = sunWorldScratch.set(...preset.sunPosition).normalize();
+        renderer.setRenderTarget(null);
+        renderer.render(postScene, postCamera);
+        const totalDrawCalls = sceneCalls + renderer.info.render.calls;
+        const totalTriangles = sceneTriangles + renderer.info.render.triangles;
 
-        pipeline.render({
-          time: timeSeconds,
-          speedLines: effectiveSpeedLines,
-          glitch: glitchIntensity,
-          warp: playerMgr.warpTimer > 0 ? playerMgr.warpTimer * 0.75 : 0.0,
-          heatShimmer: heatShimmerFactor,
-          chromaticAberration,
-          sunWorldPos: sunDir.multiplyScalar(400).add(camera.position),
-          sunColor: sunColorScratch.set(preset.sunColor),
-          // Shafts are strongest in hazy, fog-heavy biomes and absent in vacuum.
-          volumetricStrength: (preset.hazeDensity ?? 0.9) * 0.3,
-          focusDistance: isCinematicCam ? 16.0 : 9.0,
-          focusRange: isCinematicCam ? 26.0 : 18.0,
-        });
+        const instances = (foliageMgr.grassMesh ? foliageMgr.grassMesh.count : 0) + (foliageMgr.treeMesh ? foliageMgr.treeMesh.count : 0);
+
+        statsUpdateTimer += rawDt;
+        const stateChanged = playerMgr.gameState !== lastSentGameState;
+        if (statsUpdateTimer >= 0.066 || stateChanged) {
+          statsUpdateTimer = 0;
+          lastSentGameState = playerMgr.gameState;
+          onStatsUpdate(playerMgr.stats, currentFps, totalDrawCalls, instances);
+        }
       } else {
         renderer.setRenderTarget(null);
         renderer.render(scene, camera);
-      }
+        const totalDrawCalls = renderer.info.render.calls;
+        const totalTriangles = renderer.info.render.triangles;
+        const instances = (foliageMgr.grassMesh ? foliageMgr.grassMesh.count : 0) + (foliageMgr.treeMesh ? foliageMgr.treeMesh.count : 0);
 
-      const totalDrawCalls = renderer.info.render.calls;
-
-      statsUpdateTimer += rawDt;
-      const stateChanged = playerMgr.gameState !== lastSentGameState;
-      if (statsUpdateTimer >= 0.066 || stateChanged) {
-        statsUpdateTimer = 0;
-        lastSentGameState = playerMgr.gameState;
-        renderer.info.autoReset = true;
-        onStatsUpdate(playerMgr.stats, currentFps, totalDrawCalls, instances);
+        statsUpdateTimer += rawDt;
+        const stateChanged = playerMgr.gameState !== lastSentGameState;
+        if (statsUpdateTimer >= 0.066 || stateChanged) {
+          statsUpdateTimer = 0;
+          lastSentGameState = playerMgr.gameState;
+          onStatsUpdate(playerMgr.stats, currentFps, totalDrawCalls, instances);
+        }
       }
     };
 
@@ -834,7 +865,8 @@ export const GameCanvas: React.FC<GameCanvasProps> = ({
       playerMgr.dispose();
       obstacleMgr.dispose();
       themeMgr.dispose();
-      pipeline.dispose();
+      rt.dispose();
+      postMaterial.dispose();
       renderer.dispose();
 
       if (renderer.domElement && renderer.domElement.parentElement) {
@@ -889,17 +921,6 @@ export const GameCanvas: React.FC<GameCanvasProps> = ({
       if (pUniforms.uSpeedLines && shaderParams.speedLineIntensity !== undefined) pUniforms.uSpeedLines.value = shaderParams.speedLineIntensity;
     }
   }, [shaderParams]);
-
-  // Push graphics-config changes (quality toggles, shadows) into the live
-  // renderer and pipeline so settings apply without remounting the canvas.
-  useEffect(() => {
-    rendererRef.current.shadowMap.enabled = graphicsConfig.enableShadows;
-    rendererRef.current.shadowMap.type = shadowTypeFor(graphicsConfig.shadowQuality);
-    rendererRef.current.shadowMap.needsUpdate = true;
-    if (pipelineRef.current) {
-      pipelineRef.current.updateConfig(graphicsConfig, shaderParams);
-    }
-  }, [graphicsConfig, shaderParams]);
 
   return (
     <div

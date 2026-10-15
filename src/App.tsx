@@ -46,14 +46,6 @@ const DEFAULT_GRAPHICS_CONFIG: GraphicsConfig = {
   enableShadows: true,
   lodDistance: 180,
   reducedFlash: false,
-  shadowQuality: 'high',
-  ssaoEnabled: true,
-  ssrEnabled: false,
-  volumetricLighting: true,
-  aaQuality: 'taa',
-  dofEnabled: false,
-  particleQuality: 1.0,
-  lodBias: 1.0,
 };
 
 const DEFAULT_SHADER_PARAMS: ShaderParams = {
@@ -352,50 +344,14 @@ export default function App() {
           updated.vegetationDensity = 1.0;
           updated.enablePostProcess = true;
           updated.enableShadows = true;
-          updated.shadowQuality = 'high';
-          updated.ssaoEnabled = true;
-          updated.ssrEnabled = false;
-          updated.volumetricLighting = true;
-          updated.aaQuality = 'taa';
-          updated.dofEnabled = false;
-          updated.particleQuality = 1.0;
-          updated.lodBias = 1.0;
-        } else if (newConfig.preset === 'desktop-ultra') {
-          updated.vegetationDensity = 1.2;
-          updated.enablePostProcess = true;
-          updated.enableShadows = true;
-          updated.shadowQuality = 'ultra';
-          updated.ssaoEnabled = true;
-          updated.ssrEnabled = true;
-          updated.volumetricLighting = true;
-          updated.aaQuality = 'taa';
-          updated.dofEnabled = true;
-          updated.particleQuality = 1.5;
-          updated.lodBias = 1.2;
         } else if (newConfig.preset === 'mobile-opt') {
           updated.vegetationDensity = 0.65;
           updated.enablePostProcess = true;
           updated.enableShadows = false;
-          updated.shadowQuality = 'low';
-          updated.ssaoEnabled = false;
-          updated.ssrEnabled = false;
-          updated.volumetricLighting = false;
-          updated.aaQuality = 'fxaa';
-          updated.dofEnabled = false;
-          updated.particleQuality = 0.5;
-          updated.lodBias = 0.7;
         } else if (newConfig.preset === 'webgl-min') {
           updated.vegetationDensity = 0.4;
           updated.enablePostProcess = false;
           updated.enableShadows = false;
-          updated.shadowQuality = 'low';
-          updated.ssaoEnabled = false;
-          updated.ssrEnabled = false;
-          updated.volumetricLighting = false;
-          updated.aaQuality = 'off';
-          updated.dofEnabled = false;
-          updated.particleQuality = 0.3;
-          updated.lodBias = 0.5;
         }
       }
       return updated;

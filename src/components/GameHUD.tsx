@@ -207,7 +207,7 @@ export const GameHUD: React.FC<GameHUDProps> = ({
             <div className="px-3 py-1.5 rounded-lg bg-slate-950/90 backdrop-blur-md border border-fuchsia-500/30 text-fuchsia-300 flex items-center space-x-2 shadow-sm">
               <span className="text-[9px] text-fuchsia-400 font-bold uppercase tracking-wider">SCORE</span>
               <span className="text-base font-black font-mono tracking-tight text-white">
-                {stats.score.toLocaleString()}
+                {Math.floor(stats.score).toLocaleString()}
               </span>
               {stats.scoreMultiplier > 1 && (
                 <span className="px-1.5 py-0.2 rounded bg-fuchsia-600 text-white text-[10px] font-black">
@@ -220,7 +220,7 @@ export const GameHUD: React.FC<GameHUDProps> = ({
             <div className="px-2.5 py-1.5 rounded-lg bg-slate-950/90 backdrop-blur-md border border-amber-500/30 text-amber-300 flex items-center space-x-1.5 shadow-sm">
               <Trophy className="w-3.5 h-3.5 text-amber-400" />
               <span className="text-xs font-bold text-amber-200">
-                {stats.highScore > 0 ? stats.highScore.toLocaleString() : '0'}
+                {stats.highScore > 0 ? Math.floor(stats.highScore).toLocaleString() : '0'}
               </span>
             </div>
 

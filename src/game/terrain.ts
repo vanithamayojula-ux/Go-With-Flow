@@ -1,9 +1,5 @@
 import * as THREE from 'three';
-import { TerrainShaderV2 } from '../graphics/shaders';
-import {
-  createAsphaltPBR,
-  PBRMapSet,
-} from '../graphics/pbr';
+import { TerrainShader } from '../graphics/shaders';
 import { BiomeType, FloatingIslandData } from '../types';
 import {
   createCyberBuildingTexture,
@@ -141,7 +137,6 @@ export class TerrainManager {
   scene: THREE.Scene;
   chunks: Map<string, CyberChunk> = new Map();
   terrainMaterial: THREE.ShaderMaterial;
-  private terrainPBRMaps: PBRMapSet;
   sideGroundMaterial: THREE.MeshStandardMaterial;
 
   updraftsList: UpdraftGeyser[] = [];
@@ -298,10 +293,9 @@ export class TerrainManager {
     ];
 
     // Space Highway Road Material
-    this.terrainPBRMaps = createAsphaltPBR();
     this.terrainMaterial = new THREE.ShaderMaterial({
-      vertexShader: TerrainShaderV2.vertexShader,
-      fragmentShader: TerrainShaderV2.fragmentShader,
+      vertexShader: TerrainShader.vertexShader,
+      fragmentShader: TerrainShader.fragmentShader,
       uniforms: {
         uSunDirection: { value: new THREE.Vector3(0.0, 1.0, 0.3).normalize() },
         uSunColor: { value: new THREE.Color('#00d2e0') },
@@ -317,13 +311,6 @@ export class TerrainManager {
         uFogColor: { value: new THREE.Color('#00040e') },
         uRimLightIntensity: { value: 0.14 },
         uCelRampHardness: { value: 0.2 },
-        uAlbedoMap: { value: this.terrainPBRMaps.map },
-        uNormalMap: { value: this.terrainPBRMaps.normalMap },
-        uRoughnessMap: { value: this.terrainPBRMaps.roughnessMap },
-        uNormalScale: { value: 0.35 },
-        uMetalness: { value: 0.15 },
-        uWetness: { value: 0.65 },
-        uDetailFade: { value: 0.92 },
       },
     });
   }
@@ -966,11 +953,6 @@ export class TerrainManager {
     }
     this.chunks.clear();
     this.terrainMaterial.dispose();
-    this.terrainPBRMaps.map.dispose();
-    this.terrainPBRMaps.normalMap.dispose();
-    this.terrainPBRMaps.roughnessMap.dispose();
-    this.terrainPBRMaps.aoMap.dispose();
-    this.terrainPBRMaps.metalnessMap?.dispose();
     this.sideGroundMaterial.dispose();
     this.curbRailGeom.dispose();
     this.curbRailMat.dispose();
