@@ -1,11 +1,37 @@
 import * as THREE from 'three';
 import { GraphicsConfig } from '../../../types';
 
+/** Vertical band the wind-blown sand stays within (metres above the road). */
+const DUST_MIN_Y = 0.15;
+const DUST_MAX_Y = 6.0;
+/** Lateral wrap band for the crosswind. */
+const DUST_HALF_X = 36;
+
+/** Soft round sprite (radial falloff) so dust reads as hazy grains, not hard squares. */
+function createSoftDustSprite(): THREE.CanvasTexture | null {
+  if (typeof document === 'undefined') return null;
+  const size = 64;
+  const canvas = document.createElement('canvas');
+  canvas.width = size;
+  canvas.height = size;
+  const ctx = canvas.getContext('2d');
+  if (!ctx) return null;
+  const g = ctx.createRadialGradient(size / 2, size / 2, 0, size / 2, size / 2, size / 2);
+  g.addColorStop(0, 'rgba(255,255,255,1)');
+  g.addColorStop(0.35, 'rgba(255,255,255,0.55)');
+  g.addColorStop(1, 'rgba(255,255,255,0)');
+  ctx.fillStyle = g;
+  ctx.fillRect(0, 0, size, size);
+  const tex = new THREE.CanvasTexture(canvas);
+  tex.colorSpace = THREE.NoColorSpace;
+  tex.needsUpdate = true;
+  return tex;
+}
+
 /**
- * CrimsonDunesAtmosphere manages:
- * 1. Warm red/orange desert horizon haze and dust planes
- * 2. Wind-blown drifting sand particles communicating strong desert breeze
- * 3. Intense golden sun disk and blazing sun glare
+ * CrimsonDunesAtmosphere manages wind-blown drifting sand grains near the ground.
+ * Distance haze comes from the engine's FogExp2 and the sun from the physical sky,
+ * so this module no longer draws fake haze sheets or a flat sun disk.
  */
 export class CrimsonDunesAtmosphere {
   public group: THREE.Group;
@@ -15,16 +41,9 @@ export class CrimsonDunesAtmosphere {
   private dustPoints: THREE.Points | null = null;
   private dustGeom: THREE.BufferGeometry | null = null;
   private dustMaterial: THREE.PointsMaterial | null = null;
+  private dustSprite: THREE.CanvasTexture | null = null;
   private dustPositions: Float32Array | null = null;
-  private dustVelocities: { vx: number; vy: number; vz: number }[] = [];
-
-  // Wind streaks / Horizon Dust Haze Planes
-  private hazePlanes: THREE.Mesh[] = [];
-  private hazeMaterial: THREE.MeshBasicMaterial | null = null;
-
-  // Distant Desert Sun Orb
-  private sunDisk: THREE.Mesh | null = null;
-  private sunMaterial: THREE.MeshBasicMaterial | null = null;
+  private dustVelocities: Float32Array | null = null;
 
   constructor(scene: THREE.Scene, graphicsConfig: GraphicsConfig) {
     this.scene = scene;
@@ -33,8 +52,6 @@ export class CrimsonDunesAtmosphere {
     this.scene.add(this.group);
 
     this.initDustParticles(graphicsConfig);
-    this.initHazePlanes(graphicsConfig);
-    this.initSunDisk();
   }
 
   private initDustParticles(graphicsConfig: GraphicsConfig): void {
@@ -44,47 +61,48 @@ export class CrimsonDunesAtmosphere {
 
     const positions = new Float32Array(count * 3);
     const colors = new Float32Array(count * 3);
+    const velocities = new Float32Array(count * 3);
 
-    const sandWarm = new THREE.Color(0xfdba74); // #FDBA74 warm sand
-    const sandOrange = new THREE.Color(0xf97316); // #F97316 burnt orange
-    const sandAmber = new THREE.Color(0xfbbf24); // #FBBF24 golden dust mote
-
-    this.dustVelocities = [];
+    // Natural sand tones (converted to linear by THREE.Color)
+    const sandLight = new THREE.Color(0xd8b27a);
+    const sandMid = new THREE.Color(0xc9a26b);
+    const sandPale = new THREE.Color(0xe0c9a0);
 
     for (let i = 0; i < count; i++) {
-      const x = (Math.random() - 0.5) * 60;
-      const y = 0.5 + Math.random() * 14;
-      const z = (Math.random() - 0.5) * 320;
+      const idx = i * 3;
+      positions[idx] = (Math.random() - 0.5) * DUST_HALF_X * 2;
+      // Bias towards the ground where blown sand is densest
+      const h = Math.random();
+      positions[idx + 1] = DUST_MIN_Y + h * h * (DUST_MAX_Y - DUST_MIN_Y);
+      positions[idx + 2] = (Math.random() - 0.5) * 320;
 
-      positions[i * 3] = x;
-      positions[i * 3 + 1] = y;
-      positions[i * 3 + 2] = z;
-
-      // Sand drifts fast with desert crosswind (strong X drift and negative Z motion)
-      this.dustVelocities.push({
-        vx: 4.5 + Math.random() * 6.5,
-        vy: (Math.random() - 0.5) * 0.8,
-        vz: -2.0 - Math.random() * 3.0,
-      });
+      // Crosswind drift along +X with a slight backward Z component
+      velocities[idx] = 3.0 + Math.random() * 5.0;
+      velocities[idx + 1] = (Math.random() - 0.5) * 0.4;
+      velocities[idx + 2] = -1.0 - Math.random() * 2.0;
 
       const rndCol = Math.random();
-      const col = rndCol > 0.6 ? sandWarm : (rndCol > 0.3 ? sandOrange : sandAmber);
-      colors[i * 3] = col.r;
-      colors[i * 3 + 1] = col.g;
-      colors[i * 3 + 2] = col.b;
+      const col = rndCol > 0.6 ? sandLight : (rndCol > 0.25 ? sandMid : sandPale);
+      colors[idx] = col.r;
+      colors[idx + 1] = col.g;
+      colors[idx + 2] = col.b;
     }
 
     this.dustGeom = new THREE.BufferGeometry();
     this.dustGeom.setAttribute('position', new THREE.BufferAttribute(positions, 3));
     this.dustGeom.setAttribute('color', new THREE.BufferAttribute(colors, 3));
     this.dustPositions = positions;
+    this.dustVelocities = velocities;
 
+    this.dustSprite = createSoftDustSprite();
     this.dustMaterial = new THREE.PointsMaterial({
-      size: 1.6,
+      size: 0.22,
+      sizeAttenuation: true,
+      map: this.dustSprite,
       vertexColors: true,
       transparent: true,
-      opacity: 0.85,
-      blending: THREE.AdditiveBlending,
+      opacity: 0.4,
+      blending: THREE.NormalBlending,
       depthWrite: false,
     });
 
@@ -93,92 +111,40 @@ export class CrimsonDunesAtmosphere {
     this.group.add(this.dustPoints);
   }
 
-  private initHazePlanes(graphicsConfig: GraphicsConfig): void {
-    if (graphicsConfig.preset === 'webgl-min') return;
+  public update(dt: number, playerZ: number, _time: number): void {
+    if (!this.dustPoints || !this.dustPositions || !this.dustGeom || !this.dustVelocities) return;
 
-    this.hazeMaterial = new THREE.MeshBasicMaterial({
-      color: 0xea580c, // Rich burnt orange dust haze
-      transparent: true,
-      opacity: 0.14,
-      depthWrite: false,
-      side: THREE.DoubleSide,
-    });
+    const pos = this.dustPositions;
+    const vel = this.dustVelocities;
+    const count = pos.length / 3;
+    const zWindow = 180;
+    const bandY = DUST_MAX_Y - DUST_MIN_Y;
 
-    const hazeGeom = new THREE.PlaneGeometry(160, 80);
-    hazeGeom.rotateX(-Math.PI / 2);
-
-    const count = graphicsConfig.preset === 'desktop-full' ? 5 : 3;
     for (let i = 0; i < count; i++) {
-      const plane = new THREE.Mesh(hazeGeom, this.hazeMaterial);
-      plane.position.set((Math.random() - 0.5) * 50, 1.5 + i * 2.8, i * 75 - 40);
-      this.hazePlanes.push(plane);
-      this.group.add(plane);
-    }
-  }
+      const idx = i * 3;
 
-  private initSunDisk(): void {
-    // Blazing desert sun orb placed high in the sky
-    const sunGeom = new THREE.CircleGeometry(24, 20);
-    this.sunMaterial = new THREE.MeshBasicMaterial({
-      color: 0xfff7ed, // #FFF7ED intense pure white/cream sun core
-      transparent: true,
-      opacity: 0.95,
-      depthWrite: false,
-      side: THREE.DoubleSide,
-    });
+      pos[idx] += vel[idx] * dt;
+      pos[idx + 1] += vel[idx + 1] * dt;
+      pos[idx + 2] += vel[idx + 2] * dt;
 
-    this.sunDisk = new THREE.Mesh(sunGeom, this.sunMaterial);
-    this.sunDisk.position.set(70, 75, -280);
-    this.group.add(this.sunDisk);
-  }
+      // Wrap X if blown off to either side
+      if (pos[idx] > DUST_HALF_X) pos[idx] -= DUST_HALF_X * 2;
+      else if (pos[idx] < -DUST_HALF_X) pos[idx] += DUST_HALF_X * 2;
 
-  public update(dt: number, playerZ: number, time: number): void {
-    // 1. Animate Drifting Sand Dust
-    if (this.dustPoints && this.dustPositions && this.dustGeom) {
-      const count = this.dustPositions.length / 3;
-      const zWindow = 180;
+      // Keep grains inside their vertical band (wrap rather than drift away forever)
+      if (pos[idx + 1] > DUST_MAX_Y) pos[idx + 1] -= bandY;
+      else if (pos[idx + 1] < DUST_MIN_Y) pos[idx + 1] += bandY;
 
-      for (let i = 0; i < count; i++) {
-        const vel = this.dustVelocities[i];
-        const idx = i * 3;
-
-        // Apply crosswind
-        this.dustPositions[idx] += vel.vx * dt;
-        this.dustPositions[idx + 1] += vel.vy * dt;
-        this.dustPositions[idx + 2] += vel.vz * dt;
-
-        // Wrap X if blown off-screen
-        if (this.dustPositions[idx] > 36) {
-          this.dustPositions[idx] = -36;
-        }
-
-        // Keep centered along player traversal track
-        const currentZ = this.dustPositions[idx + 2];
-        const relZ = currentZ - playerZ;
-
-        if (relZ < -60) {
-          this.dustPositions[idx + 2] = playerZ + zWindow + Math.random() * 50;
-        } else if (relZ > zWindow + 60) {
-          this.dustPositions[idx + 2] = playerZ - 40 - Math.random() * 20;
-        }
-      }
-
-      this.dustGeom.attributes.position.needsUpdate = true;
-    }
-
-    // 2. Animate Horizon Haze Layers
-    for (let i = 0; i < this.hazePlanes.length; i++) {
-      const plane = this.hazePlanes[i];
-      plane.rotation.z = Math.sin(time * 0.15 + i) * 0.04;
-      if (plane.position.z < playerZ - 90) {
-        plane.position.z += 280;
+      // Keep centred along the player's track
+      const relZ = pos[idx + 2] - playerZ;
+      if (relZ < -60) {
+        pos[idx + 2] = playerZ + zWindow + Math.random() * 50;
+      } else if (relZ > zWindow + 60) {
+        pos[idx + 2] = playerZ - 40 - Math.random() * 20;
       }
     }
 
-    // 3. Anchor distant desert sun orb relative to player
-    if (this.sunDisk) {
-      this.sunDisk.position.z = playerZ - 280;
-    }
+    this.dustGeom.attributes.position.needsUpdate = true;
   }
 
   public dispose(): void {
@@ -186,17 +152,12 @@ export class CrimsonDunesAtmosphere {
 
     if (this.dustGeom) this.dustGeom.dispose();
     if (this.dustMaterial) this.dustMaterial.dispose();
-    if (this.hazeMaterial) this.hazeMaterial.dispose();
-    if (this.sunMaterial) this.sunMaterial.dispose();
-
-    for (const plane of this.hazePlanes) {
-      plane.geometry.dispose();
-    }
-    this.hazePlanes = [];
-
-    if (this.sunDisk) {
-      this.sunDisk.geometry.dispose();
-      this.sunDisk = null;
-    }
+    if (this.dustSprite) this.dustSprite.dispose();
+    this.dustGeom = null;
+    this.dustMaterial = null;
+    this.dustSprite = null;
+    this.dustPoints = null;
+    this.dustPositions = null;
+    this.dustVelocities = null;
   }
 }

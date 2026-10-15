@@ -671,6 +671,20 @@ export function createPlayerCharacter(heroId?: HeroId): PlayerCharacter {
 
   rootGroup.add(boardGroup);
 
+  // Board-shaped extras that only make sense under a procedural board. Hero
+  // GLBs ship their own board, so these are hidden while a hero is mounted.
+  const proceduralBoardExtras: THREE.Object3D[] = [
+    underglowMesh,
+    shadowBlob,
+    underglowLight,
+    footLightLeft,
+    footLightRight,
+    forwardSpotLight,
+  ];
+  const setProceduralBoardExtrasVisible = (visible: boolean) => {
+    for (const o of proceduralBoardExtras) o.visible = visible;
+  };
+
   // -------------------------------------------------------------------------
   // Procedural Skater Body & Cosmetic Variants
   // -------------------------------------------------------------------------
@@ -895,7 +909,9 @@ export function createPlayerCharacter(heroId?: HeroId): PlayerCharacter {
             Object.values(boards).forEach((b) => {
               b.visible = false;
             });
+            setProceduralBoardExtrasVisible(false);
           } else {
+            setProceduralBoardExtrasVisible(true);
             const hasVisible = Object.values(boards).some((b) => b.visible);
             if (!hasVisible && boards['cyber-phantom']) {
               boards['cyber-phantom'].visible = true;
@@ -920,6 +936,7 @@ export function createPlayerCharacter(heroId?: HeroId): PlayerCharacter {
     if (boards['cyber-phantom']) {
       boards['cyber-phantom'].visible = true;
     }
+    setProceduralBoardExtrasVisible(true);
     spineGroup.visible = true;
     playerChar.board.visible = true;
     playerChar.syncBones = undefined;

@@ -6,27 +6,27 @@ export const crystalHeightsConfig: WorldConfig = {
   name: 'Crystal Heights',
   subtitle: 'The Celestial Realm',
   palette: {
-    skyTop: '#1E1B4B',        // Deep cosmic indigo-violet void
-    skyBottom: '#4338CA',     // Radiant twilight purple-magenta nebula horizon
-    fog: '#312E81',           // Luminous celestial depth haze
-    terrain: '#0F172A',       // Dark crystalline star-rock substrate
-    terrainAccent: '#8B5CF6', // Luminous crystalline violet vein accents
-    energy: '#22D3EE',        // Radiant celestial cyan mana & crystal glow
+    skyTop: '#3F74B5',        // Deep high-altitude blue
+    skyBottom: '#C9DCEC',     // Pale cold horizon
+    fog: '#BCD0E6',           // Crisp alpine air haze
+    terrain: '#E9EEF3',       // Snowfield
+    terrainAccent: '#7D8287', // Granite
+    energy: '#7CC4E8',        // Glacial ice blue
   },
   lighting: {
-    ambient: 0.70,
-    sun: 1.45,
-    ambientColor: '#4338CA',  // Ethereal purple/indigo bounce
-    sunColor: '#A78BFA',      // Soft lavender/cyan celestial radiance
+    ambient: 0.75,
+    sun: 1.5,
+    ambientColor: '#DCE8F4',  // Cool sky bounce off snow
+    sunColor: '#FFF6EA',      // Clean high-altitude sunlight
     sunPosition: [-35, 80, -140],
   },
   atmosphere: {
     particleType: 'crystals',
-    particleDensity: 0.90,
-    fogDensity: 0.009,
+    particleDensity: 0.35,
+    fogDensity: 0.004,
   },
   decorations: {
-    vegetation: 'crystal flora',
+    vegetation: 'snow-laden spruce',
     structures: 'crystal-spires',
     density: 0.85,
   },

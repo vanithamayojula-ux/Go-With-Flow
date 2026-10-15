@@ -1,6 +1,7 @@
 import * as THREE from 'three';
-import { SkyboxShader } from '../graphics/shaders';
+import { Sky } from 'three/examples/jsm/objects/Sky.js';
 import { LightingMode } from '../types';
+import { WorldId } from './WorldConfig';
 
 export interface LightingPresetConfig {
   skyTop: string;
@@ -379,183 +380,236 @@ export const LIGHTING_PRESETS: Record<string, LightingPresetConfig> = {
   },
 };
 
-interface HoverTrafficData {
-  mesh: THREE.Group;
-  speed: number;
-  baseY: number;
-  laneX: number;
+/**
+ * Physically based look for one campaign world: Preetham sky + sun, sky light,
+ * aerial-perspective fog and camera exposure. Values are real-world-ish
+ * (sun elevation in degrees, Preetham turbidity/rayleigh/mie terms).
+ */
+interface WorldAtmosphere {
+  sunElevation: number; // degrees above the horizon
+  sunAzimuth: number; // degrees; 0 = straight down the track (+Z), 90 = +X
+  turbidity: number;
+  rayleigh: number;
+  mieCoefficient: number;
+  mieDirectionalG: number;
+  cloudCoverage: number;
+  cloudDensity: number;
+  exposure: number;
+  sunColor: string;
+  sunIntensity: number;
+  hemiSky: string;
+  hemiGround: string;
+  hemiIntensity: number;
+  envIntensity: number;
+  fogColor: string;
+  fogDensity: number;
 }
+
+const WORLD_ATMOSPHERES: Record<WorldId, WorldAtmosphere> = {
+  // Clear high-altitude midday above a sea of cloud
+  'sky-isles': {
+    sunElevation: 52, sunAzimuth: 150, turbidity: 2.2, rayleigh: 1.0, mieCoefficient: 0.003, mieDirectionalG: 0.8,
+    cloudCoverage: 0.35, cloudDensity: 0.45, exposure: 0.45,
+    sunColor: '#fff3e2', sunIntensity: 2.8, hemiSky: '#bcd6ff', hemiGround: '#6f7a5c', hemiIntensity: 0.6,
+    envIntensity: 1.0, fogColor: '#a9c1db', fogDensity: 0.0008,
+  },
+  // Humid forest morning, low warm sun through haze
+  'verdant-wilds': {
+    sunElevation: 18, sunAzimuth: 125, turbidity: 5.0, rayleigh: 1.6, mieCoefficient: 0.006, mieDirectionalG: 0.85,
+    cloudCoverage: 0.5, cloudDensity: 0.5, exposure: 0.62,
+    sunColor: '#ffd8a6', sunIntensity: 2.6, hemiSky: '#a8c3d6', hemiGround: '#3c4a2a', hemiIntensity: 0.55,
+    envIntensity: 0.9, fogColor: '#9fb2a2', fogDensity: 0.0022,
+  },
+  // Late-afternoon desert, sun low ahead of the rider
+  'crimson-dunes': {
+    sunElevation: 10, sunAzimuth: 30, turbidity: 8.0, rayleigh: 2.2, mieCoefficient: 0.007, mieDirectionalG: 0.88,
+    cloudCoverage: 0.12, cloudDensity: 0.35, exposure: 0.5,
+    sunColor: '#ffb274', sunIntensity: 3.0, hemiSky: '#e6c39c', hemiGround: '#8a5a34', hemiIntensity: 0.6,
+    envIntensity: 1.0, fogColor: '#d4ae88', fogDensity: 0.0012,
+  },
+  // Cold, crisp alpine air
+  'crystal-heights': {
+    sunElevation: 38, sunAzimuth: 160, turbidity: 1.6, rayleigh: 0.7, mieCoefficient: 0.002, mieDirectionalG: 0.8,
+    cloudCoverage: 0.25, cloudDensity: 0.4, exposure: 0.5,
+    sunColor: '#ffffff', sunIntensity: 3.4, hemiSky: '#cfe1ff', hemiGround: '#9aa7b6', hemiIntensity: 0.7,
+    envIntensity: 1.1, fogColor: '#bcd0e6', fogDensity: 0.0009,
+  },
+  // Volcanic dusk: ash-laden air, sun on the horizon
+  'obsidian-core': {
+    sunElevation: 2.5, sunAzimuth: 10, turbidity: 16.0, rayleigh: 3.0, mieCoefficient: 0.02, mieDirectionalG: 0.95,
+    cloudCoverage: 0.7, cloudDensity: 0.8, exposure: 0.6,
+    sunColor: '#ff6a3a', sunIntensity: 2.0, hemiSky: '#6b4a48', hemiGround: '#1a0d0a', hemiIntensity: 0.45,
+    envIntensity: 0.7, fogColor: '#4a2c28', fogDensity: 0.003,
+  },
+};
+
+// Re-bake the reflection environment after the blend moves this far.
+const ENV_REBAKE_STEP = 0.1;
+const SKY_UNIFORMS_TO_BAKE = ['turbidity', 'rayleigh', 'mieCoefficient', 'mieDirectionalG', 'cloudCoverage', 'cloudDensity'];
 
 export class SkyManager {
   scene: THREE.Scene;
-  skyMesh: THREE.Mesh;
+  skyMesh: Sky;
   skyMaterial: THREE.ShaderMaterial;
   dirLight: THREE.DirectionalLight;
-  ambientLight: THREE.AmbientLight;
+  hemiLight: THREE.HemisphereLight;
 
-  // Giant Deep-Space Celestial Orbital Ring (Infinite Depth Anchor)
-  holoRingMesh: THREE.Mesh;
+  private renderer: THREE.WebGLRenderer | null;
+  private pmrem: THREE.PMREMGenerator | null = null;
+  private envScene = new THREE.Scene();
+  private envSky = new Sky();
+  private envGroundMat = new THREE.MeshBasicMaterial({ color: 0x6f7a5c, side: THREE.DoubleSide });
+  private envGround = new THREE.Mesh(new THREE.CircleGeometry(60, 48), this.envGroundMat);
+  private envTarget: THREE.WebGLRenderTarget | null = null;
+  private envKey = '';
+  private envWeight = -1;
 
-  // Distant Cosmic Horizon Beacon
-  beaconLightMesh: THREE.Mesh;
+  private sunDir = new THREE.Vector3(0, 1, 0);
+  private tmpColA = new THREE.Color();
+  private tmpColB = new THREE.Color();
 
-  constructor(scene: THREE.Scene) {
+  constructor(scene: THREE.Scene, renderer?: THREE.WebGLRenderer) {
     this.scene = scene;
+    this.renderer = renderer ?? null;
 
-    // 1. Deep Space Skybox Dome
-    const skyGeom = new THREE.SphereGeometry(900, 32, 24);
-    this.skyMaterial = new THREE.ShaderMaterial({
-      vertexShader: SkyboxShader.vertexShader,
-      fragmentShader: SkyboxShader.fragmentShader,
-      uniforms: {
-        uSkyTop: { value: new THREE.Color('#010206') },
-        uSkyMid: { value: new THREE.Color('#0a0418') },
-        uSkyHorizon: { value: new THREE.Color('#02040c') },
-        uSunPosition: { value: new THREE.Vector3(0, 90, 40) },
-        uSunColor: { value: new THREE.Color('#00d2e0') },
-        uTime: { value: 0 },
-        uSpeed: { value: 20.0 },
-        uHazeDensity: { value: 0.9 },
-        uGridMode: { value: 0.0 },
-      },
-      side: THREE.BackSide,
-      depthWrite: false,
-    });
-
-    this.skyMesh = new THREE.Mesh(skyGeom, this.skyMaterial);
+    // 1. Preetham atmospheric sky with procedural clouds (renders at the far plane)
+    this.skyMesh = new Sky();
+    this.skyMesh.scale.setScalar(1000);
+    this.skyMesh.frustumCulled = false;
+    this.skyMaterial = this.skyMesh.material as THREE.ShaderMaterial;
     this.scene.add(this.skyMesh);
 
-    // 2. Cosmic Directional & Ambient Lighting (30% Reduced brightness, strong contrast)
-    this.ambientLight = new THREE.AmbientLight(0x02050e, 0.65);
-    this.scene.add(this.ambientLight);
+    // 2. Sky light (hemisphere) and the sun
+    this.hemiLight = new THREE.HemisphereLight(0xbcd6ff, 0x6f7a5c, 0.6);
+    this.scene.add(this.hemiLight);
 
-    // Directional lighting from top-front illuminating space highway and player cleanly
-    this.dirLight = new THREE.DirectionalLight(0x00d2e0, 0.85);
-    this.dirLight.position.set(0, 90, 40);
+    this.dirLight = new THREE.DirectionalLight(0xffffff, 3.0);
     this.dirLight.castShadow = true;
-    this.dirLight.shadow.mapSize.width = 1024;
-    this.dirLight.shadow.mapSize.height = 1024;
-    this.dirLight.shadow.camera.near = 10;
-    this.dirLight.shadow.camera.far = 300;
-    this.dirLight.shadow.camera.left = -35;
-    this.dirLight.shadow.camera.right = 35;
-    this.dirLight.shadow.camera.top = 35;
-    this.dirLight.shadow.camera.bottom = -35;
+    this.dirLight.shadow.mapSize.set(2048, 2048);
+    this.dirLight.shadow.camera.near = 1;
+    this.dirLight.shadow.camera.far = 320;
+    this.dirLight.shadow.camera.left = -28;
+    this.dirLight.shadow.camera.right = 28;
+    this.dirLight.shadow.camera.top = 28;
+    this.dirLight.shadow.camera.bottom = -28;
+    this.dirLight.shadow.bias = -0.0004;
+    this.dirLight.shadow.normalBias = 0.03;
     this.scene.add(this.dirLight);
+    this.scene.add(this.dirLight.target);
 
-    // 3. Colossal Deep-Space Orbital Ring
-    const ringGeom = new THREE.TorusGeometry(360, 3.5, 16, 64);
-    const ringMat = new THREE.MeshBasicMaterial({
-      color: 0x00d2e0,
-      wireframe: true,
-      transparent: true,
-      opacity: 0.35,
-    });
-    this.holoRingMesh = new THREE.Mesh(ringGeom, ringMat);
-    this.holoRingMesh.position.set(0, 240, -420);
-    this.holoRingMesh.rotation.set(0.65, 0.35, 0);
-    this.scene.add(this.holoRingMesh);
+    // 3. Image-based lighting baked from the same sky (no sun disc, to avoid hot spots)
+    this.envSky.scale.setScalar(10);
+    (this.envSky.material as THREE.ShaderMaterial).uniforms.showSunDisc.value = 0;
+    this.envScene.add(this.envSky);
+    // The Preetham model is meaningless below the horizon (green/pink nadir),
+    // and metal reflects it; bake a ground disc so the lower hemisphere is earth.
+    this.envGround.rotation.x = -Math.PI / 2;
+    this.envGround.position.y = -0.5;
+    this.envScene.add(this.envGround);
+    if (this.renderer) this.pmrem = new THREE.PMREMGenerator(this.renderer);
 
-    // 4. Distant Horizon Cosmic Gateway Beacon (Vanishing Point Reference)
-    const beaconGeom = new THREE.SphereGeometry(3.5, 12, 12);
-    const beaconMat = new THREE.MeshBasicMaterial({ color: 0x00d2e0 });
-    this.beaconLightMesh = new THREE.Mesh(beaconGeom, beaconMat);
-    this.beaconLightMesh.position.set(0, 45, 600);
-    this.scene.add(this.beaconLightMesh);
+    this.applyWorldAtmosphere('sky-isles', 'sky-isles', 0);
   }
 
-  applyLightingPreset(mode: LightingMode) {
-    const preset = LIGHTING_PRESETS[mode] || LIGHTING_PRESETS['midnight-cyan'];
+  /**
+   * Kept for the settings UI: lighting now comes from each world's physical
+   * atmosphere, so the stylised presets no longer change the scene.
+   */
+  applyLightingPreset(_mode: LightingMode) {}
 
-    this.skyMaterial.uniforms.uSkyTop.value.set(preset.skyTop);
-    this.skyMaterial.uniforms.uSkyMid.value.set(preset.skyMid);
-    this.skyMaterial.uniforms.uSkyHorizon.value.set(preset.skyHorizon);
-    this.skyMaterial.uniforms.uSunColor.value.set(preset.sunColor);
-    this.skyMaterial.uniforms.uSunPosition.value.set(...preset.sunPosition);
-    this.skyMaterial.uniforms.uHazeDensity.value = preset.hazeDensity;
+  /**
+   * Blend the atmosphere of `current` toward `next` by `t` (0..1) and apply it
+   * to the sky, sun, sky light, fog, exposure and reflection environment.
+   */
+  applyWorldAtmosphere(current: WorldId, next: WorldId, t: number) {
+    const a = WORLD_ATMOSPHERES[current] ?? WORLD_ATMOSPHERES['sky-isles'];
+    const b = WORLD_ATMOSPHERES[next] ?? a;
+    const w = THREE.MathUtils.clamp(t, 0, 1);
+    const mix = (x: number, y: number) => x + (y - x) * w;
 
-    this.dirLight.color.set(preset.sunColor);
-    this.dirLight.position.set(...preset.sunPosition);
-    this.ambientLight.color.set(preset.ambientColor);
+    const elev = THREE.MathUtils.degToRad(mix(a.sunElevation, b.sunElevation));
+    const azim = THREE.MathUtils.degToRad(mix(a.sunAzimuth, b.sunAzimuth));
+    this.sunDir.set(Math.sin(azim) * Math.cos(elev), Math.sin(elev), Math.cos(azim) * Math.cos(elev));
 
-    // Scene-level atmospheric cosmic depth fog configured from biome preset
-    const fogCol = new THREE.Color(preset.fogColor || '#020512');
-    const fogDensity = 0.0035 * (preset.hazeDensity ?? 1.0);
-    this.scene.fog = new THREE.FogExp2(fogCol, fogDensity);
-  }
+    const u = this.skyMaterial.uniforms;
+    u.sunPosition.value.copy(this.sunDir);
+    u.turbidity.value = mix(a.turbidity, b.turbidity);
+    u.rayleigh.value = mix(a.rayleigh, b.rayleigh);
+    u.mieCoefficient.value = mix(a.mieCoefficient, b.mieCoefficient);
+    u.mieDirectionalG.value = mix(a.mieDirectionalG, b.mieDirectionalG);
+    u.cloudCoverage.value = mix(a.cloudCoverage, b.cloudCoverage);
+    u.cloudDensity.value = mix(a.cloudDensity, b.cloudDensity);
 
-  applyBlendedLighting(
-    skyTop: THREE.Color,
-    skyBottom: THREE.Color,
-    fogColor: THREE.Color,
-    fogDensity: number,
-    ambientColor: THREE.Color,
-    ambientIntensity: number,
-    sunColor: THREE.Color,
-    sunIntensity: number
-  ) {
-    this.skyMaterial.uniforms.uSkyTop.value.copy(skyTop);
-    this.skyMaterial.uniforms.uSkyHorizon.value.copy(skyBottom);
-    this.skyMaterial.uniforms.uSunColor.value.copy(sunColor);
+    this.dirLight.color.copy(this.tmpColA.set(a.sunColor).lerp(this.tmpColB.set(b.sunColor), w));
+    this.dirLight.intensity = mix(a.sunIntensity, b.sunIntensity);
+    this.hemiLight.color.copy(this.tmpColA.set(a.hemiSky).lerp(this.tmpColB.set(b.hemiSky), w));
+    this.hemiLight.groundColor.copy(this.tmpColA.set(a.hemiGround).lerp(this.tmpColB.set(b.hemiGround), w));
+    this.hemiLight.intensity = mix(a.hemiIntensity, b.hemiIntensity);
 
-    this.dirLight.color.copy(sunColor);
-    this.dirLight.intensity = sunIntensity;
-
-    this.ambientLight.color.copy(ambientColor);
-    this.ambientLight.intensity = ambientIntensity;
-
-    if (!this.scene.fog || !(this.scene.fog instanceof THREE.FogExp2)) {
-      this.scene.fog = new THREE.FogExp2(fogColor, fogDensity);
-    } else {
+    const fogColor = this.tmpColA.set(a.fogColor).lerp(this.tmpColB.set(b.fogColor), w);
+    const fogDensity = mix(a.fogDensity, b.fogDensity);
+    if (this.scene.fog instanceof THREE.FogExp2) {
       this.scene.fog.color.copy(fogColor);
       this.scene.fog.density = fogDensity;
+    } else {
+      this.scene.fog = new THREE.FogExp2(fogColor.clone(), fogDensity);
+    }
+
+    this.scene.environmentIntensity = mix(a.envIntensity, b.envIntensity);
+    if (this.renderer) this.renderer.toneMappingExposure = mix(a.exposure, b.exposure);
+
+    const key = `${current}>${next}`;
+    if (key !== this.envKey || Math.abs(w - this.envWeight) >= ENV_REBAKE_STEP) {
+      this.envKey = key;
+      this.envWeight = w;
+      this.bakeEnvironment();
     }
   }
 
-  setGridMode(gridMode: number) {
-    if (this.skyMaterial.uniforms.uGridMode) {
-      this.skyMaterial.uniforms.uGridMode.value = gridMode;
-    }
+  private bakeEnvironment() {
+    if (!this.pmrem) return;
+    const src = this.skyMaterial.uniforms;
+    const dst = (this.envSky.material as THREE.ShaderMaterial).uniforms;
+    for (const k of SKY_UNIFORMS_TO_BAKE) dst[k].value = src[k].value;
+    dst.sunPosition.value.copy(src.sunPosition.value);
+    // Ground radiance ~ sky-lit albedo: hemisphere ground colour, scaled to the
+    // sky's brightness (Preetham radiance is roughly 0.5-2 in these units).
+    this.envGroundMat.color.copy(this.hemiLight.groundColor).multiplyScalar(this.hemiLight.intensity * 1.5);
+
+    const target = this.pmrem.fromScene(this.envScene, 0, 0.1, 100);
+    this.envTarget?.dispose();
+    this.envTarget = target;
+    this.scene.environment = target.texture;
   }
 
   setShadowsEnabled(enabled: boolean) {
     this.dirLight.castShadow = enabled;
   }
 
-
-  update(playerPos: THREE.Vector3, playerVelocityZ: number, time: number, playerSpeed = 20) {
-    // Skybox follows player camera
+  update(playerPos: THREE.Vector3, _playerVelocityZ: number, time: number, _playerSpeed = 20) {
+    // Sky stays centred on the rider; clouds drift slowly
     this.skyMesh.position.copy(playerPos);
-    this.holoRingMesh.position.set(playerPos.x, playerPos.y + 240, playerPos.z - 420);
-    this.holoRingMesh.rotation.z = time * 0.03; // Slow celestial parallax rotation
+    this.skyMaterial.uniforms.time.value = time;
 
-    // Anchor vanishing point cosmic gateway
-    this.beaconLightMesh.position.set(0, 45, playerPos.z + 600);
-    const beaconPulse = Math.sin(time * 4.0) * 0.2 + 0.8;
-    (this.beaconLightMesh.material as THREE.MeshBasicMaterial).opacity = beaconPulse;
-
-    // Direct lighting follows player frustum with directional top-front angle
-    this.dirLight.position.set(playerPos.x, playerPos.y + 90, playerPos.z + 40);
-    this.dirLight.target.position.copy(playerPos);
+    // Sun shadow frustum follows the rider, cast along the sun direction
+    this.dirLight.target.position.set(playerPos.x, playerPos.y, playerPos.z + 12);
+    this.dirLight.position.copy(this.dirLight.target.position).addScaledVector(this.sunDir, 150);
     this.dirLight.target.updateMatrixWorld();
-
-    this.skyMaterial.uniforms.uTime.value = time;
-    if (this.skyMaterial.uniforms.uSpeed) {
-      this.skyMaterial.uniforms.uSpeed.value = playerSpeed;
-    }
   }
 
   dispose() {
     this.scene.remove(this.skyMesh);
     this.scene.remove(this.dirLight);
-    this.scene.remove(this.ambientLight);
-    this.scene.remove(this.holoRingMesh);
-    this.scene.remove(this.beaconLightMesh);
+    this.scene.remove(this.dirLight.target);
+    this.scene.remove(this.hemiLight);
+    if (this.envTarget && this.scene.environment === this.envTarget.texture) this.scene.environment = null;
     this.skyMesh.geometry.dispose();
     this.skyMaterial.dispose();
-    this.holoRingMesh.geometry.dispose();
-    (this.holoRingMesh.material as THREE.Material)?.dispose();
-    this.beaconLightMesh.geometry.dispose();
-    (this.beaconLightMesh.material as THREE.Material)?.dispose();
+    this.envSky.geometry.dispose();
+    (this.envSky.material as THREE.Material).dispose();
+    this.envGround.geometry.dispose();
+    this.envGroundMat.dispose();
+    this.envTarget?.dispose();
+    this.pmrem?.dispose();
   }
 }

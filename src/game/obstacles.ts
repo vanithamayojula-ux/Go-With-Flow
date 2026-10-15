@@ -4,6 +4,7 @@ import { BiomeType, LaneIndex, PowerUpType } from '../types';
 import { getTerrainHeight, getBiomeAt } from './terrain';
 import { WORLD_LENGTH_DISTANCE, getWorldForBiome } from './worlds';
 import { laneToWorldX } from './trackConfig';
+import { createStripeTexture } from '../graphics/hazardTextures';
 
 // Minimum open road in front of a world portal before the previous obstacle row.
 const PORTAL_CLEARANCE = 12;
@@ -465,25 +466,52 @@ export class ObstacleManager {
   private genState: ObstacleGeneratorState;
   private _nearMissPosScratch = new THREE.Vector3();
 
-  // Strict High-Contrast Materials
+  // Real-world road hardware: cast concrete, galvanised steel, retro-reflective
+  // red/white barrier bands and painted yellow/black hazard chevrons.
   private barrierMat = new THREE.MeshStandardMaterial({
-    color: 0x0a0f1d,
-    metalness: 0.9,
-    roughness: 0.2,
+    color: 0x8e8a83, // weathered concrete
+    metalness: 0.0,
+    roughness: 0.9,
   });
-  private laserHazardMat = new THREE.MeshBasicMaterial({ color: 0xff0055 }); // High-visibility Magenta Hazard
-  private warningAmberMat = new THREE.MeshBasicMaterial({
-    color: 0xffaa00,
+  private steelMat = new THREE.MeshStandardMaterial({
+    color: 0xaeb4ba,
+    metalness: 0.85,
+    roughness: 0.4,
+  });
+  private laserHazardMat = new THREE.MeshStandardMaterial({
+    color: 0xffffff,
+    map: createStripeTexture('#f2f2ee', '#c4161c', 4),
+    metalness: 0.0,
+    roughness: 0.45,
+  });
+  private warningAmberMat = new THREE.MeshStandardMaterial({
+    color: 0xffffff,
+    map: createStripeTexture('#1b1b1b', '#e8b400', 8),
+    roughness: 0.6,
     transparent: true,
     opacity: 0.55,
+    depthWrite: false,
+    polygonOffset: true,
+    polygonOffsetFactor: -2,
   });
-  private cyanNeonMat = new THREE.MeshBasicMaterial({ color: 0x00d2e0 }); // Player / Reward / Boost
-  private goldMat = new THREE.MeshBasicMaterial({ color: 0xffd700 }); // Collectible Shards
-  private telegraphMat = new THREE.MeshBasicMaterial({
-    color: 0xff0055,
+  // Power-up cores: glowing glass orbs (emissive, so they bloom without a light)
+  private cyanNeonMat = new THREE.MeshStandardMaterial({
+    color: 0x0b2a33,
+    emissive: new THREE.Color(0x35d6ff),
+    emissiveIntensity: 2.5,
+    metalness: 0.0,
+    roughness: 0.1,
+  });
+  private goldMat = new THREE.MeshStandardMaterial({ color: 0xffc04a, metalness: 1.0, roughness: 0.22 }); // Gold shards
+  private telegraphMat = new THREE.MeshStandardMaterial({
+    color: 0xffffff,
+    map: createStripeTexture('#1b1b1b', '#e8b400', 8),
+    roughness: 0.6,
     transparent: true,
     opacity: 0.45,
-    side: THREE.DoubleSide,
+    depthWrite: false,
+    polygonOffset: true,
+    polygonOffsetFactor: -2,
   });
   private portalDiscMat = new THREE.MeshBasicMaterial({
     color: 0x00f0ff,
@@ -513,41 +541,32 @@ export class ObstacleManager {
   // Grind Rail Geometries & Materials
   private railTubeGeom = new THREE.BoxGeometry(0.26, 0.22, 18.0);
   private railPostGeom = new THREE.CylinderGeometry(0.08, 0.08, 0.90, 8);
+  // Grind rail: polished steel tube on galvanised posts
   private railMat = new THREE.MeshStandardMaterial({
-    color: 0x00f0ff,
-    emissive: new THREE.Color(0x00d2e0),
-    emissiveIntensity: 0.85,
-    metalness: 0.9,
-    roughness: 0.15,
+    color: 0xd5d9de,
+    metalness: 1.0,
+    roughness: 0.18,
   });
   private railPostMat = new THREE.MeshStandardMaterial({
-    color: 0x111927,
+    color: 0x8f959b,
     metalness: 0.85,
-    roughness: 0.4,
+    roughness: 0.45,
   });
 
   // Boost Gate Geometries & Materials
   private boostPillarGeom = new THREE.BoxGeometry(0.24, 3.2, 0.35);
   private boostTopGeom = new THREE.BoxGeometry(2.6, 0.35, 0.35);
+  // Boost gate: a lit LED gantry (genuinely emissive, so it blooms)
   private boostMat = new THREE.MeshStandardMaterial({
-    color: 0x00ffaa,
-    emissive: new THREE.Color(0x00ffaa),
-    emissiveIntensity: 1.2,
-    metalness: 0.5,
-    roughness: 0.15,
+    color: 0x1a1d20,
+    emissive: new THREE.Color(0x3dff9a),
+    emissiveIntensity: 1.6,
+    metalness: 0.6,
+    roughness: 0.35,
   });
 
   private coinGeom = new THREE.OctahedronGeometry(0.24);
   private powerUpGeom = new THREE.DodecahedronGeometry(0.35);
-
-  // 3D Creature Obstacle Base & Platform
-  private basePlateGeom = new THREE.CylinderGeometry(1.25, 1.3, 0.08, 16);
-  private basePlateMat = new THREE.MeshStandardMaterial({
-    color: 0x0a0f1d,
-    metalness: 0.85,
-    roughness: 0.25,
-  });
-  private baseRingGeom: THREE.RingGeometry;
 
   // Cached 3D obstacle models (Preloaded once and cloned on spawn)
   static cachedTemplates: Obstacle3DTemplate[] = [];
@@ -704,10 +723,6 @@ export class ObstacleManager {
     const otGeom = new THREE.PlaneGeometry(2.35, 3.0);
     otGeom.rotateX(-Math.PI / 2);
     this.overheadTelegraphGeom = otGeom;
-
-    const brGeom = new THREE.RingGeometry(1.05, 1.25, 24);
-    brGeom.rotateX(-Math.PI / 2);
-    this.baseRingGeom = brGeom;
 
     this.genState = new ObstacleGeneratorState(seed);
     ObstacleManager.preloadObstacleModels();
@@ -870,15 +885,6 @@ export class ObstacleManager {
     telegraphMesh.position.set(0, 0.05, -3.0);
     blockGroup.add(telegraphMesh);
 
-    // High-tech holographic hazard base plate & neon perimeter
-    const basePlate = new THREE.Mesh(this.basePlateGeom, this.basePlateMat);
-    basePlate.position.set(0, 0.04, 0);
-    blockGroup.add(basePlate);
-
-    const baseRing = new THREE.Mesh(this.baseRingGeom, this.laserHazardMat);
-    baseRing.position.set(0, 0.09, 0);
-    blockGroup.add(baseRing);
-
     const modelContainer = new THREE.Group();
     modelContainer.name = `SolidObstacleBody_${z}_${lane}`;
     blockGroup.add(modelContainer);
@@ -958,9 +964,9 @@ export class ObstacleManager {
     hurdleGroup.add(beam);
 
     // Base anchors
-    const postL = new THREE.Mesh(this.hurdlePostGeom, this.barrierMat);
+    const postL = new THREE.Mesh(this.hurdlePostGeom, this.steelMat);
     postL.position.set(-1.18, 0.28, 0);
-    const postR = new THREE.Mesh(this.hurdlePostGeom, this.barrierMat);
+    const postR = new THREE.Mesh(this.hurdlePostGeom, this.steelMat);
     postR.position.set(1.18, 0.28, 0);
     hurdleGroup.add(postL, postR);
 
@@ -997,9 +1003,9 @@ export class ObstacleManager {
     barrierGroup.position.set(x, groundH, z);
 
     // Tall support posts
-    const leftPost = new THREE.Mesh(this.overheadPostGeom, this.barrierMat);
+    const leftPost = new THREE.Mesh(this.overheadPostGeom, this.steelMat);
     leftPost.position.set(-1.25, 1.6, 0);
-    const rightPost = new THREE.Mesh(this.overheadPostGeom, this.barrierMat);
+    const rightPost = new THREE.Mesh(this.overheadPostGeom, this.steelMat);
     rightPost.position.set(1.25, 1.6, 0);
     barrierGroup.add(leftPost, rightPost);
 
@@ -1108,8 +1114,6 @@ export class ObstacleManager {
     pGroup.position.set(x, groundH + 1.2, z);
     const pCore = new THREE.Mesh(this.powerUpGeom, this.cyanNeonMat);
     pGroup.add(pCore);
-    const pGlow = new THREE.PointLight(0x00d2e0, 1.5, 4.0);
-    pGroup.add(pGlow);
     pGroup.frustumCulled = false;
     this.group.add(pGroup);
 
@@ -1409,15 +1413,16 @@ export class ObstacleManager {
     this.railPostGeom.dispose();
     this.boostPillarGeom.dispose();
     this.boostTopGeom.dispose();
-    this.basePlateGeom.dispose();
-    this.baseRingGeom.dispose();
 
     // Dispose materials
     this.barrierMat.dispose();
+    this.laserHazardMat.map?.dispose();
     this.laserHazardMat.dispose();
+    this.warningAmberMat.map?.dispose();
     this.warningAmberMat.dispose();
     this.cyanNeonMat.dispose();
     this.goldMat.dispose();
+    this.telegraphMat.map?.dispose();
     this.telegraphMat.dispose();
     this.portalDiscMat.dispose();
     for (const mats of this.portalMats.values()) {
@@ -1428,7 +1433,7 @@ export class ObstacleManager {
     this.railMat.dispose();
     this.railPostMat.dispose();
     this.boostMat.dispose();
-    this.basePlateMat.dispose();
+    this.steelMat.dispose();
   }
 }
 

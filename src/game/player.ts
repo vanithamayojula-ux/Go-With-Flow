@@ -218,37 +218,6 @@ export class PlayerManager {
 
     this.group.add(this.playerCharacter.group);
 
-    // Dedicated top-back key light illuminating the player character's silhouette cleanly: key 3.2 (0, 3.5, -4.5)
-    const playerKeyLight = new THREE.DirectionalLight(0xffffff, 3.2);
-    playerKeyLight.position.set(0, 3.5, -4.5);
-    playerKeyLight.target.position.set(0, 1.0, 0);
-    this.group.add(playerKeyLight);
-    this.group.add(playerKeyLight.target);
-
-    // Rim Directional magenta 1.5 from back-left (-3, 2, 4)
-    const playerRimLight = new THREE.DirectionalLight(0xff00aa, 1.5);
-    playerRimLight.position.set(-3, 2, 4);
-    playerRimLight.target.position.set(0, 1.0, 0);
-    this.group.add(playerRimLight);
-    this.group.add(playerRimLight.target);
-
-    // Fill Hemisphere light (sky 0x88ccff 0.6 / ground 0x080810 0.4)
-    const playerHemiLight = new THREE.HemisphereLight(0x88ccff, 0x080810, 0.6);
-    playerHemiLight.position.set(0, 5, 0);
-    this.group.add(playerHemiLight);
-
-    // Spot light 3.0
-    const playerSpot = new THREE.SpotLight(0x00d2e0, 3.0, 24, Math.PI / 6, 0.35, 1.1);
-    playerSpot.position.set(0, 4.0, -3.0);
-    playerSpot.target.position.set(0, 0.8, 0);
-    this.group.add(playerSpot);
-    this.group.add(playerSpot.target);
-
-    // Underglow 0.65
-    const playerUnderglow = new THREE.PointLight(0x00d2e0, 0.65, 3.5);
-    playerUnderglow.position.set(0, -0.05, 0);
-    this.group.add(playerUnderglow);
-
     // 3. Thin Fresnel-Rim Holo-Shield Bubble (Crystal clear sightline, zero forward occlusion)
     const shieldGeom = new THREE.SphereGeometry(1.65, 32, 24);
     const shieldMat = new THREE.ShaderMaterial({
@@ -357,7 +326,7 @@ export class PlayerManager {
       uniforms: {
         uColorA: { value: new THREE.Color('#00D2E0') }, // Primary Cyan
         uColorB: { value: new THREE.Color('#FF00FF') }, // Secondary Magenta Speed Swirl
-        uOpacity: { value: 0.60 },
+        uOpacity: { value: 0.18 }, // Faint air wake; the old 0.6 read as a neon ribbon
         uTime: { value: 0 },
       },
       transparent: true,

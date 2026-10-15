@@ -1,5 +1,6 @@
 import * as THREE from 'three';
 import { GLTFLoader } from 'three/examples/jsm/loaders/GLTFLoader.js';
+import { MeshoptDecoder } from 'three/examples/jsm/libs/meshopt_decoder.module.js';
 import * as SkeletonUtils from 'three/examples/jsm/utils/SkeletonUtils.js';
 import { HeroId } from '../types';
 import { heroById } from './heroes';
@@ -64,12 +65,12 @@ export interface HeroRig {
 }
 
 const cache = new Map<HeroId, Promise<LoadedHeroData | null> | LoadedHeroData>();
-// No hero model uses EXT_meshopt_compression (model.glb was decoded), so the
-// WebAssembly meshopt decoder isn't loaded. That keeps heroes working on hosts
-// whose CSP blocks WebAssembly. If you add a meshopt-compressed model, import
-// MeshoptDecoder from three/examples/jsm/libs/meshopt_decoder.module.js and
-// call loader.setMeshoptDecoder(MeshoptDecoder) here.
+// model02.glb (Shadow Blade, the default hero) uses EXT_meshopt_compression,
+// so the meshopt decoder is required; without it the hero fails to load and
+// the procedural skater + board is shown instead. The decoder runs on
+// WebAssembly, so a CSP must allow 'wasm-unsafe-eval' (none is set today).
 const loader = new GLTFLoader();
+loader.setMeshoptDecoder(MeshoptDecoder);
 
 // Load embedded GLB textures through <img> (TextureLoader) instead of
 // ImageBitmapLoader. ImageBitmapLoader fetch()es the blob: URLs GLTFLoader
@@ -265,9 +266,7 @@ export function buildHeroRig(heroId: HeroId): HeroRig | null {
             stdMat.map.needsUpdate = true;
           }
 
-          stdMat.color.setRGB(1, 1, 1); // 100% full authentic texture color fidelity
-          stdMat.roughness = 0.45;
-          stdMat.metalness = 0.25;
+          stdMat.color.setRGB(1, 1, 1); // Authentic texture colour; roughness/metalness stay as authored
           stdMat.envMapIntensity = 1.0;
           stdMat.emissive.setRGB(0, 0, 0); // No bloom clip / no blown-out white blobs
           stdMat.emissiveIntensity = 0;
@@ -275,26 +274,6 @@ export function buildHeroRig(heroId: HeroId): HeroRig | null {
         }
       }
     });
-
-    // 5. Dedicated High-Clarity Studio Lighting for the Cyber Surfer
-    // Key light illuminating from upper rear chase angle
-    const keyLight = new THREE.DirectionalLight(0xffffff, 3.2);
-    keyLight.position.set(0, 4.5, -4.0);
-    bodyGroup.add(keyLight);
-
-    // Front fill light illuminating chest and visor
-    const frontLight = new THREE.DirectionalLight(0xdff0ff, 2.2);
-    frontLight.position.set(0, 3.0, 5.0);
-    bodyGroup.add(frontLight);
-
-    // Ambient hemisphere light ensuring no pitch-black shadows
-    const hemiLight = new THREE.HemisphereLight(0xffffff, 0x1a2438, 1.4);
-    bodyGroup.add(hemiLight);
-
-    // Subtle cyan rim accent
-    const cyanRim = new THREE.PointLight(0x00f0ff, 1.6, 6.0);
-    cyanRim.position.set(0, 1.2, -0.5);
-    bodyGroup.add(cyanRim);
 
     // Dedicated bone drivers so animation calls never crash or cross-talk
     const createJoint = (order: THREE.EulerOrder = 'YXZ') => {

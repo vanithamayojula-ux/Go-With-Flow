@@ -5,10 +5,15 @@ import {
   FloatingIslandArchetype,
   createProceduralIslandGeometry,
   createSkyIslesIslandMaterials,
+  skyIslesCapHeight,
 } from './SkyIslesTerrain';
 import { SkyIslesAtmosphere } from './SkyIslesAtmosphere';
 import { SkyIslesDecorations } from './SkyIslesDecorations';
 import { skyIslesConfig } from './skyIslesConfig';
+import { RAIL_X } from '../../trackConfig';
+
+// Nearest X any scenery may reach: the guard rail plus a shoulder.
+const ROAD_CLEARANCE_X = RAIL_X + 3.0;
 
 export interface ActiveIslandItem {
   id: string;
@@ -37,6 +42,8 @@ export class SkyIslesWorld {
   // Island Geometries & Materials Cache
   private islandGeoms: Map<string, THREE.BufferGeometry> = new Map();
   private materials: ReturnType<typeof createSkyIslesIslandMaterials>;
+  // [turf cap, rock underside] matching the island geometry groups
+  private islandMaterials: THREE.Material[];
 
   // Active spawned islands
   private activeIslands: ActiveIslandItem[] = [];
@@ -49,16 +56,17 @@ export class SkyIslesWorld {
     this.scene.add(this.group);
 
     this.materials = createSkyIslesIslandMaterials();
+    this.islandMaterials = [this.materials.islandMaterial, this.materials.islandRockMaterial];
     this.initGeometries();
 
     this.atmosphere = new SkyIslesAtmosphere(this.scene, graphicsConfig);
-    this.decorations = new SkyIslesDecorations(this.scene);
+    this.decorations = new SkyIslesDecorations(this.scene, this.materials.detailTexture);
   }
 
   private initGeometries(): void {
     // Generate archetypal island geometries for reuse across the world
     for (const arch of ISLAND_ARCHETYPES) {
-      const segs = arch.tier === 'distant' ? 10 : 16;
+      const segs = arch.tier === 'distant' ? 12 : 20;
       const geom = createProceduralIslandGeometry(
         arch.radiusTop,
         arch.depthRock,
@@ -138,45 +146,84 @@ export class SkyIslesWorld {
     const sides: Array<'left' | 'right'> = rnd(1) > 0.5 ? ['left', 'right'] : (rnd(2) > 0.5 ? ['left'] : ['right']);
 
     for (const side of sides) {
-      const archId = rnd(3) > 0.6 ? 'large-sanctuary' : (rnd(4) > 0.3 ? 'medium-plateau' : 'small-satellite');
+      // Salt the right flank so both sides of a band don't mirror each other
+      const salt = side === 'left' ? 0 : 50;
+      const srnd = (offset: number) => rnd(offset + salt);
+      const archId = srnd(3) > 0.6 ? 'large-sanctuary' : (srnd(4) > 0.3 ? 'medium-plateau' : 'small-satellite');
       const geom = this.islandGeoms.get(archId);
       if (!geom) continue;
 
-      const mesh = new THREE.Mesh(geom, this.materials.islandMaterial);
+      const mesh = new THREE.Mesh(geom, this.islandMaterials);
       mesh.receiveShadow = graphicsConfig.enableShadows;
       mesh.castShadow = graphicsConfig.enableShadows && archId !== 'small-satellite';
 
       const sign = side === 'left' ? -1 : 1;
-      const posX = sign * (22.0 + rnd(5) * 28.0);
-      const posY = -4.0 + (rnd(6) - 0.5) * 14.0;
-      const posZ = centerZ + (rnd(7) - 0.5) * 24.0;
+      // Keep the whole island (rim noise reaches ~1.2x radiusTop) clear of the
+      // road: the large isles used to overhang the lanes at the old 22 m offset.
+      const arch = ISLAND_ARCHETYPES.find(a => a.id === archId);
+      const radius = arch?.radiusTop ?? 18.0;
+      const heightGrass = arch?.heightGrass ?? 3.0;
+      const posX = sign * (ROAD_CLEARANCE_X + radius * 1.25 + srnd(5) * 28.0);
+      const posY = -4.0 + (srnd(6) - 0.5) * 14.0;
+      const posZ = centerZ + (srnd(7) - 0.5) * 24.0;
 
       mesh.position.set(posX, posY, posZ);
-      mesh.rotation.y = rnd(8) * Math.PI * 2;
+      mesh.rotation.y = srnd(8) * Math.PI * 2;
       this.group.add(mesh);
 
       const attachedDecs: THREE.Object3D[] = [];
 
-      // Add Waterfalls on large islands (directly matching hero concept art)
+      // Waterfall plunging off the road-facing rim of large islands. The sheet
+      // hangs tangent to the rim and arcs outward ~2 m (towards the road, which
+      // is still >= 11 m away at the lip).
       if (archId === 'large-sanctuary' && graphicsConfig.preset !== 'webgl-min') {
-        const fallEdgePos = new THREE.Vector3(posX - sign * 5.0, posY + 2.0, posZ + 2.0);
-        const fall = this.decorations.createWaterfall(fallEdgePos, 34.0, 3.2);
+        const fallEdgePos = new THREE.Vector3(
+          posX - sign * radius * 0.98,
+          posY + heightGrass - 0.55,
+          posZ + 2.0
+        );
+        const fall = this.decorations.createWaterfall(
+          fallEdgePos,
+          34.0,
+          3.2,
+          sign > 0 ? -Math.PI / 2 : Math.PI / 2
+        );
         attachedDecs.push(fall);
       }
 
       // Add Landmark: Ancient Portal Arch or Sky Temple
-      if (archId === 'large-sanctuary' && rnd(9) > 0.4) {
-        const isArch = rnd(10) > 0.5;
+      let hasLandmark = false;
+      if (archId === 'large-sanctuary' && srnd(9) > 0.4) {
+        const isArch = srnd(10) > 0.5;
         const lm = this.decorations.spawnLandmark(
           isArch ? 'arch' : 'temple',
-          new THREE.Vector3(posX, posY + 3.0, posZ),
+          new THREE.Vector3(posX, posY + heightGrass - 0.4, posZ),
           isArch ? 1.0 : 0.85
         );
         attachedDecs.push(lm);
-      } else if (rnd(11) > 0.45 && graphicsConfig.preset !== 'webgl-min') {
-        // Add stylized cloud bonsai tree
-        const tree = this.decorations.spawnTree(new THREE.Vector3(posX, posY + 2.5, posZ), 1.1);
-        attachedDecs.push(tree);
+        hasLandmark = true;
+      }
+
+      // Trees scattered over the turf (halved on mobile, none on webgl-min)
+      if (graphicsConfig.preset !== 'webgl-min') {
+        let treeCount =
+          archId === 'large-sanctuary' ? 3 + Math.floor(srnd(11) * 3) :
+          archId === 'medium-plateau' ? 1 + Math.floor(srnd(11) * 3) :
+          (srnd(11) > 0.5 ? 1 : 0);
+        if (graphicsConfig.preset === 'mobile-opt') treeCount = Math.ceil(treeCount / 2);
+
+        const minDist = hasLandmark ? radius * 0.5 : (treeCount === 1 ? 0 : radius * 0.15);
+        const maxDist = radius * 0.72;
+        for (let t = 0; t < treeCount; t++) {
+          const ang = srnd(20 + t * 3) * Math.PI * 2;
+          const dist = minDist + srnd(21 + t * 3) * (maxDist - minDist);
+          const tx = posX + Math.cos(ang) * dist;
+          const tz = posZ + Math.sin(ang) * dist;
+          const ty = posY + skyIslesCapHeight(heightGrass, radius, dist) - 0.15;
+          const scale = 0.85 + srnd(22 + t * 3) * 0.5;
+          const tree = this.decorations.spawnTree(new THREE.Vector3(tx, ty, tz), scale);
+          attachedDecs.push(tree);
+        }
       }
 
       this.activeIslands.push({
@@ -192,8 +239,9 @@ export class SkyIslesWorld {
     if (graphicsConfig.preset === 'desktop-full' && rnd(12) > 0.4) {
       const dGeom = this.islandGeoms.get('distant-monolith');
       if (dGeom) {
-        const dMesh = new THREE.Mesh(dGeom, this.materials.islandMaterial);
-        const dX = (rnd(13) - 0.5) * 240 + (rnd(14) > 0.5 ? 90 : -90);
+        const dMesh = new THREE.Mesh(dGeom, this.islandMaterials);
+        // Always well to one side; the old spread could land it over the road.
+        const dX = (rnd(14) > 0.5 ? 1 : -1) * (80 + rnd(13) * 120);
         const dY = 10.0 + rnd(15) * 45.0;
         const dZ = centerZ + 180.0 + rnd(16) * 120.0;
         dMesh.position.set(dX, dY, dZ);
@@ -226,9 +274,11 @@ export class SkyIslesWorld {
 
     // Dispose materials
     this.materials.islandMaterial.dispose();
+    this.materials.islandRockMaterial.dispose();
     this.materials.waterfallMaterial.dispose();
     this.materials.ancientStoneMaterial.dispose();
     this.materials.crystalBeaconMaterial.dispose();
+    this.materials.detailTexture?.dispose();
 
     this.atmosphere.dispose();
     this.decorations.dispose();

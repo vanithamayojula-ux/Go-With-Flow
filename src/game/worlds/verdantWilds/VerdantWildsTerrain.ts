@@ -1,5 +1,4 @@
 import * as THREE from 'three';
-import { GraphicsConfig } from '../../../types';
 
 export interface TreeArchetype {
   id: string;
@@ -51,10 +50,165 @@ export const TREE_ARCHETYPES: TreeArchetype[] = [
 ];
 
 /**
- * Procedurally generates a composite tree geometry (trunk + layered foliage clusters)
- * with embedded vertex colors:
- * - Bark: Rich dark timber (#3D2817 to #543D2B)
- * - Foliage: Gradient from lush forest canopy (#15803D) to vibrant moss highlights (#86EFAC)
+ * Lowest local height any foliage / limb may reach. Trees are scaled 0.85..1.25,
+ * so 9.6 m local keeps every leaf above y = 8 m in world space (road clearance).
+ */
+export const TREE_FOLIAGE_MIN_Y = 9.6;
+
+// ---------------------------------------------------------------------------
+// Ground profile (shared by the embankment mesh and prop placement)
+// ---------------------------------------------------------------------------
+
+/** Height of the bed hidden under the road slab (|x| < 5.5). */
+export const FOREST_ROAD_BED_Y = -0.08;
+/** Bed stays flat out to this |x| before any bank / ditch begins. */
+export const FOREST_ROAD_BED_HALF_WIDTH = 5.5;
+/** Flat-floored roadside drainage ditch (stream channel). */
+export const FOREST_DITCH_INNER_X = 8.5;
+export const FOREST_DITCH_OUTER_X = 12.5;
+export const FOREST_DITCH_Y = -0.35;
+
+const DEFAULT_GROUND_LENGTH = 60;
+const DEFAULT_GROUND_SEED = 77;
+
+function smoothstep(e0: number, e1: number, x: number): number {
+  const t = Math.min(1, Math.max(0, (x - e0) / (e1 - e0)));
+  return t * t * (3 - 2 * t);
+}
+
+/**
+ * Forest floor height at lateral `x` and chunk-local `zLocal`.
+ * Periodic in z over `length` so neighbouring chunks tile seamlessly.
+ */
+export function sampleForestFloorHeight(
+  x: number,
+  zLocal: number,
+  length = DEFAULT_GROUND_LENGTH,
+  seed = DEFAULT_GROUND_SEED
+): number {
+  const a = Math.abs(x);
+  if (a <= FOREST_ROAD_BED_HALF_WIDTH) return FOREST_ROAD_BED_Y;
+
+  const k = (Math.PI * 2) / length;
+  const ph = seed * 0.37;
+
+  // Verge slopes gently down into the ditch
+  let y =
+    FOREST_ROAD_BED_Y +
+    (FOREST_DITCH_Y - FOREST_ROAD_BED_Y) *
+      smoothstep(FOREST_ROAD_BED_HALF_WIDTH, FOREST_DITCH_INNER_X, a);
+
+  // Forest bank rises beyond the ditch
+  y += smoothstep(FOREST_DITCH_OUTER_X, 21, a) * 2.2 + Math.max(0, a - 21) * 0.08;
+
+  // Rolling forest-floor undulation (zero inside the ditch)
+  const hillMask = smoothstep(FOREST_DITCH_OUTER_X, 23, a);
+  if (hillMask > 0) {
+    const hills =
+      Math.sin(x * 0.19 + ph) * 0.9 +
+      Math.sin(zLocal * k * 2 + x * 0.13 + ph * 1.7) * 0.75 +
+      Math.sin(zLocal * k * 5 - x * 0.31 + ph * 0.6) * 0.3 +
+      Math.cos(zLocal * k * 9 + x * 0.57) * 0.12;
+    y += hills * hillMask;
+  }
+  return y;
+}
+
+// ---------------------------------------------------------------------------
+// Shared procedural noise texture
+// ---------------------------------------------------------------------------
+
+/**
+ * Tileable 256x256 grey value-noise texture used for albedo / roughness break-up
+ * on ground, bark and stone. Returns null outside a DOM (e.g. Node tests).
+ */
+export function createVerdantNoiseTexture(): THREE.CanvasTexture | null {
+  if (typeof document === 'undefined') return null;
+  const size = 256;
+  const canvas = document.createElement('canvas');
+  canvas.width = size;
+  canvas.height = size;
+  const ctx = canvas.getContext('2d');
+  if (!ctx) return null;
+
+  let s = 1337;
+  const rnd = () => {
+    s = (s * 16807) % 2147483647;
+    return (s - 1) / 2147483646;
+  };
+
+  const field = new Float32Array(size * size);
+  const octaves = [
+    { cell: 64, amp: 0.45 },
+    { cell: 32, amp: 0.25 },
+    { cell: 16, amp: 0.15 },
+    { cell: 8, amp: 0.1 },
+    { cell: 4, amp: 0.05 },
+  ];
+  for (const { cell, amp } of octaves) {
+    const n = size / cell;
+    const lattice = new Float32Array(n * n);
+    for (let i = 0; i < lattice.length; i++) lattice[i] = rnd();
+    for (let py = 0; py < size; py++) {
+      const gy = py / cell;
+      const y0 = Math.floor(gy);
+      const ty = gy - y0;
+      const sy = ty * ty * (3 - 2 * ty);
+      const ya = y0 % n;
+      const yb = (y0 + 1) % n;
+      for (let px = 0; px < size; px++) {
+        const gx = px / cell;
+        const x0 = Math.floor(gx);
+        const tx = gx - x0;
+        const sx = tx * tx * (3 - 2 * tx);
+        const xa = x0 % n;
+        const xb = (x0 + 1) % n;
+        const top = lattice[ya * n + xa] * (1 - sx) + lattice[ya * n + xb] * sx;
+        const bot = lattice[yb * n + xa] * (1 - sx) + lattice[yb * n + xb] * sx;
+        field[py * size + px] += (top * (1 - sy) + bot * sy) * amp;
+      }
+    }
+  }
+
+  const img = ctx.createImageData(size, size);
+  for (let i = 0; i < field.length; i++) {
+    // Map to 0.66..1.0 so it only darkens / breaks up the base colour
+    const grain = (rnd() - 0.5) * 0.06;
+    const v = Math.min(1, Math.max(0, 0.66 + field[i] * 0.34 + grain));
+    const b = Math.round(v * 255);
+    img.data[i * 4] = b;
+    img.data[i * 4 + 1] = b;
+    img.data[i * 4 + 2] = b;
+    img.data[i * 4 + 3] = 255;
+  }
+  ctx.putImageData(img, 0, 0);
+
+  const tex = new THREE.CanvasTexture(canvas);
+  tex.wrapS = THREE.RepeatWrapping;
+  tex.wrapT = THREE.RepeatWrapping;
+  tex.colorSpace = THREE.NoColorSpace;
+  tex.anisotropy = 4;
+  tex.needsUpdate = true;
+  return tex;
+}
+
+// ---------------------------------------------------------------------------
+// Trees
+// ---------------------------------------------------------------------------
+
+// Natural albedos (converted from sRGB hex into the linear working space)
+const BARK_DARK = new THREE.Color(0x4a3a2a);
+const BARK_LIGHT = new THREE.Color(0x5a4632);
+const BARK_DEAD = new THREE.Color(0x6b6256);
+const BARK_MOSS = new THREE.Color(0x4a5530);
+const LEAF_DARK = new THREE.Color(0x2f4a1e);
+const LEAF_LIGHT = new THREE.Color(0x4f6b2a);
+const LEAF_SHADE = new THREE.Color(0x1f3214);
+
+/**
+ * Procedurally generates a composite tree geometry (buttressed trunk, limbs and
+ * soft leafy crown clumps) with natural vertex colours and smooth normals.
+ * All foliage sits above TREE_FOLIAGE_MIN_Y (local units).
  */
 export function createProceduralTreeGeometry(
   archetype: TreeArchetype,
@@ -68,87 +222,171 @@ export function createProceduralTreeGeometry(
     return s / 233280;
   };
 
-  // 1. Trunk & Buttress Roots
-  const radialSegments = archetype.tier === 'ancient' ? 10 : 8;
-  const trunkHeight = archetype.height * (archetype.tier === 'dead' ? 1.0 : 0.65);
-  const trunkGeom = new THREE.CylinderGeometry(
-    archetype.trunkRadius * 0.6,
-    archetype.trunkRadius * 1.35,
-    trunkHeight,
-    radialSegments,
-    4
-  );
-  trunkGeom.translate(0, trunkHeight * 0.5, 0);
+  const isDead = archetype.tier === 'dead';
+  const tmpColor = new THREE.Color();
 
-  // Deform trunk vertices for gnarled organic look & assign bark vertex colors
+  // 1. Trunk with buttress roots
+  const trunkHeight = archetype.height * (isDead ? 0.85 : 0.7);
+  const sink = 0.6; // base sits below ground so slopes never show a gap
+  const rBase = archetype.trunkRadius * (archetype.tier === 'ancient' ? 0.95 : 0.8);
+  const rTop = archetype.trunkRadius * (isDead ? 0.3 : 0.38);
+  const radialSegments = archetype.tier === 'ancient' ? 18 : 14;
+  const trunkGeom = new THREE.CylinderGeometry(rTop, rBase, trunkHeight, radialSegments, 12);
+  trunkGeom.translate(0, trunkHeight * 0.5 - sink, 0);
+
   const pos = trunkGeom.attributes.position;
+  const uv = trunkGeom.attributes.uv;
   const colors: number[] = [];
-  const barkR = 0.28, barkG = 0.18, barkB = 0.11;
-  const mossBarkR = 0.32, mossBarkG = 0.36, mossBarkB = 0.14;
+  const flareHeight = rBase * 1.6;
+  const barkBase = isDead ? BARK_DEAD : BARK_DARK;
 
   for (let i = 0; i < pos.count; i++) {
     const y = pos.getY(i);
     const x = pos.getX(i);
     const z = pos.getZ(i);
+    const r = Math.hypot(x, z);
+    const ang = Math.atan2(z, x);
+    const yAbove = y + sink;
 
-    // Buttress flare near base
-    const flare = y < 4.0 ? (1.0 + (4.0 - y) * 0.35) : 1.0;
-    const gnarl = Math.sin(y * 0.4 + seed) * 0.6;
-    pos.setX(i, x * flare + gnarl);
-    pos.setZ(i, z * flare + (rnd() - 0.5) * 0.3);
+    // Buttress roots: flare near the ground with lobed ridges
+    const flareT = Math.max(0, 1 - yAbove / flareHeight);
+    const flare = 1 + flareT * flareT * 0.75 * (0.75 + 0.25 * Math.sin(ang * 5 + seed));
+    // Fine bark ridging
+    const ridge = 1 + 0.035 * Math.sin(ang * 11 + yAbove * 0.35);
+    const nr = r * flare * ridge;
+    // Gentle natural lean / sway of the bole
+    const lean = Math.sin(yAbove * 0.12 + seed) * archetype.trunkRadius * 0.12;
 
-    // Color gradient: Base has damp moss tint, upper has dark bark
-    const mossBlend = Math.max(0, 1.0 - y / 8.0);
-    colors.push(
-      THREE.MathUtils.lerp(barkR, mossBarkR, mossBlend),
-      THREE.MathUtils.lerp(barkG, mossBarkG, mossBlend),
-      THREE.MathUtils.lerp(barkB, mossBarkB, mossBlend)
-    );
+    pos.setX(i, Math.cos(ang) * nr + lean);
+    pos.setZ(i, Math.sin(ang) * nr);
+
+    // Bark colour with mossy base and moss on one side
+    const n = 0.5 + 0.5 * Math.sin(ang * 3 + yAbove * 0.7 + seed);
+    tmpColor.copy(barkBase).lerp(BARK_LIGHT, isDead ? n * 0.3 : n);
+    const moss =
+      (1 - smoothstep(0, 3.5, yAbove)) * 0.75 +
+      Math.max(0, Math.cos(ang - 1.0)) * 0.3 * (1 - smoothstep(4, 12, yAbove));
+    tmpColor.lerp(BARK_MOSS, Math.min(0.85, moss));
+    colors.push(tmpColor.r, tmpColor.g, tmpColor.b);
+
+    uv.setXY(i, uv.getX(i) * 3, uv.getY(i) * (trunkHeight / 3));
   }
   trunkGeom.setAttribute('color', new THREE.Float32BufferAttribute(colors, 3));
   trunkGeom.computeVertexNormals();
   geometries.push(trunkGeom);
 
-  // 2. Foliage Canopy Clusters (Dodecahedrons with varying scales and foliage hues)
+  // 2. Main limbs reaching into the crown (always above the clearance height)
+  const limbCount = isDead ? 2 : Math.max(2, archetype.canopyClusters - 1);
+  for (let l = 0; l < limbCount; l++) {
+    const len = archetype.height * (isDead ? 0.18 : 0.26) * (0.8 + rnd() * 0.4);
+    const tilt = 0.6 + rnd() * 0.35;
+    const h0 = Math.max(
+      TREE_FOLIAGE_MIN_Y + 1.0,
+      trunkHeight * (0.6 + rnd() * 0.3) - sink
+    );
+    const limb = new THREE.CylinderGeometry(rTop * 0.45, rTop * 0.85, len, 8, 3);
+    limb.translate(0, len * 0.5, 0);
+    limb.rotateZ(-tilt);
+    limb.rotateY((l / limbCount) * Math.PI * 2 + rnd() * 0.6);
+    limb.translate(0, h0, 0);
+    const lCol: number[] = [];
+    const lPos = limb.attributes.position;
+    const lUv = limb.attributes.uv;
+    for (let j = 0; j < lPos.count; j++) {
+      tmpColor.copy(barkBase).lerp(BARK_LIGHT, 0.4);
+      lCol.push(tmpColor.r, tmpColor.g, tmpColor.b);
+      lUv.setXY(j, lUv.getX(j) * 2, lUv.getY(j) * (len / 3));
+    }
+    limb.setAttribute('color', new THREE.Float32BufferAttribute(lCol, 3));
+    limb.computeVertexNormals();
+    geometries.push(limb);
+  }
+
+  // 3. Leafy crown: many soft, lumpy clumps with smooth normals
   if (archetype.canopyClusters > 0) {
-    const crownCenterY = archetype.height * 0.8;
-    for (let c = 0; c < archetype.canopyClusters; c++) {
-      const radius = archetype.crownRadius * (0.45 + rnd() * 0.55);
-      const clusterGeom = new THREE.DodecahedronGeometry(radius, 1);
+    const clumpCount = archetype.canopyClusters * 2 + 2;
+    const crownCY = archetype.height * 0.74;
+    const vAxis = archetype.height * 0.17;
+    const hAxis = archetype.crownRadius * 0.62;
+    const golden = Math.PI * (3 - Math.sqrt(5));
+    const dir = new THREE.Vector3();
+    const nrm = new THREE.Vector3();
 
-      // Offset cluster around trunk top
-      const angle = (c / archetype.canopyClusters) * Math.PI * 2 + (rnd() - 0.5) * 0.8;
-      const dist = archetype.crownRadius * 0.35 * (0.6 + rnd() * 0.6);
-      const cx = Math.cos(angle) * dist;
-      const cy = crownCenterY + (rnd() - 0.5) * (archetype.height * 0.25);
-      const cz = Math.sin(angle) * dist;
+    for (let c = 0; c < clumpCount; c++) {
+      const radius = archetype.crownRadius * (0.32 + rnd() * 0.22);
+      const angle = c * golden + rnd() * 0.5;
+      const distF = Math.sqrt(rnd());
+      const cx = Math.cos(angle) * hAxis * distF;
+      const cz = Math.sin(angle) * hAxis * distF;
+      let cy = crownCY + (rnd() * 2 - 1) * vAxis + (1 - distF) * vAxis * 0.5;
+      cy = Math.max(cy, TREE_FOLIAGE_MIN_Y + radius * 1.25);
+      const tint = 0.88 + rnd() * 0.2;
+      const phase = rnd() * 10;
 
-      clusterGeom.translate(cx, cy, cz);
-
-      // Canopy vertex colors: emerald green (#16A34A) with sunlit tips (#4ADE80 / #A7F3D0)
-      const cPos = clusterGeom.attributes.position;
+      const clump = new THREE.IcosahedronGeometry(1, 2);
+      const cPos = clump.attributes.position;
+      const cNorm = clump.attributes.normal;
+      const cUv = clump.attributes.uv;
       const cColors: number[] = [];
+
       for (let j = 0; j < cPos.count; j++) {
-        const py = cPos.getY(j);
-        const heightFactor = Math.min(1.0, Math.max(0, (py - crownCenterY) / (radius * 1.5)));
-        const r = THREE.MathUtils.lerp(0.08, 0.25, heightFactor);
-        const g = THREE.MathUtils.lerp(0.55, 0.88, heightFactor);
-        const b = THREE.MathUtils.lerp(0.22, 0.45, heightFactor);
-        cColors.push(r, g, b);
+        dir.set(cPos.getX(j), cPos.getY(j), cPos.getZ(j)).normalize();
+        const bump =
+          1 +
+          0.14 * Math.sin(dir.x * 5.1 + phase) * Math.sin(dir.y * 4.3 + seed) +
+          0.08 * Math.sin(dir.z * 9.7 + phase * 2);
+        const yScale = dir.y < 0 ? 0.6 : 0.85; // flatter underside
+        const px = cx + dir.x * radius * bump;
+        const py = cy + dir.y * radius * bump * yScale;
+        const pz = cz + dir.z * radius * bump;
+        cPos.setXYZ(j, px, py, pz);
+
+        // Soft, slightly up-biased normals read as a leafy mass, not a facet
+        nrm.set(dir.x, dir.y * 1.2 + 0.25, dir.z).normalize();
+        cNorm.setXYZ(j, nrm.x, nrm.y, nrm.z);
+
+        // Sunlit top, shaded underside, darker crown interior
+        const hf = Math.min(1, Math.max(0, (dir.y + 1) * 0.5));
+        const outer = Math.min(1, distF + 0.35);
+        const var01 = 0.5 + 0.5 * Math.sin(dir.x * 7 + dir.z * 5 + phase);
+        tmpColor.copy(LEAF_DARK).lerp(LEAF_LIGHT, Math.min(1, hf * 0.75 + var01 * 0.25));
+        tmpColor.lerp(LEAF_SHADE, (1 - hf) * 0.55 * (1.2 - outer));
+        tmpColor.multiplyScalar(tint);
+        cColors.push(tmpColor.r, tmpColor.g, tmpColor.b);
+
+        cUv.setXY(j, cUv.getX(j) * 3, cUv.getY(j) * 3);
       }
-      clusterGeom.setAttribute('color', new THREE.Float32BufferAttribute(cColors, 3));
-      clusterGeom.computeVertexNormals();
-      geometries.push(clusterGeom);
+      clump.setAttribute('color', new THREE.Float32BufferAttribute(cColors, 3));
+      geometries.push(clump);
     }
   }
 
-  // Merge into single buffer geometry using standard three buffer utility
-  return mergeBufferGeometriesCustom(geometries);
+  const merged = mergeBufferGeometriesCustom(geometries);
+  for (const g of geometries) g.dispose();
+  merged.computeBoundingSphere();
+  merged.computeBoundingBox();
+  return merged;
 }
 
+// ---------------------------------------------------------------------------
+// Ground
+// ---------------------------------------------------------------------------
+
+const SOIL_UNDER_ROAD = new THREE.Color(0x2e2a22);
+const VERGE_LITTER = new THREE.Color(0x4a3f2c);
+const VERGE_MOSS = new THREE.Color(0x4b5a2c);
+const DITCH_MUD = new THREE.Color(0x3a3624);
+const DITCH_MOSS = new THREE.Color(0x3d4a26);
+const FLOOR_MOSS = new THREE.Color(0x556b2f);
+const FLOOR_LOAM = new THREE.Color(0x3d4a26);
+const FLOOR_LITTER = new THREE.Color(0x5a4a32);
+
 /**
- * Creates forest floor ground embankment geometry:
- * Features mossy undulations, road trench borders, and root swellings.
+ * Creates the forest floor ground chunk: a flat bed hidden under the road slab
+ * (|x| <= 5.5, y = -0.08), a gentle verge into a flat roadside ditch
+ * (8.5..12.5 m), then a mossy bank rising into rolling forest floor.
+ * Heights are periodic over `length`, and normals are analytic, so chunks tile
+ * without seams.
  */
 export function createForestFloorEmbankmentGeometry(
   width: number,
@@ -157,112 +395,225 @@ export function createForestFloorEmbankmentGeometry(
   segmentsZ = 20,
   seed = 42
 ): THREE.BufferGeometry {
-  const geom = new THREE.PlaneGeometry(width, length, segmentsX, segmentsZ);
-  geom.rotateX(-Math.PI / 2);
+  const half = width / 2;
 
-  const pos = geom.attributes.position;
-  const colors: number[] = [];
+  // Lateral columns: dense where the profile changes, coarser further out
+  const cols: number[] = [1.75, 3.5, 5.5, 6.5, 7.5, 8.5, 9.5, 10.5, 11.5, 12.5].filter(
+    v => v < half
+  );
+  const step = width / Math.max(8, segmentsX);
+  let last = cols.length ? cols[cols.length - 1] : 0;
+  while (last + step < half - step * 0.25) {
+    last += step;
+    cols.push(last);
+  }
+  cols.push(half);
+  const xs: number[] = [];
+  for (let i = cols.length - 1; i >= 0; i--) xs.push(-cols[i]);
+  xs.push(0);
+  for (const c of cols) xs.push(c);
 
-  for (let i = 0; i < pos.count; i++) {
-    const x = pos.getX(i);
-    const z = pos.getZ(i);
+  const rows = Math.max(4, segmentsZ);
+  const nx = xs.length;
+  const nz = rows + 1;
 
-    // Keep gameplay corridor (-8 to +8) flatter for traversal clarity, elevate outer flanks
-    const absX = Math.abs(x);
-    let y = 0;
-    if (absX > 8.0) {
-      const flankDist = absX - 8.0;
-      y = Math.sin(flankDist * 0.25 + seed) * 1.5 + Math.cos(z * 0.15) * 1.2 + flankDist * 0.18;
-    } else {
-      // Gentle subtle path roadbed
-      y = -0.15;
-    }
-    pos.setY(i, y);
+  const positions = new Float32Array(nx * nz * 3);
+  const normals = new Float32Array(nx * nz * 3);
+  const uvs = new Float32Array(nx * nz * 2);
+  const colors = new Float32Array(nx * nz * 3);
+  const tmp = new THREE.Color();
+  const tmp2 = new THREE.Color();
+  const n = new THREE.Vector3();
+  const k = (Math.PI * 2) / length;
+  const eps = 0.25;
 
-    // Colors: Loam / stone on path, deep emerald and bright moss on flanks
-    if (absX <= 7.0) {
-      // Ancient paved moss road (#2E4034)
-      colors.push(0.18, 0.25, 0.20);
-    } else {
-      // Verdant moss and forest loam
-      const mossShade = Math.sin(x * 0.4 + z * 0.3) * 0.5 + 0.5;
-      const r = THREE.MathUtils.lerp(0.08, 0.22, mossShade);
-      const g = THREE.MathUtils.lerp(0.35, 0.65, mossShade);
-      const b = THREE.MathUtils.lerp(0.12, 0.28, mossShade);
-      colors.push(r, g, b);
+  let vi = 0;
+  for (let iz = 0; iz < nz; iz++) {
+    const z = -length / 2 + (iz / rows) * length;
+    for (let ix = 0; ix < nx; ix++) {
+      const x = xs[ix];
+      const y = sampleForestFloorHeight(x, z, length, seed);
+      positions[vi * 3] = x;
+      positions[vi * 3 + 1] = y;
+      positions[vi * 3 + 2] = z;
+
+      const dx =
+        (sampleForestFloorHeight(x + eps, z, length, seed) -
+          sampleForestFloorHeight(x - eps, z, length, seed)) /
+        (2 * eps);
+      const dz =
+        (sampleForestFloorHeight(x, z + eps, length, seed) -
+          sampleForestFloorHeight(x, z - eps, length, seed)) /
+        (2 * eps);
+      n.set(-dx, 1, -dz).normalize();
+      normals[vi * 3] = n.x;
+      normals[vi * 3 + 1] = n.y;
+      normals[vi * 3 + 2] = n.z;
+
+      // World-scaled UVs (60 / 4 = 15 whole repeats per chunk -> seamless)
+      uvs[vi * 2] = x / 4;
+      uvs[vi * 2 + 1] = z / 4;
+
+      // Natural forest floor colouring
+      const a = Math.abs(x);
+      const n1 = 0.5 + 0.5 * Math.sin(x * 0.7 + z * k * 7 + seed);
+      const n2 = 0.5 + 0.5 * Math.sin(x * 0.23 - z * k * 3 + seed * 0.5);
+      // Forest floor
+      tmp.copy(FLOOR_LOAM).lerp(FLOOR_MOSS, n1).lerp(FLOOR_LITTER, n2 * 0.45);
+      // Ditch
+      const ditchW =
+        smoothstep(7.5, 8.75, a) * (1 - smoothstep(12.0, 14.0, a));
+      if (ditchW > 0) {
+        tmp2.copy(DITCH_MUD).lerp(DITCH_MOSS, n1);
+        tmp.lerp(tmp2, ditchW);
+      }
+      // Verge
+      const vergeW = 1 - smoothstep(7.0, 8.5, a);
+      if (vergeW > 0) {
+        tmp2.copy(VERGE_LITTER).lerp(VERGE_MOSS, n1 * 0.7);
+        tmp.lerp(tmp2, vergeW);
+      }
+      // Under the road slab
+      tmp.lerp(SOIL_UNDER_ROAD, 1 - smoothstep(5.0, 5.6, a));
+
+      colors[vi * 3] = tmp.r;
+      colors[vi * 3 + 1] = tmp.g;
+      colors[vi * 3 + 2] = tmp.b;
+      vi++;
     }
   }
 
-  geom.setAttribute('color', new THREE.Float32BufferAttribute(colors, 3));
-  geom.computeVertexNormals();
+  const indices: number[] = [];
+  for (let iz = 0; iz < rows; iz++) {
+    for (let ix = 0; ix < nx - 1; ix++) {
+      const a = iz * nx + ix;
+      const b = a + 1;
+      const c = a + nx;
+      const d = c + 1;
+      indices.push(a, c, b, b, c, d);
+    }
+  }
+
+  const geom = new THREE.BufferGeometry();
+  geom.setAttribute('position', new THREE.BufferAttribute(positions, 3));
+  geom.setAttribute('normal', new THREE.BufferAttribute(normals, 3));
+  geom.setAttribute('uv', new THREE.BufferAttribute(uvs, 2));
+  geom.setAttribute('color', new THREE.BufferAttribute(colors, 3));
+  geom.setIndex(indices);
+  geom.computeBoundingSphere();
+  geom.computeBoundingBox();
   return geom;
 }
 
 /**
- * Helper to combine BufferGeometries with color attributes without external dependency
+ * Merges indexed / non-indexed geometries (position, normal, color, uv)
+ * into a single indexed geometry without external dependencies.
  */
 function mergeBufferGeometriesCustom(geometries: THREE.BufferGeometry[]): THREE.BufferGeometry {
-  const merged = new THREE.BufferGeometry();
-  const posArr: number[] = [];
-  const normArr: number[] = [];
-  const colArr: number[] = [];
+  let vertexTotal = 0;
+  let indexTotal = 0;
+  for (const g of geometries) {
+    const count = g.attributes.position.count;
+    vertexTotal += count;
+    indexTotal += g.index ? g.index.count : count;
+  }
 
+  const posArr = new Float32Array(vertexTotal * 3);
+  const normArr = new Float32Array(vertexTotal * 3);
+  const colArr = new Float32Array(vertexTotal * 3);
+  const uvArr = new Float32Array(vertexTotal * 2);
+  const indexArr = new Uint32Array(indexTotal);
+
+  let vOff = 0;
+  let iOff = 0;
   for (const g of geometries) {
     const pos = g.attributes.position;
     const norm = g.attributes.normal;
     const col = g.attributes.color;
+    const uv = g.attributes.uv;
 
     for (let i = 0; i < pos.count; i++) {
-      posArr.push(pos.getX(i), pos.getY(i), pos.getZ(i));
+      const o = (vOff + i) * 3;
+      posArr[o] = pos.getX(i);
+      posArr[o + 1] = pos.getY(i);
+      posArr[o + 2] = pos.getZ(i);
       if (norm) {
-        normArr.push(norm.getX(i), norm.getY(i), norm.getZ(i));
+        normArr[o] = norm.getX(i);
+        normArr[o + 1] = norm.getY(i);
+        normArr[o + 2] = norm.getZ(i);
       } else {
-        normArr.push(0, 1, 0);
+        normArr[o + 1] = 1;
       }
       if (col) {
-        colArr.push(col.getX(i), col.getY(i), col.getZ(i));
+        colArr[o] = col.getX(i);
+        colArr[o + 1] = col.getY(i);
+        colArr[o + 2] = col.getZ(i);
       } else {
-        colArr.push(0.5, 0.5, 0.5);
+        colArr[o] = colArr[o + 1] = colArr[o + 2] = 0.2;
+      }
+      if (uv) {
+        uvArr[(vOff + i) * 2] = uv.getX(i);
+        uvArr[(vOff + i) * 2 + 1] = uv.getY(i);
       }
     }
+
+    if (g.index) {
+      for (let i = 0; i < g.index.count; i++) indexArr[iOff + i] = g.index.getX(i) + vOff;
+      iOff += g.index.count;
+    } else {
+      for (let i = 0; i < pos.count; i++) indexArr[iOff + i] = vOff + i;
+      iOff += pos.count;
+    }
+    vOff += pos.count;
   }
 
-  merged.setAttribute('position', new THREE.Float32BufferAttribute(posArr, 3));
-  merged.setAttribute('normal', new THREE.Float32BufferAttribute(normArr, 3));
-  merged.setAttribute('color', new THREE.Float32BufferAttribute(colArr, 3));
+  const merged = new THREE.BufferGeometry();
+  merged.setAttribute('position', new THREE.BufferAttribute(posArr, 3));
+  merged.setAttribute('normal', new THREE.BufferAttribute(normArr, 3));
+  merged.setAttribute('color', new THREE.BufferAttribute(colArr, 3));
+  merged.setAttribute('uv', new THREE.BufferAttribute(uvArr, 2));
+  merged.setIndex(new THREE.BufferAttribute(indexArr, 1));
   return merged;
 }
 
 /**
- * Shared Verdant Wilds terrain materials
+ * Shared Verdant Wilds terrain materials (physically based, natural albedos).
+ * `noiseTexture` is null when no DOM is available.
  */
 export function createVerdantWildsMaterials() {
+  const noiseTexture = createVerdantNoiseTexture();
+
   const forestFloorMaterial = new THREE.MeshStandardMaterial({
     vertexColors: true,
-    roughness: 0.90,
-    metalness: 0.05,
-    flatShading: true,
+    roughness: 0.95,
+    metalness: 0.0,
+    flatShading: false,
+    map: noiseTexture,
+    roughnessMap: noiseTexture,
   });
 
   const treeMaterial = new THREE.MeshStandardMaterial({
     vertexColors: true,
-    roughness: 0.85,
-    metalness: 0.08,
-    flatShading: true,
+    roughness: 0.9,
+    metalness: 0.0,
+    flatShading: false,
+    map: noiseTexture,
   });
 
-  const streamWaterMaterial = new THREE.MeshStandardMaterial({
-    color: 0x2dd4bf, // Luminous forest stream turquoise
-    roughness: 0.12,
-    metalness: 0.85,
+  // Shallow forest water over a dark silty bed
+  const streamWaterMaterial = new THREE.MeshPhysicalMaterial({
+    color: 0x26332a,
+    roughness: 0.06,
+    metalness: 0.0,
+    ior: 1.33,
     transparent: true,
-    opacity: 0.82,
-    side: THREE.DoubleSide,
+    opacity: 0.88,
   });
 
   return {
     forestFloorMaterial,
     treeMaterial,
     streamWaterMaterial,
+    noiseTexture,
   };
 }

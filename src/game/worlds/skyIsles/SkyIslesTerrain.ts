@@ -1,5 +1,4 @@
 import * as THREE from 'three';
-import { GraphicsConfig } from '../../../types';
 
 export interface FloatingIslandArchetype {
   id: string;
@@ -60,11 +59,29 @@ export const ISLAND_ARCHETYPES: FloatingIslandArchetype[] = [
   },
 ];
 
+/** Metres covered by one repeat of the shared detail texture on island surfaces. */
+const DETAIL_TILE_M = 4.0;
+
+/** Outermost rim radius as a multiple of radiusTop (placement in SkyIslesWorld assumes <= 1.2). */
+const MAX_RIM_FACTOR = 1.12;
+
 /**
- * Creates a procedural floating island mesh:
- * - Top grassy lush surface (displaced dome/plateau)
- * - Layered rock underside tapering down to an irregular crag peak
- * - Vertex-colored: green grass rim transitioning to stratified pale sandstone rock
+ * Height of the grass cap above the island origin at a horizontal distance
+ * `dist` from the centre (dome profile used by the geometry). Decorations use
+ * it to sit trees on the turf.
+ */
+export function skyIslesCapHeight(heightGrass: number, radiusTop: number, dist: number): number {
+  const t = Math.min(1, dist / radiusTop);
+  return heightGrass + 0.15 - 0.55 * t * t;
+}
+
+/**
+ * Creates a procedural floating island geometry:
+ * - A gently domed turf cap (geometry group 0, smooth-shaded grass material)
+ * - An earthy soil lip and stratified rock underside tapering to an inverted
+ *   crag with buttress ridges (geometry group 1, faceted rock material)
+ * - Natural, linear-space vertex colours (grass patches, moss, strata bands)
+ *   and metre-scaled UVs for the shared detail texture
  */
 export function createProceduralIslandGeometry(
   radiusTop: number,
@@ -76,175 +93,398 @@ export function createProceduralIslandGeometry(
 ): THREE.BufferGeometry {
   const geom = new THREE.BufferGeometry();
   const positions: number[] = [];
-  const normals: number[] = [];
   const uvs: number[] = [];
   const colors: number[] = [];
   const indices: number[] = [];
 
-  // Deterministic pseudo-random noise generator
+  // Deterministic pseudo-random generator
   let s = seed;
   const rnd = () => {
     s = (s * 9301 + 49297) % 233280;
     return s / 233280;
   };
 
-  const rings = 7;
-  const slices = segments;
+  const slices = Math.max(12, Math.round(segments * 1.5));
+  const roughK = roughness / 0.35;
 
-  // Vertex ring 0 (Top Center of grass plateau)
-  positions.push(0, heightGrass, 0);
-  normals.push(0, 1, 0);
-  uvs.push(0.5, 0.5);
-  // Grass Color (#86EFAC) = (0.525, 0.937, 0.674)
-  colors.push(0.525, 0.937, 0.674);
+  // Natural albedo palette (sRGB hex -> linear via THREE.Color)
+  const grassA = new THREE.Color(0x4f7030);
+  const grassB = new THREE.Color(0x6a843f);
+  const grassDry = new THREE.Color(0x7d7a4a);
+  const moss = new THREE.Color(0x4d5a31);
+  const soil = new THREE.Color(0x4f4233);
+  const rockLight = new THREE.Color(0x8a7f71);
+  const rockDark = new THREE.Color(0x665c51);
+  const rockDeep = new THREE.Color(0x4a443e);
+  const tmp = new THREE.Color();
+  const pushColor = (c: THREE.Color, jitter: number) => {
+    const k = 1 + (rnd() - 0.5) * jitter;
+    colors.push(c.r * k, c.g * k, c.b * k);
+  };
 
-  // Generate upper grass plateau rings (rings 1 to 2)
-  for (let r = 1; r <= 2; r++) {
-    const ringRadius = (r / 2) * radiusTop;
-    const ringY = heightGrass - (r === 2 ? 0.35 : 0.05);
+  // Low-frequency angular lobes (buttresses / bays) shared by the rim and rock
+  const ph1 = rnd() * Math.PI * 2;
+  const ph2 = rnd() * Math.PI * 2;
+  const ph3 = rnd() * Math.PI * 2;
+  const lobe = (theta: number, p: number) =>
+    (0.10 * Math.sin(3 * theta + ph1 + p * 1.5) +
+      0.06 * Math.sin(5 * theta + ph2 - p * 2.0) +
+      0.03 * Math.sin(11 * theta + ph3)) * roughK;
 
+  // Large-scale grass patch variation
+  const pa = rnd() * 10;
+  const pb = rnd() * 10;
+  const patch = (x: number, z: number) =>
+    0.5 + 0.5 * Math.sin(x * 0.29 + pa) * Math.sin(z * 0.23 + pb) * 0.7 +
+    0.15 * Math.sin((x + z) * 0.71 + pb);
+
+  // ---------------------------------------------------------------------------
+  // Group 0: turf cap (shared vertices, smooth normals)
+  // ---------------------------------------------------------------------------
+  const capRings = 5;
+  positions.push(0, skyIslesCapHeight(heightGrass, radiusTop, 0), 0);
+  uvs.push(0, 0);
+  tmp.lerpColors(grassA, grassB, 0.5);
+  pushColor(tmp, 0.08);
+
+  const edgeX: number[] = [];
+  const edgeY: number[] = [];
+  const edgeZ: number[] = [];
+  const edgeR: number[] = [];
+
+  for (let r = 1; r <= capRings; r++) {
+    const t = r / capRings;
     for (let i = 0; i < slices; i++) {
       const theta = (i / slices) * Math.PI * 2;
-      const noiseR = ringRadius * (1.0 + (rnd() - 0.5) * roughness * 0.4);
-      const x = Math.cos(theta) * noiseR;
-      const z = Math.sin(theta) * noiseR;
-      const y = ringY + (rnd() - 0.5) * 0.25;
+      const jitter = (rnd() - 0.5) * roughness * 0.25 * (r === capRings ? 1.0 : 0.6);
+      const rr = t * radiusTop * (1.0 + jitter + lobe(theta, 0) * 0.35 * t);
+      const x = Math.cos(theta) * rr;
+      const z = Math.sin(theta) * rr;
+      const y = skyIslesCapHeight(heightGrass, radiusTop, rr) + (rnd() - 0.5) * 0.18 * t;
 
       positions.push(x, y, z);
-      normals.push(0, 1, 0);
-      uvs.push((x / (radiusTop * 2)) + 0.5, (z / (radiusTop * 2)) + 0.5);
-      colors.push(0.525, 0.937, 0.674);
+      uvs.push(x / DETAIL_TILE_M, z / DETAIL_TILE_M);
+
+      const pv = Math.min(1, Math.max(0, patch(x, z)));
+      tmp.lerpColors(grassA, grassB, pv);
+      if (r === capRings) tmp.lerp(grassDry, 0.35);
+      pushColor(tmp, 0.1);
+
+      if (r === capRings) {
+        edgeX.push(x);
+        edgeY.push(y);
+        edgeZ.push(z);
+        edgeR.push(rr);
+      }
     }
   }
 
-  // Generate middle cliff rim (ring 3)
-  for (let i = 0; i < slices; i++) {
-    const theta = (i / slices) * Math.PI * 2;
-    const noiseR = radiusTop * (1.05 + (rnd() - 0.5) * roughness * 0.5);
-    const x = Math.cos(theta) * noiseR;
-    const z = Math.sin(theta) * noiseR;
-    const y = -0.5 - rnd() * 0.8;
-
-    positions.push(x, y, z);
-    normals.push(Math.cos(theta), 0.2, Math.sin(theta));
-    uvs.push(i / slices, 0.4);
-    // Transition tint: pale stone with green moss rim (#A7F3D0 -> #E2E8F0)
-    colors.push(0.655, 0.853, 0.760);
-  }
-
-  // Generate tapering rock underside rings (rings 4 to 6)
-  for (let r = 4; r <= 6; r++) {
-    const progress = (r - 3) / 4; // 0.25 to 0.75
-    const ringRadius = radiusTop * (1.0 - progress * 0.82) * (1.0 + (rnd() - 0.5) * roughness * 0.7);
-    const ringY = -progress * depthRock;
-
-    for (let i = 0; i < slices; i++) {
-      const theta = (i / slices) * Math.PI * 2;
-      const x = Math.cos(theta) * ringRadius;
-      const z = Math.sin(theta) * ringRadius;
-      const y = ringY + (rnd() - 0.5) * 0.8;
-
-      positions.push(x, y, z);
-      const n = new THREE.Vector3(x, 0.6, z).normalize();
-      normals.push(n.x, n.y, n.z);
-      uvs.push(i / slices, 0.4 + progress * 0.6);
-      // Pale stone underside (#E2E8F0 -> #94A3B8 rock shadow)
-      const shade = 1.0 - progress * 0.35;
-      colors.push(0.886 * shade, 0.910 * shade, 0.941 * shade);
-    }
-  }
-
-  // Bottom Tip Vertex (Peak of the inverted rock mountain)
-  const tipIndex = 1 + slices * (rings - 1);
-  positions.push((rnd() - 0.5) * 1.5, -depthRock, (rnd() - 0.5) * 1.5);
-  normals.push(0, -1, 0);
-  uvs.push(0.5, 1.0);
-  // Darker rock bottom shadow (#64748B) = (0.392, 0.455, 0.545)
-  colors.push(0.392, 0.455, 0.545);
-
-  // --- Generate Triangles / Indices ---
-  // Center Fan (ring 0 to ring 1)
+  // Centre fan (CCW seen from above -> normals up)
   for (let i = 0; i < slices; i++) {
     const next = (i + 1) % slices;
-    indices.push(0, 1 + i, 1 + next);
+    indices.push(0, 1 + next, 1 + i);
   }
-
-  // Ring strips (rings 1 to 6)
-  for (let r = 0; r < rings - 2; r++) {
-    const rStart = 1 + r * slices;
-    const nextRStart = 1 + (r + 1) * slices;
+  // Cap strips
+  for (let r = 0; r < capRings - 1; r++) {
+    const inner = 1 + r * slices;
+    const outer = 1 + (r + 1) * slices;
     for (let i = 0; i < slices; i++) {
       const next = (i + 1) % slices;
-      const a = rStart + i;
-      const b = nextRStart + i;
-      const c = nextRStart + next;
-      const d = rStart + next;
-      indices.push(a, b, d);
-      indices.push(b, c, d);
+      const a = inner + i;
+      const d = inner + next;
+      const b = outer + i;
+      const c = outer + next;
+      indices.push(a, d, b);
+      indices.push(d, c, b);
     }
   }
+  const capIndexCount = indices.length;
 
-  // Bottom cone fan to tip
-  const lastRingStart = 1 + (rings - 2) * slices;
+  // ---------------------------------------------------------------------------
+  // Group 1: soil lip + stratified rock underside (seam column duplicated so
+  // the wrap-around UVs tile cleanly; faceted rock material)
+  // ---------------------------------------------------------------------------
+  const cols = slices + 1;
+  const circumferenceTiles = Math.max(1, Math.round((Math.PI * 2 * radiusTop) / DETAIL_TILE_M));
+  const rockStart = positions.length / 3;
+  let rockRingCount = 0;
+
+  const ringX = new Array<number>(slices);
+  const ringY = new Array<number>(slices);
+  const ringZ = new Array<number>(slices);
+
+  const ringCol = new Float32Array(slices * 3);
+
+  const emitRing = (colorFor: (i: number, y: number) => THREE.Color, jitter: number) => {
+    for (let i = 0; i < slices; i++) {
+      const c = colorFor(i, ringY[i]);
+      const k = 1 + (rnd() - 0.5) * jitter;
+      ringCol[i * 3] = c.r * k;
+      ringCol[i * 3 + 1] = c.g * k;
+      ringCol[i * 3 + 2] = c.b * k;
+    }
+    // Seam column (j === slices) repeats column 0 exactly
+    for (let j = 0; j < cols; j++) {
+      const i = j % slices;
+      positions.push(ringX[i], ringY[i], ringZ[i]);
+      uvs.push((j / slices) * circumferenceTiles, ringY[i] / DETAIL_TILE_M);
+      colors.push(ringCol[i * 3], ringCol[i * 3 + 1], ringCol[i * 3 + 2]);
+    }
+    rockRingCount++;
+  };
+
+  // Ring A: duplicate of the turf edge, mossy soil
   for (let i = 0; i < slices; i++) {
-    const next = (i + 1) % slices;
-    indices.push(lastRingStart + i, tipIndex, lastRingStart + next);
+    ringX[i] = edgeX[i];
+    ringY[i] = edgeY[i];
+    ringZ[i] = edgeZ[i];
+  }
+  emitRing(() => tmp.copy(moss), 0.12);
+
+  // Ring B: slightly overhanging soil lip under the turf
+  for (let i = 0; i < slices; i++) {
+    const theta = (i / slices) * Math.PI * 2;
+    const rr = Math.min(edgeR[i] * 1.03, radiusTop * MAX_RIM_FACTOR);
+    ringX[i] = Math.cos(theta) * rr;
+    ringZ[i] = Math.sin(theta) * rr;
+    ringY[i] = edgeY[i] - 0.7 - rnd() * 0.25;
+  }
+  emitRing(() => tmp.copy(soil), 0.14);
+
+  // Ring C: cliff shoulder, weathered rock with moss streaks
+  for (let i = 0; i < slices; i++) {
+    const theta = (i / slices) * Math.PI * 2;
+    const rr = Math.min(edgeR[i] * (1.0 + (rnd() - 0.5) * 0.05), radiusTop * MAX_RIM_FACTOR);
+    ringX[i] = Math.cos(theta) * rr;
+    ringZ[i] = Math.sin(theta) * rr;
+    ringY[i] = -0.5 - rnd() * 0.8;
+  }
+  emitRing(() => tmp.lerpColors(rockLight, moss, 0.25 + rnd() * 0.35), 0.12);
+
+  // Underside rings: tapering inverted crag with strata and buttress ridges
+  const underRings = 8;
+  const topY = -1.0;
+  for (let k = 1; k <= underRings; k++) {
+    const p = k / (underRings + 1);
+    const ringJitter = 1.0 + (rnd() - 0.5) * 0.12 * roughK; // strata ledges
+    const baseR = radiusTop * Math.pow(1.0 - p, 0.75) * ringJitter;
+    const baseY = topY - p * (depthRock + topY);
+    for (let i = 0; i < slices; i++) {
+      const theta = (i / slices) * Math.PI * 2;
+      const rr = Math.min(
+        baseR * (1.0 + lobe(theta, p) + (rnd() - 0.5) * 0.08 * roughK),
+        radiusTop * MAX_RIM_FACTOR
+      );
+      ringX[i] = Math.cos(theta) * rr;
+      ringZ[i] = Math.sin(theta) * rr;
+      ringY[i] = baseY + (rnd() - 0.5) * 0.9;
+    }
+    const pk = p;
+    emitRing((_i, y) => {
+      const band = 0.5 + 0.5 * Math.sin(y * 1.7 + Math.sin(y * 0.43) * 2.0);
+      tmp.lerpColors(rockDark, rockLight, band);
+      return tmp.lerp(rockDeep, pk * 0.55);
+    }, 0.1);
+  }
+
+  // Bottom tip of the inverted crag
+  const tipIndex = positions.length / 3;
+  positions.push((rnd() - 0.5) * 1.5, -depthRock, (rnd() - 0.5) * 1.5);
+  uvs.push(circumferenceTiles * 0.5, -depthRock / DETAIL_TILE_M);
+  pushColor(rockDeep, 0.05);
+
+  // Rock strips (upper ring k -> lower ring k+1), outward-facing
+  for (let r = 0; r < rockRingCount - 1; r++) {
+    const upper = rockStart + r * cols;
+    const lower = rockStart + (r + 1) * cols;
+    for (let i = 0; i < slices; i++) {
+      const a = upper + i;
+      const d = upper + i + 1;
+      const b = lower + i;
+      const c = lower + i + 1;
+      indices.push(a, d, b);
+      indices.push(b, d, c);
+    }
+  }
+  // Tip fan
+  const lastRing = rockStart + (rockRingCount - 1) * cols;
+  for (let i = 0; i < slices; i++) {
+    indices.push(lastRing + i, lastRing + i + 1, tipIndex);
   }
 
   geom.setAttribute('position', new THREE.Float32BufferAttribute(positions, 3));
-  geom.setAttribute('normal', new THREE.Float32BufferAttribute(normals, 3));
   geom.setAttribute('uv', new THREE.Float32BufferAttribute(uvs, 2));
   geom.setAttribute('color', new THREE.Float32BufferAttribute(colors, 3));
   geom.setIndex(indices);
+  geom.addGroup(0, capIndexCount, 0);
+  geom.addGroup(capIndexCount, indices.length - capIndexCount, 1);
   geom.computeVertexNormals();
+  geom.computeBoundingSphere();
 
   return geom;
 }
 
 /**
- * Creates shared stylized procedural materials for Sky Isles floating islands.
+ * Builds a tileable greyscale value-noise texture (linear data, 0.78..1.0)
+ * shared as albedo modulation and bump detail for rock, turf, stone and bark.
+ * Returns null when no DOM is available (Node tests).
+ */
+export function createSkyIslesDetailTexture(size = 256): THREE.CanvasTexture | null {
+  if (typeof document === 'undefined') return null;
+  const canvas = document.createElement('canvas');
+  canvas.width = size;
+  canvas.height = size;
+  const ctx = canvas.getContext('2d');
+  if (!ctx) return null;
+
+  let s = 1234567;
+  const rnd = () => {
+    s = (s * 16807) % 2147483647;
+    return (s - 1) / 2147483646;
+  };
+
+  const field = new Float32Array(size * size);
+  const octaves: Array<[number, number]> = [
+    [4, 0.35],
+    [8, 0.25],
+    [16, 0.18],
+    [32, 0.12],
+    [64, 0.07],
+    [128, 0.03],
+  ];
+  for (const [period, weight] of octaves) {
+    const lattice = new Float32Array(period * period);
+    for (let i = 0; i < lattice.length; i++) lattice[i] = rnd();
+    for (let y = 0; y < size; y++) {
+      const fy = (y / size) * period;
+      const iy = Math.floor(fy);
+      let ty = fy - iy;
+      ty = ty * ty * (3 - 2 * ty);
+      const y0 = iy % period;
+      const y1 = (iy + 1) % period;
+      for (let x = 0; x < size; x++) {
+        const fx = (x / size) * period;
+        const ix = Math.floor(fx);
+        let tx = fx - ix;
+        tx = tx * tx * (3 - 2 * tx);
+        const x0 = ix % period;
+        const x1 = (ix + 1) % period;
+        const v00 = lattice[y0 * period + x0];
+        const v10 = lattice[y0 * period + x1];
+        const v01 = lattice[y1 * period + x0];
+        const v11 = lattice[y1 * period + x1];
+        const top = v00 + (v10 - v00) * tx;
+        const bot = v01 + (v11 - v01) * tx;
+        field[y * size + x] += weight * (top + (bot - top) * ty);
+      }
+    }
+  }
+
+  let min = Infinity;
+  let max = -Infinity;
+  for (let i = 0; i < field.length; i++) {
+    if (field[i] < min) min = field[i];
+    if (field[i] > max) max = field[i];
+  }
+  const range = Math.max(1e-5, max - min);
+
+  const img = ctx.createImageData(size, size);
+  for (let i = 0; i < field.length; i++) {
+    const n = (field[i] - min) / range;
+    const v = Math.round((0.78 + 0.22 * n) * 255);
+    img.data[i * 4 + 0] = v;
+    img.data[i * 4 + 1] = v;
+    img.data[i * 4 + 2] = v;
+    img.data[i * 4 + 3] = 255;
+  }
+  ctx.putImageData(img, 0, 0);
+
+  const tex = new THREE.CanvasTexture(canvas);
+  tex.wrapS = THREE.RepeatWrapping;
+  tex.wrapT = THREE.RepeatWrapping;
+  tex.colorSpace = THREE.NoColorSpace; // linear multiplier, not sRGB albedo
+  tex.anisotropy = 4;
+  tex.needsUpdate = true;
+  return tex;
+}
+
+/**
+ * Creates the shared, physically based materials for Sky Isles floating islands.
+ * `islandMaterial` is the turf cap (geometry group 0) and `islandRockMaterial`
+ * the rock underside (group 1); use them together as a material array.
  */
 export function createSkyIslesIslandMaterials(): {
   islandMaterial: THREE.MeshStandardMaterial;
-  waterfallMaterial: THREE.MeshBasicMaterial;
+  islandRockMaterial: THREE.MeshStandardMaterial;
+  waterfallMaterial: THREE.MeshPhysicalMaterial;
   ancientStoneMaterial: THREE.MeshStandardMaterial;
-  crystalBeaconMaterial: THREE.MeshBasicMaterial;
+  crystalBeaconMaterial: THREE.MeshPhysicalMaterial;
+  detailTexture: THREE.CanvasTexture | null;
 } {
-  // Island terrain: Vertex colored with subtle roughness and warm sunlight response
+  const detailTexture = createSkyIslesDetailTexture();
+
+  // Turf cap: vertex-coloured grass, fully rough, smooth shading
   const islandMaterial = new THREE.MeshStandardMaterial({
     vertexColors: true,
-    roughness: 0.78,
-    metalness: 0.12,
-    flatShading: true,
+    roughness: 0.92,
+    metalness: 0.0,
+    flatShading: false,
+    map: detailTexture,
+    bumpMap: detailTexture,
+    bumpScale: 0.35,
   });
 
-  // Flowing waterfall streams cascading off floating island edges
-  const waterfallMaterial = new THREE.MeshBasicMaterial({
-    color: 0x67e8f9,
+  // Rock underside: earthy stratified stone, faceted like fractured rock
+  const islandRockMaterial = new THREE.MeshStandardMaterial({
+    vertexColors: true,
+    roughness: 0.9,
+    metalness: 0.0,
+    flatShading: true,
+    map: detailTexture,
+    bumpMap: detailTexture,
+    bumpScale: 1.0,
+  });
+
+  // Aerated falling water: pale, glossy, partly see-through
+  const waterfallMaterial = new THREE.MeshPhysicalMaterial({
+    color: 0xdde9ec,
+    roughness: 0.2,
+    metalness: 0.0,
+    ior: 1.333,
     transparent: true,
-    opacity: 0.72,
+    opacity: 0.7,
+    depthWrite: false,
     side: THREE.DoubleSide,
   });
 
-  // Ancient mossy stone for arches, sky temples, and shrines (#E2E8F0)
+  // Weathered limestone for arches, temples and shrines
   const ancientStoneMaterial = new THREE.MeshStandardMaterial({
-    color: 0xe2e8f0,
-    roughness: 0.65,
-    metalness: 0.20,
-    flatShading: true,
+    color: 0xa39b8e,
+    roughness: 0.9,
+    metalness: 0.0,
+    map: detailTexture,
+    bumpMap: detailTexture,
+    bumpScale: 0.8,
   });
 
-  // Luminous cyan power crystal (#22D3EE)
-  const crystalBeaconMaterial = new THREE.MeshBasicMaterial({
-    color: 0x22d3ee,
+  // Clear quartz crystal (no emissive glow)
+  const crystalBeaconMaterial = new THREE.MeshPhysicalMaterial({
+    color: 0xeef5f7,
+    roughness: 0.06,
+    metalness: 0.0,
+    ior: 1.54,
+    clearcoat: 1.0,
+    clearcoatRoughness: 0.05,
     transparent: true,
-    opacity: 0.95,
+    opacity: 0.55,
   });
 
   return {
     islandMaterial,
+    islandRockMaterial,
     waterfallMaterial,
     ancientStoneMaterial,
     crystalBeaconMaterial,
+    detailTexture,
   };
 }

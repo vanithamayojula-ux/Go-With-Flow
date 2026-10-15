@@ -322,6 +322,9 @@ export const BoardTrailShader = {
   `
 };
 
+// Final full-screen pass. The scene is rendered into a linear HDR (half-float)
+// target; this pass applies camera-style effects in linear light, then the
+// renderer's filmic tone mapping and sRGB output encoding.
 export const PostProcessShader = {
   vertexShader: `
     varying vec2 vUv;
@@ -335,160 +338,103 @@ export const PostProcessShader = {
     uniform float uTime;
     uniform float uBloom;
     uniform float uChromaticAberration;
-    uniform float uScanlines;
-    uniform float uGlitch;
     uniform float uSpeedLines;
     uniform float uHighSpeedBlur;
     uniform float uWarpIntensity;
     uniform float uFilmGrain;
     uniform float uHeatShimmer;
-    uniform float uColorLift;
     uniform float uRainIntensity;
     uniform vec2 uResolution;
+    // Kept for API compatibility with GameEngine; no longer drawn.
+    uniform float uScanlines;
+    uniform float uGlitch;
+    uniform float uColorLift;
     varying vec2 vUv;
 
     float hash(vec2 p) {
       return fract(sin(dot(p, vec2(12.9898, 78.233))) * 43758.5453);
     }
 
+    // Highlights above ~1.0 in linear HDR (sun glints, emissive parts).
+    vec3 brightPass(vec2 uv) {
+      vec3 c = texture2D(tDiffuse, uv).rgb;
+      float l = max(c.r, max(c.g, c.b));
+      return c * smoothstep(1.0, 2.5, l);
+    }
+
     void main() {
       vec2 uv = vUv;
 
-      // 0. Heat Shimmer / Thermal Distortion
+      // Heat haze over hot ground
       if (uHeatShimmer > 0.01) {
-        float shimmer = sin(uv.y * 80.0 + uTime * 12.0) * 0.003 * uHeatShimmer;
-        uv.x += shimmer;
+        uv.x += sin(uv.y * 80.0 + uTime * 12.0) * 0.0015 * uHeatShimmer;
       }
 
-      // 0. Radial Portal Vortex Warp Distortion
+      // Portal transit: radial lens twist
       if (uWarpIntensity > 0.01) {
-        vec2 center = vec2(0.5, 0.5);
-        vec2 distVec = uv - center;
-        float r = length(distVec);
-        float angle = atan(distVec.y, distVec.x);
-        float twist = uWarpIntensity * 4.0 * (1.0 - smoothstep(0.0, 0.8, r));
-        angle += twist;
-        float scale = 1.0 - uWarpIntensity * 0.35 * (1.0 - r);
-        uv = center + vec2(cos(angle), sin(angle)) * r * scale;
+        vec2 d = uv - 0.5;
+        float r = length(d);
+        float a = atan(d.y, d.x) + uWarpIntensity * 3.0 * (1.0 - smoothstep(0.0, 0.8, r));
+        uv = 0.5 + vec2(cos(a), sin(a)) * r * (1.0 - uWarpIntensity * 0.3 * (1.0 - r));
       }
 
-      // 1. Digital Glitch Horizontal Tear (Active during boost burst, combos, or collision stumble)
-      if (uGlitch > 0.02) {
-        float glitchSlice = floor(uv.y * 36.0);
-        float glitchNoise = hash(vec2(glitchSlice, floor(uTime * 24.0)));
-        if (glitchNoise > (1.0 - uGlitch * 0.4)) {
-          float offset = (hash(vec2(glitchSlice, uTime)) - 0.5) * 0.05 * uGlitch;
-          uv.x += offset;
+      vec3 col = texture2D(tDiffuse, uv).rgb;
+
+      // Speed: radial motion blur toward the screen edges (no stylised streaks)
+      float blur = max(uHighSpeedBlur, uSpeedLines * 0.6) + uWarpIntensity;
+      if (blur > 0.02) {
+        vec2 center = vec2(0.5, 0.45);
+        vec2 dir = (uv - center) * blur * 0.012 * smoothstep(0.15, 0.6, length(uv - center));
+        vec3 acc = col;
+        for (int i = 1; i <= 5; i++) {
+          acc += texture2D(tDiffuse, uv - dir * float(i)).rgb;
         }
+        col = acc / 6.0;
       }
 
-      // 2. Crystal-Clear Scene Texture Sampling
-      vec3 sceneCol = texture2D(tDiffuse, uv).rgb;
-
-      // High-speed radial motion blur (Active during boost or high km/h)
-      if (uHighSpeedBlur > 0.01) {
-        vec2 blurCenter = vec2(0.5, 0.42);
-        vec2 blurDir = (uv - blurCenter) * (uHighSpeedBlur * 0.025);
-        vec3 blurAcc = sceneCol * 0.4;
-        blurAcc += texture2D(tDiffuse, uv - blurDir * 0.5).rgb * 0.25;
-        blurAcc += texture2D(tDiffuse, uv - blurDir * 1.0).rgb * 0.20;
-        blurAcc += texture2D(tDiffuse, uv - blurDir * 1.5).rgb * 0.15;
-        sceneCol = blurAcc;
+      // Subtle lateral chromatic aberration at the lens edge only
+      float ca = uChromaticAberration;
+      float edge = length(uv - 0.5);
+      if (ca > 0.0001 && edge > 0.3) {
+        vec2 off = (uv - 0.5) * ca * smoothstep(0.3, 0.75, edge);
+        col.r = texture2D(tDiffuse, uv - off).r;
+        col.b = texture2D(tDiffuse, uv + off).b;
       }
 
-      // 3. Peripheral-Only Chromatic Aberration (Masked out near rider, zero center fringing)
-      float effCA = uChromaticAberration + uWarpIntensity * 0.008;
-      float distFromCenter = length(uv - 0.5);
-      if (effCA > 0.0001 && distFromCenter > 0.38) {
-        float edgeMask = smoothstep(0.38, 0.75, distFromCenter);
-        vec2 caOffset = (uv - 0.5) * (effCA * edgeMask * 1.5);
-        sceneCol.r = texture2D(tDiffuse, uv - caOffset).r;
-        sceneCol.b = texture2D(tDiffuse, uv + caOffset).b;
-      }
-
-      // Portal warp flash aura
-      if (uWarpIntensity > 0.05) {
-        vec3 warpFlash = mix(vec3(0.0, 0.95, 1.0), vec3(1.0, 0.0, 0.8), sin(uTime * 15.0) * 0.5 + 0.5);
-        sceneCol += warpFlash * uWarpIntensity * 0.45;
-      }
-
-      // 4. Targeted Highlight-Only Bloom (Strict 0.84 Threshold: Only intense neon cores glow, no screen haze)
+      // Soft bloom from true highlights (13-tap disc)
       if (uBloom > 0.02) {
-        vec3 bloomAccum = vec3(0.0);
-        vec2 texel = 1.0 / max(uResolution, vec2(1.0, 1.0));
-        float bMul = uBloom * 1.2;
-        float r1 = 1.8 * bMul;
-        float r2 = 3.8 * bMul;
-        float threshold = 0.84;
-
-        bloomAccum += max(texture2D(tDiffuse, uv + vec2(-r1, 0.0) * texel).rgb - threshold, vec3(0.0)) * 0.30;
-        bloomAccum += max(texture2D(tDiffuse, uv + vec2(r1, 0.0) * texel).rgb - threshold, vec3(0.0)) * 0.30;
-        bloomAccum += max(texture2D(tDiffuse, uv + vec2(0.0, -r1) * texel).rgb - threshold, vec3(0.0)) * 0.30;
-        bloomAccum += max(texture2D(tDiffuse, uv + vec2(0.0, r1) * texel).rgb - threshold, vec3(0.0)) * 0.30;
-
-        bloomAccum += max(texture2D(tDiffuse, uv + vec2(-r2, -r2) * texel).rgb - threshold, vec3(0.0)) * 0.20;
-        bloomAccum += max(texture2D(tDiffuse, uv + vec2(r2, r2) * texel).rgb - threshold, vec3(0.0)) * 0.20;
-
-        sceneCol += bloomAccum * (0.9 * uBloom);
-      }
-
-      // 5. Dynamic Speed Lines & Peripheral Motion Streaks
-      float effSpeedLines = max(uSpeedLines, uWarpIntensity * 1.2);
-      if (effSpeedLines > 0.05) {
-        vec2 center = vec2(0.5, 0.42);
-        vec2 dir = uv - center;
-        float dist = length(dir);
-        if (dist > 0.36) {
-          float angle = atan(dir.y, dir.x);
-          float linePattern = sin(angle * 72.0 + uTime * 36.0);
-          linePattern = smoothstep(0.82, 0.99, linePattern);
-          float mask = smoothstep(0.36, 0.90, dist) * effSpeedLines;
-          vec3 speedLineColor = mix(vec3(0.0, 0.72, 0.85), vec3(0.85, 0.0, 0.5), sin(angle * 8.0 + uTime * 8.0) * 0.5 + 0.5);
-          sceneCol += speedLineColor * linePattern * mask * 0.65;
+        vec2 texel = 1.0 / max(uResolution, vec2(1.0));
+        vec3 b = brightPass(uv) * 0.2;
+        for (int i = 0; i < 12; i++) {
+          float ang = float(i) * 0.5236;
+          float rad = (i < 6 ? 4.0 : 10.0);
+          b += brightPass(uv + vec2(cos(ang), sin(ang)) * rad * texel) * (i < 6 ? 0.09 : 0.045);
         }
+        col += b * uBloom;
       }
 
-      // 6. Camera Lens Rain Streaks
+      // Portal transit flash (white, like over-exposure)
+      if (uWarpIntensity > 0.05) {
+        col += vec3(1.0) * uWarpIntensity * 0.6;
+      }
+
+      // Raindrops on the lens
       if (uRainIntensity > 0.05) {
-        float streak = sin((uv.x + uv.y * 0.5 + uTime * 3.0) * 120.0);
-        streak = smoothstep(0.92, 0.98, streak) * uRainIntensity;
-        sceneCol += vec3(0.6, 0.85, 1.0) * streak * 0.25;
+        float streak = smoothstep(0.92, 0.98, sin((uv.x + uv.y * 0.5 + uTime * 3.0) * 120.0)) * uRainIntensity;
+        col += vec3(0.6, 0.7, 0.8) * streak * 0.15;
       }
 
-      // 7. Depth Vignette & Film Fidelity
-      float screenEdge = length(uv - 0.5);
-      float vignette = smoothstep(0.8, 0.35, screenEdge);
-      sceneCol *= mix(0.82, 1.0, vignette);
+      // Natural lens vignette
+      col *= mix(0.78, 1.0, smoothstep(0.85, 0.3, length(vUv - 0.5)));
 
-      // 8. CRT Scanlines
-      if (uScanlines > 0.005) {
-        float scanline = sin(uv.y * uResolution.y * 1.5) * 0.5 + 0.5;
-        sceneCol *= (1.0 - uScanlines * (1.0 - scanline) * 0.45);
-      }
-
-      // 9. Film Grain
+      // Fine film grain
       if (uFilmGrain > 0.005) {
-        float grain = (hash(uv + vec2(uTime * 0.24, uTime * 0.17)) - 0.5) * uFilmGrain * 0.16;
-        sceneCol += vec3(grain);
+        col += (hash(vUv + fract(uTime * 0.37)) - 0.5) * uFilmGrain * 0.04;
       }
 
-      // 10. Color Lift
-      if (uColorLift > 0.01) {
-        sceneCol = mix(sceneCol, sceneCol + vec3(0.01, 0.02, 0.04), uColorLift * 0.25);
-      }
-
-      // 11. Crisp 5-Tap Contrast Sharpening (High Visual Clarity & Laplacian Edge Definition)
-      vec2 sTexel = 1.0 / max(uResolution, vec2(1.0, 1.0));
-      vec3 colCenter = sceneCol;
-      vec3 colUp = texture2D(tDiffuse, uv + vec2(0.0, sTexel.y)).rgb;
-      vec3 colDown = texture2D(tDiffuse, uv - vec2(0.0, sTexel.y)).rgb;
-      vec3 colLeft = texture2D(tDiffuse, uv - vec2(sTexel.x, 0.0)).rgb;
-      vec3 colRight = texture2D(tDiffuse, uv + vec2(sTexel.x, 0.0)).rgb;
-      vec3 laplacian = colCenter * 5.0 - (colUp + colDown + colLeft + colRight);
-      sceneCol = mix(sceneCol, clamp(laplacian, 0.0, 1.0), 0.30);
-
-      // 12. Cyberpunk Contrast & Clean Output
-      gl_FragColor = vec4(clamp(sceneCol, 0.0, 1.0), 1.0);
+      gl_FragColor = vec4(max(col, vec3(0.0)), 1.0);
+      #include <tonemapping_fragment>
+      #include <colorspace_fragment>
     }
   `
 };

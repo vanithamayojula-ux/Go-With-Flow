@@ -1,7 +1,7 @@
 import * as THREE from 'three';
 import { TerrainManager, getBiomeAt, resetBiomeState, clearBiomeOverride } from './terrain';
 import { FoliageManager } from './foliage';
-import { SkyManager, LIGHTING_PRESETS } from './sky';
+import { SkyManager } from './sky';
 import { PlayerManager } from './player';
 import { ObstacleManager } from './obstacles';
 import { AudioManager } from './audio';
@@ -174,13 +174,16 @@ export class GameEngine {
     this.renderer.toneMapping = THREE.ACESFilmicToneMapping;
     this.renderer.toneMappingExposure = 1.05;
     this.renderer.shadowMap.enabled = this.graphicsConfig.enableShadows;
+    this.renderer.shadowMap.type = THREE.PCFSoftShadowMap;
     this.container.appendChild(this.renderer.domElement);
 
     // 2. Post-processing Render Target & Quad
+    // Linear HDR target: tone mapping + sRGB encoding happen in the post pass.
     this.renderTarget = new THREE.WebGLRenderTarget(width * targetDpr, height * targetDpr, {
       minFilter: THREE.LinearFilter,
       magFilter: THREE.LinearFilter,
       format: THREE.RGBAFormat,
+      type: THREE.HalfFloatType,
       samples: this.graphicsConfig.preset === 'desktop-full' ? 4 : 1,
       depthBuffer: true,
     });
@@ -217,7 +220,7 @@ export class GameEngine {
     this.postScene.add(quadMesh);
 
     // 3. Subsystem Managers Initialization
-    this.skyMgr = new SkyManager(this.scene);
+    this.skyMgr = new SkyManager(this.scene, this.renderer);
     this.skyMgr.applyLightingPreset(this.lightingMode);
 
     this.terrainMgr = new TerrainManager(this.scene);
@@ -661,20 +664,8 @@ export class GameEngine {
       }
 
       // Apply Blended Sky & Atmospheric Lighting smoothly between worlds
-      this.skyMgr.applyBlendedLighting(
-        blended.skyTop,
-        blended.skyBottom,
-        blended.fogColor,
-        blended.fogDensity,
-        blended.ambientColor,
-        blended.ambientIntensity,
-        blended.sunColor,
-        blended.sunIntensity
-      );
+      this.skyMgr.applyWorldAtmosphere(metrics.currentWorldId, metrics.nextWorldId, blended.nextWorldWeight);
       this.skyMgr.update(this.playerMgr.position, this.playerMgr.velocity.z, timeSeconds, this.playerMgr.stats.speed);
-      if (this.skyMgr.skyMaterial && this.skyMgr.skyMaterial.uniforms.uGridMode) {
-        this.skyMgr.skyMaterial.uniforms.uGridMode.value = currentBiome === 'the-grid' ? 1.0 : 0.0;
-      }
       this.themeMgr.update(dt, this.skyMgr, this.terrainMgr, this.obstacleMgr, this.playerMgr.position, timeSeconds);
 
       // Active & Preloaded World Procedural Simulation
@@ -735,13 +726,6 @@ export class GameEngine {
       }
     }
 
-    // Terrain Uniforms Camera update
-    if (this.terrainMgr.terrainMaterial.uniforms.uCameraPos) {
-      this.terrainMgr.terrainMaterial.uniforms.uCameraPos.value.copy(this.camera.position);
-    }
-    if (this.terrainMgr.terrainMaterial.uniforms.uTime) {
-      this.terrainMgr.terrainMaterial.uniforms.uTime.value = timeSeconds;
-    }
 
     // Glitch timers drive both camera jitter (above) and the post-process
     // shader, so they must decay even when post-processing is off.
@@ -786,6 +770,9 @@ export class GameEngine {
         glitchIntensity = 0.85;
         chromaticAberration = 0.008;
       }
+
+      // A real lens only fringes slightly; the old neon look used up to 0.008.
+      chromaticAberration = Math.min(chromaticAberration, 0.0015);
 
       if (this.graphicsConfig.reducedFlash) {
         glitchIntensity = 0;
@@ -874,16 +861,8 @@ export class GameEngine {
 
   public updateLightingMode(mode: LightingMode): void {
     this.lightingMode = mode;
+    // Lighting comes from each world's physical atmosphere (see SkyManager).
     this.skyMgr.applyLightingPreset(mode);
-    const preset = LIGHTING_PRESETS[mode];
-    if (preset) {
-      const u = this.terrainMgr.terrainMaterial.uniforms;
-      if (u.uSunColor) u.uSunColor.value.set(preset.sunColor);
-      if (u.uSunDirection) u.uSunDirection.value.set(...preset.sunPosition).normalize();
-      if (u.uAmbientColor) u.uAmbientColor.value.set(preset.ambientColor);
-      if (u.uSlopeWarmColor) u.uSlopeWarmColor.value.set(preset.slopeWarm);
-      if (u.uSlopeCoolColor) u.uSlopeCoolColor.value.set(preset.slopeCool);
-    }
   }
 
   public updateShaderParams(params: ShaderParams): void {
@@ -897,10 +876,6 @@ export class GameEngine {
     if (treeUniforms.uWindSpeed) treeUniforms.uWindSpeed.value = params.windSpeed * 0.7;
     if (treeUniforms.uWindStrength) treeUniforms.uWindStrength.value = params.windStrength * 0.5;
     if (treeUniforms.uRimLightIntensity) treeUniforms.uRimLightIntensity.value = params.rimLightIntensity;
-
-    const tUniforms = this.terrainMgr.terrainMaterial.uniforms;
-    if (tUniforms.uCelRampHardness) tUniforms.uCelRampHardness.value = params.celRampHardness;
-    if (tUniforms.uRimLightIntensity) tUniforms.uRimLightIntensity.value = params.rimLightIntensity;
 
     const pUniforms = this.postMaterial.uniforms;
     if (pUniforms.uFilmGrain) pUniforms.uFilmGrain.value = params.filmGrainIntensity;

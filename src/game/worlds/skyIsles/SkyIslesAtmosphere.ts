@@ -1,31 +1,68 @@
 import * as THREE from 'three';
 import { GraphicsConfig } from '../../../types';
 
+interface CloudPuff {
+  cluster: number;
+  ox: number;
+  y: number;
+  oz: number;
+  scale: number;
+  sy: number;
+  rot: number;
+  speed: number;
+}
+
+/**
+ * Smooth, gently lumpy puff geometry. Vertices are pushed radially by a
+ * position-based noise (identical for shared corners, so no cracks) while the
+ * normals stay radial, which keeps the shading soft like scattered light.
+ */
+function createPuffGeometry(radius: number, detail: number, lumpiness: number): THREE.BufferGeometry {
+  const geom = new THREE.IcosahedronGeometry(radius, detail);
+  const pos = geom.getAttribute('position') as THREE.BufferAttribute;
+  for (let i = 0; i < pos.count; i++) {
+    const x = pos.getX(i) / radius;
+    const y = pos.getY(i) / radius;
+    const z = pos.getZ(i) / radius;
+    const n =
+      Math.sin(x * 3.1 + 0.7) * Math.sin(y * 2.7 + 1.9) * Math.sin(z * 3.3 + 0.2) * 0.7 +
+      Math.sin(x * 7.3 + 2.1) * Math.sin(y * 6.9 + 0.5) * Math.sin(z * 7.7 + 1.3) * 0.3;
+    const k = 1 + n * lumpiness;
+    pos.setXYZ(i, pos.getX(i) * k, pos.getY(i) * k, pos.getZ(i) * k);
+  }
+  pos.needsUpdate = true;
+  geom.computeBoundingSphere();
+  return geom;
+}
+
 /**
  * SkyIslesAtmosphere manages:
- * 1. Upper drifting cloud clusters (overlapping low-poly puffs)
- * 2. Lower sea-of-clouds ocean bed beneath the floating islands
- * 3. Restrained drifting light motes / golden sun dust particles
+ * 1. Upper drifting cumulus clusters (instanced soft puffs)
+ * 2. Lower sea-of-clouds bed far beneath the floating islands
+ * 3. Faint sunlit dust motes
  */
 export class SkyIslesAtmosphere {
   public group: THREE.Group;
   private scene: THREE.Scene;
 
-  // Cloud meshes (instanced low-poly spheres)
+  // Cloud meshes (instanced puffs)
   private cloudMesh: THREE.InstancedMesh | null = null;
   private cloudSeaMesh: THREE.InstancedMesh | null = null;
-  private cloudMaterial: THREE.MeshLambertMaterial;
-  private cloudSeaMaterial: THREE.MeshLambertMaterial;
+  private cloudMaterial: THREE.MeshStandardMaterial;
+  private cloudSeaMaterial: THREE.MeshStandardMaterial;
 
-  // Light Motes / Sun Dust Particles
+  // Dust motes
   private particles: THREE.Points | null = null;
   private particleMaterial: THREE.PointsMaterial | null = null;
   private particleGeom: THREE.BufferGeometry | null = null;
   private particlePositions: Float32Array | null = null;
 
   private dummy = new THREE.Object3D();
-  private cloudPositions: { x: number; y: number; z: number; scale: number; speed: number }[] = [];
-  private cloudSeaPositions: { x: number; y: number; z: number; scale: number }[] = [];
+  private cloudPositions: CloudPuff[] = [];
+  private clusterX: Float32Array = new Float32Array(0);
+  private clusterZ: Float32Array = new Float32Array(0);
+  private clusterSpeed: Float32Array = new Float32Array(0);
+  private cloudSeaPositions: { x: number; y: number; z: number; scale: number; rot: number }[] = [];
 
   constructor(scene: THREE.Scene, graphicsConfig: GraphicsConfig) {
     this.scene = scene;
@@ -33,20 +70,24 @@ export class SkyIslesAtmosphere {
     this.group.name = 'SkyIslesAtmosphereGroup';
     this.scene.add(this.group);
 
-    // Soft cloud white (#F8FAFC) with gentle shadow tint (#CBD5E1)
-    this.cloudMaterial = new THREE.MeshLambertMaterial({
-      color: 0xf8fafc,
-      transparent: true,
-      opacity: 0.90,
-      flatShading: true,
-    });
-
-    // Lower vast cloud ocean bed (#E0F2FE)
-    this.cloudSeaMaterial = new THREE.MeshLambertMaterial({
-      color: 0xbae6fd,
+    // Cumulus: matte white, lit by sun + sky IBL, softly translucent
+    this.cloudMaterial = new THREE.MeshStandardMaterial({
+      color: 0xf6f7f8,
+      roughness: 1.0,
+      metalness: 0.0,
       transparent: true,
       opacity: 0.85,
-      flatShading: true,
+      depthWrite: false,
+    });
+
+    // Sea of clouds far below: slightly greyer (in the islands' shade / haze)
+    this.cloudSeaMaterial = new THREE.MeshStandardMaterial({
+      color: 0xe9edf1,
+      roughness: 1.0,
+      metalness: 0.0,
+      transparent: true,
+      opacity: 0.92,
+      depthWrite: false,
     });
 
     this.initClouds(graphicsConfig);
@@ -54,44 +95,78 @@ export class SkyIslesAtmosphere {
   }
 
   private initClouds(graphicsConfig: GraphicsConfig): void {
-    // Shared low-poly puff sphere geometry
-    const puffGeom = new THREE.DodecahedronGeometry(6.0, 1);
+    const desktop = graphicsConfig.preset === 'desktop-full';
+    const puffGeom = createPuffGeometry(6.0, desktop ? 3 : 2, 0.07);
 
-    let cloudCount = 45;
-    if (graphicsConfig.preset === 'mobile-opt') cloudCount = 28;
-    if (graphicsConfig.preset === 'webgl-min') cloudCount = 14;
+    let cloudCount = 40;
+    let puffsPerCluster = 7;
+    if (graphicsConfig.preset === 'mobile-opt') {
+      cloudCount = 26;
+      puffsPerCluster = 5;
+    }
+    if (graphicsConfig.preset === 'webgl-min') {
+      cloudCount = 14;
+      puffsPerCluster = 4;
+    }
 
-    this.cloudMesh = new THREE.InstancedMesh(puffGeom, this.cloudMaterial, cloudCount * 4);
+    this.cloudMesh = new THREE.InstancedMesh(puffGeom, this.cloudMaterial, cloudCount * puffsPerCluster);
     this.cloudMesh.instanceMatrix.setUsage(THREE.DynamicDrawUsage);
+    this.cloudMesh.frustumCulled = false; // instances span the whole corridor
     this.group.add(this.cloudMesh);
 
-    // Generate procedural cloud cluster positions across sky around traversal track
+    this.clusterX = new Float32Array(cloudCount);
+    this.clusterZ = new Float32Array(cloudCount);
+    this.clusterSpeed = new Float32Array(cloudCount);
+
     let idx = 0;
     for (let c = 0; c < cloudCount; c++) {
-      const cx = (Math.random() - 0.5) * 240 + (Math.random() > 0.5 ? 40 : -40);
+      // Puffs reach ~26 m (6 m geometry x up to ~4.4 scale) plus 6 m cluster
+      // spread and 3.5 m drift, so centres stay >= 45 m off the road centre line.
+      // The old spread could put a cluster right across the lanes.
+      const cx = (Math.random() > 0.5 ? 1 : -1) * (45 + Math.random() * 110);
       const cy = -8.0 + Math.random() * 32.0;
       const cz = (c / cloudCount) * 600 - 100;
       const baseScale = 1.2 + Math.random() * 2.2;
       const speed = 0.5 + Math.random() * 0.8;
+      this.clusterX[c] = cx;
+      this.clusterZ[c] = cz;
+      this.clusterSpeed[c] = speed;
 
-      // 3–4 puffs per cluster
-      for (let p = 0; p < 3; p++) {
-        const ox = (Math.random() - 0.5) * 12.0;
-        const oy = (Math.random() - 0.5) * 4.0;
-        const oz = (Math.random() - 0.5) * 12.0;
-        const scale = baseScale * (0.8 + Math.random() * 0.5);
+      // Cumulus build-up: one big core, a ring of smaller flank puffs and a
+      // couple of rising turrets; flat-ish bases. Offsets stay within +/-6 m and
+      // scales within 1.3x baseScale to respect the clearance envelope above.
+      for (let p = 0; p < puffsPerCluster; p++) {
+        let ox = 0;
+        let oy = 0;
+        let oz = 0;
+        let scale = baseScale * (1.1 + Math.random() * 0.2);
+        let sy = 0.62;
+        if (p > 0) {
+          const ang = (p / (puffsPerCluster - 1)) * Math.PI * 2 + Math.random() * 0.6;
+          const rad = 3.0 + Math.random() * 3.0;
+          ox = Math.cos(ang) * rad;
+          oz = Math.sin(ang) * rad;
+          const turret = p % 3 === 0;
+          oy = turret ? 1.5 + Math.random() * 2.0 : -1.0 + Math.random() * 1.5;
+          scale = baseScale * (turret ? 0.5 + Math.random() * 0.25 : 0.6 + Math.random() * 0.35);
+          sy = turret ? 0.8 : 0.58;
+        }
 
-        this.cloudPositions.push({
-          x: cx + ox,
+        const puff: CloudPuff = {
+          cluster: c,
+          ox,
           y: cy + oy,
-          z: cz + oz,
+          oz,
           scale,
+          sy,
+          rot: Math.random() * Math.PI,
           speed,
-        });
+        };
+        this.cloudPositions.push(puff);
 
-        this.dummy.position.set(cx + ox, cy + oy, cz + oz);
-        this.dummy.scale.set(scale, scale * 0.65, scale);
-        this.dummy.rotation.set(0, Math.random() * Math.PI, 0);
+        this.dummy.position.set(cx + ox, puff.y, cz + oz);
+        this.dummy.scale.set(scale, scale * sy, scale);
+        this.dummy.rotation.set(0, puff.rot, 0);
         this.dummy.updateMatrix();
         this.cloudMesh.setMatrixAt(idx++, this.dummy.matrix);
       }
@@ -100,26 +175,29 @@ export class SkyIslesAtmosphere {
     this.cloudMesh.instanceMatrix.needsUpdate = true;
 
     // --- Lower Cloud Ocean Layer ---
-    // Sits at Y = -45 to -60 to communicate grand vertical height above the world
-    const seaPuffGeom = new THREE.DodecahedronGeometry(22.0, 1);
-    let seaCount = 36;
-    if (graphicsConfig.preset === 'mobile-opt') seaCount = 20;
-    if (graphicsConfig.preset === 'webgl-min') seaCount = 10;
+    // Sits around Y = -52 so the islands read as floating very high up.
+    const seaPuffGeom = createPuffGeometry(22.0, desktop ? 3 : 2, 0.06);
+    let seaCount = 64;
+    if (graphicsConfig.preset === 'mobile-opt') seaCount = 32;
+    if (graphicsConfig.preset === 'webgl-min') seaCount = 14;
 
     this.cloudSeaMesh = new THREE.InstancedMesh(seaPuffGeom, this.cloudSeaMaterial, seaCount);
+    this.cloudSeaMesh.instanceMatrix.setUsage(THREE.DynamicDrawUsage);
+    this.cloudSeaMesh.frustumCulled = false;
     this.group.add(this.cloudSeaMesh);
 
     for (let i = 0; i < seaCount; i++) {
-      const sx = (Math.random() - 0.5) * 360;
+      const sx = (Math.random() - 0.5) * 420;
       const sy = -52.0 + (Math.random() - 0.5) * 8.0;
       const sz = (i / seaCount) * 800 - 150;
       const sScale = 1.5 + Math.random() * 1.5;
+      const rot = Math.random() * Math.PI;
 
-      this.cloudSeaPositions.push({ x: sx, y: sy, z: sz, scale: sScale });
+      this.cloudSeaPositions.push({ x: sx, y: sy, z: sz, scale: sScale, rot });
 
       this.dummy.position.set(sx, sy, sz);
       this.dummy.scale.set(sScale * 1.4, sScale * 0.45, sScale * 1.4);
-      this.dummy.rotation.set(0, Math.random() * Math.PI, 0);
+      this.dummy.rotation.set(0, rot, 0);
       this.dummy.updateMatrix();
       this.cloudSeaMesh.setMatrixAt(i, this.dummy.matrix);
     }
@@ -144,13 +222,13 @@ export class SkyIslesAtmosphere {
     this.particleGeom = new THREE.BufferGeometry();
     this.particleGeom.setAttribute('position', new THREE.BufferAttribute(this.particlePositions, 3));
 
-    // Luminous sunlight motes & energy spores (#22D3EE and warm yellow)
+    // Faint sunlit dust / pollen: tiny, warm white, normal blending (no neon)
     this.particleMaterial = new THREE.PointsMaterial({
-      color: 0x67e8f9,
-      size: 0.35,
+      color: 0xfff4e0,
+      size: 0.06,
+      sizeAttenuation: true,
       transparent: true,
-      opacity: 0.85,
-      blending: THREE.AdditiveBlending,
+      opacity: 0.35,
       depthWrite: false,
     });
 
@@ -159,33 +237,32 @@ export class SkyIslesAtmosphere {
   }
 
   public update(dt: number, playerZ: number, time: number): void {
-    // 1. Stream upper cloud puffs along player traversal Z
+    // 1. Stream upper cloud clusters along player traversal Z
     if (this.cloudMesh) {
-      let idx = 0;
+      const clusters = this.clusterZ.length;
+      for (let c = 0; c < clusters; c++) {
+        // Wrap whole clusters so their puffs stay together
+        const relZ = this.clusterZ[c] - playerZ;
+        if (relZ < -120) this.clusterZ[c] += 600;
+        else if (relZ > 480) this.clusterZ[c] -= 600;
+      }
+
       const total = this.cloudPositions.length;
       for (let i = 0; i < total; i++) {
         const cp = this.cloudPositions[i];
-        let relZ = cp.z - playerZ;
+        const c = cp.cluster;
+        const sp = this.clusterSpeed[c];
 
-        // Wrap clouds ahead if they fall behind player
-        if (relZ < -120) {
-          cp.z += 600;
-          relZ = cp.z - playerZ;
-        } else if (relZ > 480) {
-          cp.z -= 600;
-          relZ = cp.z - playerZ;
-        }
+        // Gentle lateral drift of the whole cluster
+        const driftX = this.clusterX[c] + cp.ox + Math.sin(time * 0.25 * sp + c) * 3.5;
+        const driftY = cp.y + Math.cos(time * 0.35 * sp + c) * 1.5;
 
-        // Gentle lateral drift
-        const driftX = cp.x + Math.sin(time * 0.25 * cp.speed + i) * 3.5;
-        const driftY = cp.y + Math.cos(time * 0.35 * cp.speed + i) * 1.5;
-
-        this.dummy.position.set(driftX, driftY, cp.z);
-        this.dummy.scale.set(cp.scale, cp.scale * 0.65, cp.scale);
-        this.dummy.rotation.set(0, (i * 0.4) + time * 0.05 * cp.speed, 0);
+        this.dummy.position.set(driftX, driftY, this.clusterZ[c] + cp.oz);
+        this.dummy.scale.set(cp.scale, cp.scale * cp.sy, cp.scale);
+        this.dummy.rotation.set(0, cp.rot + time * 0.02 * cp.speed, 0);
         this.dummy.updateMatrix();
 
-        this.cloudMesh.setMatrixAt(idx++, this.dummy.matrix);
+        this.cloudMesh.setMatrixAt(i, this.dummy.matrix);
       }
       this.cloudMesh.instanceMatrix.needsUpdate = true;
     }
@@ -195,20 +272,21 @@ export class SkyIslesAtmosphere {
       const seaTotal = this.cloudSeaPositions.length;
       for (let i = 0; i < seaTotal; i++) {
         const sp = this.cloudSeaPositions[i];
-        let relZ = sp.z - playerZ;
+        const relZ = sp.z - playerZ;
         if (relZ < -200) sp.z += 800;
         if (relZ > 600) sp.z -= 800;
 
-        const bobY = sp.y + Math.sin(time * 0.4 + i) * 2.0;
+        const bobY = sp.y + Math.sin(time * 0.15 + i) * 1.5;
         this.dummy.position.set(sp.x, bobY, sp.z);
         this.dummy.scale.set(sp.scale * 1.4, sp.scale * 0.45, sp.scale * 1.4);
+        this.dummy.rotation.set(0, sp.rot, 0);
         this.dummy.updateMatrix();
         this.cloudSeaMesh.setMatrixAt(i, this.dummy.matrix);
       }
       this.cloudSeaMesh.instanceMatrix.needsUpdate = true;
     }
 
-    // 3. Update light motes drifting gently in the breeze
+    // 3. Dust motes drifting gently in the breeze
     if (this.particles && this.particlePositions && this.particleGeom) {
       const count = this.particlePositions.length / 3;
       for (let i = 0; i < count; i++) {
@@ -218,8 +296,7 @@ export class SkyIslesAtmosphere {
           this.particlePositions[i * 3 + 0] = (Math.random() - 0.5) * 40;
           this.particlePositions[i * 3 + 1] = Math.random() * 16 + 1.0;
         }
-        // Drift forward slightly and bob
-        this.particlePositions[i * 3 + 1] += Math.sin(time * 2.0 + i) * 0.02;
+        this.particlePositions[i * 3 + 1] += Math.sin(time * 1.2 + i) * 0.01;
         this.particlePositions[i * 3 + 2] = pz;
       }
       this.particleGeom.attributes.position.needsUpdate = true;
@@ -230,12 +307,14 @@ export class SkyIslesAtmosphere {
     this.scene.remove(this.group);
     if (this.cloudMesh) {
       this.cloudMesh.geometry.dispose();
-      this.cloudMaterial.dispose();
+      this.cloudMesh.dispose();
     }
+    this.cloudMaterial.dispose();
     if (this.cloudSeaMesh) {
       this.cloudSeaMesh.geometry.dispose();
-      this.cloudSeaMaterial.dispose();
+      this.cloudSeaMesh.dispose();
     }
+    this.cloudSeaMaterial.dispose();
     if (this.particles) {
       this.particleGeom?.dispose();
       this.particleMaterial?.dispose();
