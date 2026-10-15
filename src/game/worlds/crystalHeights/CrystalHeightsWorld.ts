@@ -201,6 +201,8 @@ export class CrystalHeightsWorld extends StreamedWorld {
   private peakPools: InstancePool[] = [];
   private rockPools: RockPools | null = null;
   private peaks: Peak[] = [];
+  /** Granite arch parts (instanced so they are compiled before the world shows). */
+  private gatePools: InstancePool[] = [];
   private peaksDirty = true;
 
   constructor(scene: THREE.Scene, graphicsConfig: GraphicsConfig) {
@@ -235,6 +237,10 @@ export class CrystalHeightsWorld extends StreamedWorld {
     this.rockPools = createRockPools('crystal', ROCK_IDS, k.rockMats, 32, 24);
     for (const p of this.rockPools.near.values()) this.addPool(p);
     for (const p of this.rockPools.far.values()) this.addPool(p);
+    this.gatePools = [
+      this.addPool(new InstancePool('crystal-gate-stone', k.gate.stone, k.gateMat.material, 4, { castShadow: true })),
+      this.addPool(new InstancePool('crystal-gate-ice', k.gate.ice, k.ice, 4, { castShadow: true })),
+    ];
 
     // Distant range: deterministic layout, recycled forward as the rider passes
     for (let side = -1; side <= 1; side += 2) {
@@ -348,7 +354,7 @@ export class CrystalHeightsWorld extends StreamedWorld {
 
     // 4. Rare road-spanning granite arch, else a granite boulder carrying quartz
     if (rnd(16) > 0.92 && this.canSpanRoad(centerZ + 10)) {
-      this.addObject(chunk, this.makeGate(centerZ + 10));
+      this.placeParts(chunk, this.gatePools, trs(0, 0, centerZ + 10, 0, 1));
     } else if (rnd(17) > 0.5 && this.rockPools) {
       const side = rnd(18) > 0.5 ? 1 : -1;
       const sx = side * (10.5 + rnd(27) * 4.0);
@@ -374,19 +380,6 @@ export class CrystalHeightsWorld extends StreamedWorld {
         this.place(chunk, pool, trs(tx, ground(tx, tz) - 0.1, tz, tz * 0.53, s));
       }
     }
-  }
-
-  private makeGate(z: number): THREE.Group {
-    const k = K as CrystalKit;
-    const g = new THREE.Group();
-    g.position.set(0, 0, z);
-    const stone = new THREE.Mesh(k.gate.stone, k.gateMat.material);
-    stone.castShadow = true;
-    stone.receiveShadow = true;
-    const ice = new THREE.Mesh(k.gate.ice, k.ice);
-    ice.castShadow = true;
-    g.add(stone, ice);
-    return g;
   }
 
   private updatePeaks(playerZ: number): void {
@@ -430,5 +423,6 @@ export class CrystalHeightsWorld extends StreamedWorld {
     this.peakPools = [];
     this.rockPools = null;
     this.peaks = [];
+    this.gatePools = [];
   }
 }

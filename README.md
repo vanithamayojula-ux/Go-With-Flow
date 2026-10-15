@@ -56,7 +56,7 @@ The campaign has **five worlds**, each 2,250 m long, with their own lighting, fo
 | 4 | Crystal Heights | 6,750 – 8,999 m |
 | 5 | Obsidian Core | 9,000 m + |
 
-A warp portal spans the road at each world boundary, tinted with the next world's color. The next world's scenery appears only once you ride through it; the sky and fog start blending toward it over the last 300 m. Obsidian Core is the final world, with no portal after it. The track surface, skyline and friction follow the current world's zone (Sky Realm, Bioluminescent Jungle, Dune Nomad, Aurora Frost, Ember Core).
+A portal gateway spans the road at each world boundary: an ~18 m stone arch built from the next world's materials (mossy ruin, carved sandstone, granite and ice, basalt with lava veins) with a thin rim of light and a faint beam of light rising from it, visible from far away. Through its opening you see the next world under its own sky and light, and the world (sky, sun, fog, scenery) switches exactly as you pass through, in any lane, on the ground or in the air. The HUD counts down the last 600 m to each portal. Obsidian Core is the final world, with no portal after it. The track surface, skyline and friction follow the current world's zone (Sky Realm, Bioluminescent Jungle, Dune Nomad, Aurora Frost, Ember Core).
 
 ---
 
@@ -135,7 +135,8 @@ src/
   game/
     GameEngine.ts         render loop, input, wiring between systems
     player.ts             movement, tricks, scoring
-    obstacles.ts          barriers, rails, boost arches, portals, pickups
+    obstacles.ts          barriers, rails, boost arches, pickups
+    portal/               world-boundary gateways and the view-through-the-portal pass
     terrain.ts            track streaming and the 14-zone rotation
     WorldManager.ts       5-world campaign progression and blending
     worlds/               per-world decorations and atmosphere

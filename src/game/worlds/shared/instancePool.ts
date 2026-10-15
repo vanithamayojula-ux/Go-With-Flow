@@ -58,6 +58,21 @@ export class InstancePool {
     this.owners = new Array(capacity).fill(null);
   }
 
+  private reachGeom: THREE.BufferGeometry | null = null;
+  private reach = 0;
+
+  /** Largest horizontal (x/z) distance of the template geometry from its origin (cached). */
+  horizontalReach(): number {
+    const g = this.mesh.geometry;
+    if (g !== this.reachGeom) {
+      this.reachGeom = g;
+      if (!g.boundingBox) g.computeBoundingBox();
+      const bb = g.boundingBox!;
+      this.reach = Math.max(Math.abs(bb.min.x), Math.abs(bb.max.x), Math.abs(bb.min.z), Math.abs(bb.max.z));
+    }
+    return this.reach;
+  }
+
   get size(): number {
     return this.live;
   }

@@ -57,9 +57,10 @@ export class ScoreValidationPipeline {
     //   riding    4 pts/m, x2 with the 2x power-up, x2 while grinding  -> 16 pts/m
     //   tricks    one per 0.3s, 350 x combo (combo <= 8)               -> ~3,000 pts/s sustained
     //   shards    up to 200 + 120 x 2 pts each
-    //   near miss 300 pts; portal warps 1,500 per 450m zone
+    //   near miss 300 pts; portal warps 1,500 each, one gateway per world
+    //   boundary (every WORLD_LENGTH_DISTANCE m, four in the campaign)
     // The previous formula (1 pt/m) rejected every honest run over a few hundred metres.
-    const portals = Math.ceil(dist / 450);
+    const portals = Math.min(WORLD_ORDER.length - 1, Math.floor(dist / WORLD_LENGTH_DISTANCE));
     let baseScore = Math.floor(
       dist * 16 + durationSec * 3000 + shards * 440 + nearMisses * 300 + obstacles * 50 + portals * 1500
     );

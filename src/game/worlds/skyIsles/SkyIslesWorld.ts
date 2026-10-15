@@ -13,7 +13,7 @@ import {
 import { skyIslesConfig } from './skyIslesConfig';
 import { RAIL_X } from '../../trackConfig';
 import { StreamedWorld, StreamChunk, WarmTask } from '../shared/streamedWorld';
-import { InstancePool, trs } from '../shared/instancePool';
+import { InstancePool, PoolHandle, trs } from '../shared/instancePool';
 import { createTerrainMaterial, TerrainMaterialHandle } from '../shared/terrainMaterial';
 import { createScanStandardMaterial, ScanStandardHandle } from '../shared/scanMaterial';
 import { applyStreamFade, getWorldFade } from '../shared/distanceFade';
@@ -143,10 +143,17 @@ const KIT_STEPS: WarmTask[] = [
   },
 ];
 
-interface Landmark {
-  group: THREE.Group;
-  crystal: THREE.Mesh | null;
+/** A temple's floating quartz: spun in place every frame (pool slot handle). */
+interface SpinningCrystal {
+  handle: PoolHandle;
+  x: number;
+  y: number;
+  z: number;
+  phase: number;
 }
+
+const TEMPLE_SCALE = 0.85;
+const TEMPLE_CRYSTAL_Y = 4.5;
 
 /**
  * SkyIslesWorld: floating turf-and-cliff islands (scanned turf / cliff
@@ -162,7 +169,13 @@ export class SkyIslesWorld extends StreamedWorld {
   private islandPools = new Map<string, InstancePool>();
   private treePools: { broadleaf: InstancePool | null; conifer: InstancePool | null } = { broadleaf: null, conifer: null };
   private rockPools: RockPools | null = null;
-  private landmarks = new Map<THREE.Object3D, Landmark>();
+  // Landmarks and waterfalls are instanced too, so every draw configuration
+  // is compiled and warm-drawn by the engine before the world is shown.
+  private colonnadePool: InstancePool | null = null;
+  private templePools: InstancePool[] = [];
+  private templeCrystalPool: InstancePool | null = null;
+  private waterfallPool: InstancePool | null = null;
+  private crystals = new Map<PoolHandle, SpinningCrystal>();
 
   constructor(scene: THREE.Scene, graphicsConfig: GraphicsConfig) {
     super(scene, graphicsConfig, 'sky-isles', 'SkyIslesWorldRootGroup');
@@ -202,6 +215,13 @@ export class SkyIslesWorld extends StreamedWorld {
     );
     this.rockPools = createRockPools('sky', ROCK_IDS, k.rockMats, 48, 0);
     for (const p of this.rockPools.near.values()) this.addPool(p);
+    this.colonnadePool = this.addPool(new InstancePool('sky-colonnade', k.colonnade, k.stone.material, 8, { castShadow: true }));
+    this.templePools = [
+      this.addPool(new InstancePool('sky-temple-stone', k.temple.stone, k.stone.material, 8, { castShadow: true })),
+      this.addPool(new InstancePool('sky-temple-roof', k.temple.roof, k.roof, 8, { castShadow: true })),
+    ];
+    this.templeCrystalPool = this.addPool(new InstancePool('sky-temple-crystal', k.temple.crystal, k.quartz, 8));
+    this.waterfallPool = this.addPool(new InstancePool('sky-waterfalls', k.waterfall, k.water, 16, { receiveShadow: false }));
   }
 
   protected applyScannedAssets(): void {
@@ -252,18 +272,14 @@ export class SkyIslesWorld extends StreamedWorld {
 
       // Waterfall off the road-facing rim of large islands
       if (archId === 'large-sanctuary' && preset !== 'webgl-min') {
-        const fall = new THREE.Mesh(k.waterfall, k.water);
-        fall.position.set(posX - sign * radius * 0.98, posY + heightGrass - 0.55, posZ + 2.0);
-        fall.rotation.y = sign > 0 ? -Math.PI / 2 : Math.PI / 2;
-        this.addObject(chunk, fall);
+        const fallRot = sign > 0 ? -Math.PI / 2 : Math.PI / 2;
+        this.place(chunk, this.waterfallPool, trs(posX - sign * radius * 0.98, posY + heightGrass - 0.55, posZ + 2.0, fallRot, 1));
       }
 
       // Landmark: stone colonnade or sky temple on the largest isles
       let hasLandmark = false;
       if (archId === 'large-sanctuary' && srnd(9) > 0.4) {
-        const lm = this.spawnLandmark(srnd(10) > 0.5 ? 'colonnade' : 'temple', posX, posY + heightGrass - 0.4, posZ, (srnd(13) - 0.5) * 0.6);
-        this.addObject(chunk, lm);
-        hasLandmark = true;
+        hasLandmark = this.spawnLandmark(chunk, srnd(10) > 0.5 ? 'colonnade' : 'temple', posX, posY + heightGrass - 0.4, posZ, (srnd(13) - 0.5) * 0.6);
       }
 
       // Trees scattered over the turf
@@ -315,34 +331,21 @@ export class SkyIslesWorld extends StreamedWorld {
     }
   }
 
-  private spawnLandmark(type: 'colonnade' | 'temple', x: number, y: number, z: number, rotY: number): THREE.Group {
-    const k = K as SkyKit;
-    const g = new THREE.Group();
-    g.position.set(x, y, z);
-    g.rotation.y = rotY;
-    let crystal: THREE.Mesh | null = null;
-    const add = (geo: THREE.BufferGeometry, mat: THREE.Material, shadow = true) => {
-      const m = new THREE.Mesh(geo, mat);
-      m.castShadow = shadow;
-      m.receiveShadow = true;
-      g.add(m);
-      return m;
-    };
-    if (type === 'colonnade') {
-      add(k.colonnade, k.stone.material);
-    } else {
-      g.scale.setScalar(0.85);
-      add(k.temple.stone, k.stone.material);
-      add(k.temple.roof, k.roof);
-      crystal = add(k.temple.crystal, k.quartz, false);
-      crystal.position.set(0, 4.5, 0);
+  private spawnLandmark(chunk: StreamChunk, type: 'colonnade' | 'temple', x: number, y: number, z: number, rotY: number): boolean {
+    if (type === 'colonnade') return this.place(chunk, this.colonnadePool, trs(x, y, z, rotY, 1));
+    if (!this.placeParts(chunk, this.templePools, trs(x, y, z, rotY, TEMPLE_SCALE))) return false;
+    const cy = y + TEMPLE_CRYSTAL_Y * TEMPLE_SCALE;
+    const pool = this.templeCrystalPool;
+    const h = pool ? pool.add(trs(x, cy, z, rotY, TEMPLE_SCALE)) : null;
+    if (h) {
+      chunk.handles.push(h);
+      this.crystals.set(h, { handle: h, x, y: cy, z, phase: rotY + this.crystals.size });
     }
-    this.landmarks.set(g, { group: g, crystal });
-    return g;
+    return true;
   }
 
   protected releaseChunk(chunk: StreamChunk): void {
-    for (const o of chunk.objects) this.landmarks.delete(o);
+    for (const h of chunk.handles) this.crystals.delete(h);
     super.releaseChunk(chunk);
   }
 
@@ -354,16 +357,17 @@ export class SkyIslesWorld extends StreamedWorld {
       if (this.atmosphere.group.visible) this.atmosphere.update(dt, playerZ, time);
     }
     const spin = time * 0.3;
-    let i = 0;
-    for (const lm of this.landmarks.values()) {
-      if (lm.crystal) lm.crystal.rotation.y = spin + i;
-      i++;
-    }
+    const cp = this.templeCrystalPool;
+    if (cp) for (const c of this.crystals.values()) cp.setMatrix(c.handle, trs(c.x, c.y, c.z, spin + c.phase, TEMPLE_SCALE));
     if (k.waterTex) k.waterTex.offset.y = (time * 0.9) % 1;
   }
 
   protected disposeWorld(): void {
-    this.landmarks.clear();
+    this.crystals.clear();
+    this.colonnadePool = null;
+    this.templePools = [];
+    this.templeCrystalPool = null;
+    this.waterfallPool = null;
     this.atmosphere?.dispose();
     this.atmosphere = null;
     this.islandPools.clear();

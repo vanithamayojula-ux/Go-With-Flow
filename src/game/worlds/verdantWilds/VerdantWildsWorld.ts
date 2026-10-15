@@ -200,6 +200,12 @@ export class VerdantWildsWorld extends StreamedWorld {
   private shroomPool: InstancePool | null = null;
   private fernPool: InstancePool | null = null;
   private rockPools: RockPools | null = null;
+  // Ruins and streams are instanced too: every draw configuration exists (and
+  // is compiled + warm-drawn by the engine) before the world is shown, so
+  // nothing a chunk spawns later can hit a first-use shader compile.
+  private archPools: InstancePool[] = [];
+  private pillarPools: InstancePool[] = [];
+  private streamPool: InstancePool | null = null;
 
   constructor(scene: THREE.Scene, graphicsConfig: GraphicsConfig) {
     super(scene, graphicsConfig, 'verdant-wilds', 'VerdantWildsWorldRootGroup');
@@ -233,6 +239,18 @@ export class VerdantWildsWorld extends StreamedWorld {
     this.fernPool = this.addPool(new InstancePool('verdant-ferns', k.ferns, k.fernMat, 20));
     this.rockPools = createRockPools('verdant', ROCK_IDS, k.rockMats, 40, 0);
     for (const p of this.rockPools.near.values()) this.addPool(p);
+    const part = (name: string, g: THREE.BufferGeometry, m: THREE.Material, cap: number) =>
+      this.addPool(new InstancePool(name, g, m, cap, { castShadow: true }));
+    this.archPools = [
+      part('verdant-arch-stone', k.arch.stone, k.stoneMat.material, 4),
+      part('verdant-arch-carving', k.arch.carving, k.carving, 4),
+      part('verdant-arch-moss', k.arch.moss, k.moss, 4),
+    ];
+    this.pillarPools = [
+      part('verdant-pillar-stone', k.pillar.stone, k.stoneMat.material, 16),
+      part('verdant-pillar-moss', k.pillar.moss, k.moss, 16),
+    ];
+    this.streamPool = this.addPool(new InstancePool('verdant-streams', k.stream, k.water, 12, { receiveShadow: true }));
   }
 
   protected applyScannedAssets(): void {
@@ -317,12 +335,12 @@ export class VerdantWildsWorld extends StreamedWorld {
 
     // 3. Mossy ruins: a rare arch over the road, or a broken column at |x| = 9
     if (rnd(10) > 0.9 && this.canSpanRoad(centerZ + 10)) {
-      this.addObject(chunk, this.makeRuin('arch', 0, 0, centerZ + 10, 0));
+      this.placeParts(chunk, this.archPools, trs(0, 0, centerZ + 10, 0, 1));
     } else if (rnd(11) > 0.55) {
       const side = rnd(12) > 0.5 ? 1 : -1;
       const px = side * 9.0;
       if (this.inRange(centerZ + 5, 2)) {
-        this.addObject(chunk, this.makeRuin('pillar', px, this.groundUnder(px, 5, 1.6), centerZ + 5, rnd(26) * 6.28, 0.95));
+        this.placeParts(chunk, this.pillarPools, trs(px, this.groundUnder(px, 5, 1.6), centerZ + 5, rnd(26) * 6.28, 0.95));
       }
     }
 
@@ -360,34 +378,8 @@ export class VerdantWildsWorld extends StreamedWorld {
     // 6. Stream in the flat-floored roadside ditch (|x| 8.7..12.3)
     if (preset === 'desktop-full' && rnd(15) > 0.55 && this.inRange(centerZ, 27.5)) {
       const streamSide = rnd(16) > 0.5 ? 1 : -1;
-      const stream = new THREE.Mesh(k.stream, k.water);
-      stream.position.set(streamSide * 10.5, FOREST_DITCH_Y + 0.04, centerZ);
-      stream.receiveShadow = true;
-      this.addObject(chunk, stream);
+      this.place(chunk, this.streamPool, trs(streamSide * 10.5, FOREST_DITCH_Y + 0.04, centerZ, 0, 1));
     }
-  }
-
-  private makeRuin(type: 'arch' | 'pillar', x: number, y: number, z: number, rotY: number, scale = 1): THREE.Group {
-    const k = K as VerdantKit;
-    const g = new THREE.Group();
-    g.position.set(x, y, z);
-    g.rotation.y = rotY;
-    g.scale.setScalar(scale);
-    const add = (geo: THREE.BufferGeometry, mat: THREE.Material) => {
-      const m = new THREE.Mesh(geo, mat);
-      m.castShadow = true;
-      m.receiveShadow = true;
-      g.add(m);
-    };
-    if (type === 'arch') {
-      add(k.arch.stone, k.stoneMat.material);
-      add(k.arch.carving, k.carving);
-      add(k.arch.moss, k.moss);
-    } else {
-      add(k.pillar.stone, k.stoneMat.material);
-      add(k.pillar.moss, k.moss);
-    }
-    return g;
   }
 
   protected animate(playerZ: number, dt: number, time: number): void {
@@ -411,5 +403,8 @@ export class VerdantWildsWorld extends StreamedWorld {
     this.shroomPool = null;
     this.fernPool = null;
     this.rockPools = null;
+    this.archPools = [];
+    this.pillarPools = [];
+    this.streamPool = null;
   }
 }

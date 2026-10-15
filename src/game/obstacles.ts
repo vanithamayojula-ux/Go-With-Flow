@@ -1,14 +1,16 @@
 import * as THREE from 'three';
 import { GLTFLoader } from 'three/examples/jsm/loaders/GLTFLoader.js';
 import { MeshoptDecoder } from 'three/examples/jsm/libs/meshopt_decoder.module.js';
-import { BiomeType, LaneIndex, PowerUpType } from '../types';
-import { getTerrainHeight, getBiomeAt } from './terrain';
-import { WORLD_LENGTH_DISTANCE, getWorldForBiome } from './worlds';
+import { LaneIndex, PowerUpType } from '../types';
+import { getTerrainHeight } from './terrain';
+import { WORLD_LENGTH_DISTANCE, WORLD_ORDER } from './worlds';
 import { laneToWorldX } from './trackConfig';
 import { createStripeTexture } from '../graphics/hazardTextures';
 
-// Minimum open road in front of a world portal before the previous obstacle row.
-const PORTAL_CLEARANCE = 12;
+// Open road kept on both sides of a world-boundary portal gateway (the
+// gateway itself is engine-owned, see src/game/portal): no obstacle, rail,
+// coin or power-up within this many metres of the boundary.
+const GATEWAY_CLEARANCE = 25;
 
 // Player body extents above the feet, used for the vertical collision test.
 // The player position is the board (feet) height: terrain + a small hover.
@@ -23,12 +25,6 @@ const SOLID_UNJUMPABLE_TOP = 3.4;
 const NEAR_MISS_LATERAL_REACH = 2.0;
 // Riding speed (m/s) needed for a near miss to count.
 const NEAR_MISS_MIN_SPEED = 12;
-
-// Portal gateway dimensions (metres above the road surface).
-const PORTAL_ARCH_RADIUS = 4.0; // centre line of the frame
-const PORTAL_ARCH_TUBE = 0.3;
-const PORTAL_ARCH_CENTER_Y = 3.6; // centre of the semicircular top
-const PORTAL_MEMBRANE_RADIUS = PORTAL_ARCH_RADIUS - PORTAL_ARCH_TUBE;
 
 // GLB obstacles switch to their decimated LOD (~4.5k tris instead of ~57k)
 // this far from the camera. Only the full-detail level casts shadows, so
@@ -72,49 +68,6 @@ function randomRunSeed(): number {
   }
   return Math.floor(Math.random() * 0xffffffff) >>> 0;
 }
-
-const PORTAL_MEMBRANE_VERTEX = /* glsl */ `
-  varying vec3 vLocal;
-  varying vec3 vWorldNormal;
-  varying vec3 vViewDir;
-  void main() {
-    vLocal = position;
-    vec4 worldPos = modelMatrix * vec4(position, 1.0);
-    vWorldNormal = normalize(mat3(modelMatrix) * normal);
-    vViewDir = normalize(cameraPosition - worldPos.xyz);
-    gl_Position = projectionMatrix * viewMatrix * worldPos;
-  }
-`;
-
-// Energy membrane filling the gateway: almost clear in the middle, glowing
-// softly toward the frame and at grazing view angles (fresnel), with a slow
-// shimmer so it reads as a field rather than a flat sheet of colour.
-const PORTAL_MEMBRANE_FRAGMENT = /* glsl */ `
-  uniform vec3 uColor;
-  uniform float uTime;
-  uniform float uRadius;
-  uniform float uSpringY;
-  varying vec3 vLocal;
-  varying vec3 vWorldNormal;
-  varying vec3 vViewDir;
-  void main() {
-    vec2 p = vLocal.xy;
-    float edgeDist = p.y <= uSpringY
-      ? uRadius - abs(p.x)
-      : uRadius - length(vec2(p.x, p.y - uSpringY));
-    float edge = 1.0 - smoothstep(0.0, 1.1, edgeDist);
-    float fresnel = pow(1.0 - abs(dot(normalize(vWorldNormal), normalize(vViewDir))), 2.0);
-    float swirl = sin(p.x * 2.3 + uTime * 1.7) * sin(p.y * 1.9 - uTime * 1.3)
-      + 0.5 * sin(length(p - vec2(0.0, uSpringY)) * 3.5 - uTime * 2.4);
-    float shimmer = 0.5 + 0.25 * swirl;
-    float groundFade = smoothstep(0.0, 0.6, p.y);
-    float alpha = (0.06 + 0.12 * shimmer + 0.6 * edge * edge + 0.35 * fresnel) * groundFade;
-    vec3 col = uColor * (0.7 + 0.6 * shimmer + 1.2 * edge);
-    gl_FragColor = vec4(col, clamp(alpha, 0.0, 0.85));
-    #include <tonemapping_fragment>
-    #include <colorspace_fragment>
-  }
-`;
 
 export interface ObstacleModelDef {
   id: string;
@@ -336,7 +289,7 @@ export const PATTERN_LIBRARY: PatternDef[] = [
   },
 ];
 
-export type ObstacleCategory = 'solid' | 'hurdle' | 'overhead' | 'boost-gate' | 'grind-rail' | 'portal';
+export type ObstacleCategory = 'solid' | 'hurdle' | 'overhead' | 'boost-gate' | 'grind-rail';
 
 export interface ObstacleItem {
   id: string;
@@ -355,8 +308,6 @@ export interface ObstacleItem {
   canJump?: boolean;
   isGrindRail?: boolean;
   isBoostGate?: boolean;
-  isPortal?: boolean;
-  targetBiome?: BiomeType;
   nearMissed?: boolean;
   telegraphMesh?: THREE.Mesh;
   /** Road height under the obstacle, cached at spawn. */
@@ -388,7 +339,6 @@ export interface PowerUpItem {
 }
 
 export interface CollisionResult {
-  hitPortal?: { targetBiome: BiomeType };
   hitBoostGate?: boolean;
   nearMiss?: boolean;
   nearMissPos?: THREE.Vector3;
@@ -670,23 +620,6 @@ export class ObstacleManager {
     polygonOffset: true,
     polygonOffsetFactor: -2,
   });
-  // Portal gateway: a heavy dark-steel arch on stone plinths. Only the inner
-  // trim and the energy membrane carry the destination world's colour.
-  private portalFrameMat = new THREE.MeshStandardMaterial({
-    color: 0x6b727c, // brushed dark steel
-    metalness: 0.5,
-    roughness: 0.42,
-  });
-  private portalPlinthMat = new THREE.MeshStandardMaterial({
-    color: 0x5d5a55, // dressed stone
-    metalness: 0.0,
-    roughness: 0.85,
-  });
-  // Shared clock for every portal membrane (advanced in update()).
-  private portalTimeUniform = { value: 0 };
-  // Portals are tinted with their destination world's energy color, one pair per world.
-  private portalMats = new Map<BiomeType, { trim: THREE.MeshStandardMaterial; membrane: THREE.ShaderMaterial }>();
-
   // Reusable Shared Geometries (Zero allocation on hot spawn path)
   private solidMainGeom = new THREE.BoxGeometry(2.45, 2.2, 0.8);
   private solidEdgeGeom = new THREE.BoxGeometry(2.52, 0.28, 0.86);
@@ -699,23 +632,6 @@ export class ObstacleManager {
   private overheadPostGeom = new THREE.BoxGeometry(0.2, 3.2, 0.2);
   private overheadBeamGeom = new THREE.BoxGeometry(2.45, 0.4, 0.2);
   private overheadTelegraphGeom: THREE.PlaneGeometry;
-
-  // Upper half of a torus (0..PI) forms the arch; pillars carry it to the road.
-  private portalArchGeom = new THREE.TorusGeometry(PORTAL_ARCH_RADIUS, PORTAL_ARCH_TUBE, 14, 48, Math.PI);
-  private portalPillarGeom = new THREE.CylinderGeometry(PORTAL_ARCH_TUBE, PORTAL_ARCH_TUBE * 1.15, PORTAL_ARCH_CENTER_Y, 14);
-  private portalPlinthGeom = new THREE.BoxGeometry(0.9, 0.55, 1.1);
-  private portalTrimArchGeom = new THREE.TorusGeometry(PORTAL_MEMBRANE_RADIUS + 0.02, 0.09, 8, 48, Math.PI);
-  private portalTrimPillarGeom = new THREE.BoxGeometry(0.15, PORTAL_ARCH_CENTER_Y, 0.15);
-  private portalMembraneGeom = (() => {
-    const r = PORTAL_MEMBRANE_RADIUS;
-    const shape = new THREE.Shape();
-    shape.moveTo(-r, 0);
-    shape.lineTo(-r, PORTAL_ARCH_CENTER_Y);
-    shape.absarc(0, PORTAL_ARCH_CENTER_Y, r, Math.PI, 0, true);
-    shape.lineTo(r, 0);
-    shape.closePath();
-    return new THREE.ShapeGeometry(shape, 32);
-  })();
 
   // Grind Rail Geometries & Materials
   private railTubeGeom = new THREE.BoxGeometry(0.26, 0.22, 18.0);
@@ -1000,7 +916,7 @@ export class ObstacleManager {
     return reused ?? build();
   }
 
-  /** Detach an obstacle's group and keep it for reuse (portals are not pooled). */
+  /** Detach an obstacle's group and keep it for reuse. */
   private releaseObstacleMesh(obs: ObstacleItem): void {
     this.group.remove(obs.mesh);
     if (!obs.poolKey) return;
@@ -1047,14 +963,14 @@ export class ObstacleManager {
 
     const spawnZ = this.lastSpawnZ + rowGap;
 
-    // World portal: sits exactly on the next world boundary and replaces the
-    // row that would land on or just before it, so the gateway has open road.
-    const boundaryZ = (Math.floor(this.lastSpawnZ / WORLD_LENGTH_DISTANCE) + 1) * WORLD_LENGTH_DISTANCE;
-    if (spawnZ >= boundaryZ - PORTAL_CLEARANCE) {
-      const nextBiome = getBiomeAt(boundaryZ);
-      if (nextBiome !== getBiomeAt(boundaryZ - 1)) {
-        this.lastSpawnZ = boundaryZ;
-        this.createPortalArch(boundaryZ, nextBiome);
+    // World-boundary gateway: keep the road clear on both sides of it. A row
+    // whose rails (+-9 m) or power-up (half a gap ahead) would reach into the
+    // clearance is skipped and spawning resumes past the gateway.
+    const boundaryIndex = Math.floor(this.lastSpawnZ / WORLD_LENGTH_DISTANCE) + 1;
+    if (boundaryIndex < WORLD_ORDER.length) {
+      const boundaryZ = boundaryIndex * WORLD_LENGTH_DISTANCE;
+      if (spawnZ + Math.max(9, rowGap * 0.5) > boundaryZ - GATEWAY_CLEARANCE) {
+        this.lastSpawnZ = boundaryZ + GATEWAY_CLEARANCE;
         return;
       }
     }
@@ -1340,99 +1256,6 @@ export class ObstacleManager {
     });
   }
 
-  private createPortalArch(z: number, targetBiome: BiomeType): void {
-    const groundH = getTerrainHeight(0, z);
-    const portalGroup = new THREE.Group();
-    // The group sits on the road; the arch's semicircular top is centred at
-    // PORTAL_ARCH_CENTER_Y and its pillars stand on the shoulders, so nothing
-    // cuts through the road or the outer lanes.
-    portalGroup.position.set(0, groundH, z);
-
-    const mats = this.getPortalMats(targetBiome);
-    const r = PORTAL_ARCH_RADIUS;
-
-    // Steel arch and pillars
-    const arch = new THREE.Mesh(this.portalArchGeom, this.portalFrameMat);
-    arch.position.set(0, PORTAL_ARCH_CENTER_Y, 0);
-    arch.castShadow = true;
-    portalGroup.add(arch);
-    for (const side of [-1, 1]) {
-      const pillar = new THREE.Mesh(this.portalPillarGeom, this.portalFrameMat);
-      pillar.position.set(side * r, PORTAL_ARCH_CENTER_Y / 2, 0);
-      pillar.castShadow = true;
-      portalGroup.add(pillar);
-
-      const plinth = new THREE.Mesh(this.portalPlinthGeom, this.portalPlinthMat);
-      plinth.position.set(side * r, 0.275, 0);
-      plinth.castShadow = true;
-      plinth.receiveShadow = true;
-      portalGroup.add(plinth);
-
-      // Glowing inner trim down each pillar, tinted to the destination world
-      const trimPillar = new THREE.Mesh(this.portalTrimPillarGeom, mats.trim);
-      trimPillar.position.set(side * (PORTAL_MEMBRANE_RADIUS + 0.02), PORTAL_ARCH_CENTER_Y / 2, 0);
-      portalGroup.add(trimPillar);
-    }
-    const trimArch = new THREE.Mesh(this.portalTrimArchGeom, mats.trim);
-    trimArch.position.set(0, PORTAL_ARCH_CENTER_Y, 0);
-    portalGroup.add(trimArch);
-
-    // Energy membrane filling the opening
-    const membrane = new THREE.Mesh(this.portalMembraneGeom, mats.membrane);
-    membrane.renderOrder = 2;
-    portalGroup.add(membrane);
-
-    portalGroup.frustumCulled = false;
-    this.group.add(portalGroup);
-
-    this.obstacles.push({
-      id: `portal-${z}`,
-      type: 'portal-arch',
-      category: 'portal',
-      lane: 0,
-      x: 0,
-      y: groundH + PORTAL_ARCH_CENTER_Y,
-      z,
-      width: 2 * (r + PORTAL_ARCH_TUBE),
-      height: PORTAL_ARCH_CENTER_Y + r + PORTAL_ARCH_TUBE,
-      depth: 2.0,
-      mesh: portalGroup,
-      isPortal: true,
-      targetBiome,
-    });
-  }
-
-  private getPortalMats(targetBiome: BiomeType) {
-    let mats = this.portalMats.get(targetBiome);
-    if (!mats) {
-      const color = new THREE.Color(getWorldForBiome(targetBiome).palette.energy);
-      mats = {
-        trim: new THREE.MeshStandardMaterial({
-          color: 0x111111,
-          emissive: color,
-          emissiveIntensity: 2.6,
-          metalness: 0.2,
-          roughness: 0.4,
-        }),
-        membrane: new THREE.ShaderMaterial({
-          uniforms: {
-            uColor: { value: color },
-            uTime: this.portalTimeUniform,
-            uRadius: { value: PORTAL_MEMBRANE_RADIUS },
-            uSpringY: { value: PORTAL_ARCH_CENTER_Y },
-          },
-          vertexShader: PORTAL_MEMBRANE_VERTEX,
-          fragmentShader: PORTAL_MEMBRANE_FRAGMENT,
-          transparent: true,
-          depthWrite: false,
-          side: THREE.DoubleSide,
-        }),
-      };
-      this.portalMats.set(targetBiome, mats);
-    }
-    return mats;
-  }
-
   private spawnCoin(x: number, yRel: number, z: number): void {
     const groundH = getTerrainHeight(x, z);
     // Drawn by the shared instanced mesh (syncCoinInstances).
@@ -1483,7 +1306,6 @@ export class ObstacleManager {
 
   update(playerZ: number, timeSeconds: number, playerSpeed = 22): void {
     this.lastPlayerSpeed = playerSpeed;
-    this.portalTimeUniform.value = timeSeconds;
 
     // 1. Animate coins (instanced, synced below) & powerups rotation
     this.coinTime = timeSeconds;
@@ -1587,7 +1409,6 @@ export class ObstacleManager {
     // One result object reused every frame (the engine reads it at once).
     const result = this._collision;
     result.collectedCoins = 0;
-    result.hitPortal = undefined;
     result.hitBoostGate = undefined;
     result.nearMiss = undefined;
     result.nearMissPos = undefined;
@@ -1630,15 +1451,6 @@ export class ObstacleManager {
 
       const dz = obs.z - pz;
       const dx = Math.abs(obs.x - px);
-
-      // Portal pass-through
-      if (obs.isPortal) {
-        if (Math.abs(dz) < 2.5 && dx < 3.0) {
-          obs.cleared = true;
-          result.hitPortal = { targetBiome: obs.targetBiome || 'dune-nomad' };
-        }
-        continue;
-      }
 
       // Boost Gate pass-through activation
       if (obs.isBoostGate) {
@@ -1753,8 +1565,7 @@ export class ObstacleManager {
     let w = 0;
     for (let r = 0; r < obstacles.length; r++) {
       const obs = obstacles[r];
-      // Portals are world boundaries, not hazards; never clear them away.
-      if (!obs.isPortal && obs.z >= playerZ && obs.z <= playerZ + distance) {
+      if (obs.z >= playerZ && obs.z <= playerZ + distance) {
         this.releaseObstacleMesh(obs);
       } else {
         obstacles[w++] = obs;
@@ -1817,12 +1628,6 @@ export class ObstacleManager {
     this.overheadPostGeom.dispose();
     this.overheadBeamGeom.dispose();
     this.overheadTelegraphGeom.dispose();
-    this.portalArchGeom.dispose();
-    this.portalPillarGeom.dispose();
-    this.portalPlinthGeom.dispose();
-    this.portalTrimArchGeom.dispose();
-    this.portalTrimPillarGeom.dispose();
-    this.portalMembraneGeom.dispose();
     this.coinGeom.dispose();
     this.powerUpGeom.dispose();
     this.railTubeGeom.dispose();
@@ -1842,13 +1647,6 @@ export class ObstacleManager {
     this.goldMat.dispose();
     this.telegraphMat.map?.dispose();
     this.telegraphMat.dispose();
-    this.portalFrameMat.dispose();
-    this.portalPlinthMat.dispose();
-    for (const mats of this.portalMats.values()) {
-      mats.trim.dispose();
-      mats.membrane.dispose();
-    }
-    this.portalMats.clear();
     this.railMat.dispose();
     this.railPostMat.dispose();
     this.boostMat.dispose();

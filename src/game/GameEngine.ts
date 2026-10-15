@@ -8,6 +8,8 @@ import { AudioManager } from './audio';
 import { ThemeManager } from './themeManager';
 import { WorldManager } from './WorldManager';
 import { WorldId } from './WorldConfig';
+import { getWorldConfig } from './worlds';
+import { PortalSystem } from './portal/PortalSystem';
 import { SkyIslesWorld } from './worlds/skyIsles';
 import { VerdantWildsWorld } from './worlds/verdantWilds';
 import { CrimsonDunesWorld } from './worlds/crimsonDunes';
@@ -124,6 +126,10 @@ export class GameEngine {
   public worlds: WorldStreamer;
   /** Async shader compiles (main + shadow-depth programs) for new content. */
   public shaders: ShaderWarmup;
+  /** World-change portal gateways (one per world boundary) and their window pass. */
+  public portals: PortalSystem;
+  // Extra objects hidden in the portal window pass (reused array).
+  private portalHidden: THREE.Object3D[] = [];
 
   // Adaptive render scale / quality
   public adaptive: AdaptiveQuality;
@@ -368,6 +374,21 @@ export class GameEngine {
       },
     });
     this.worlds.reset('sky-isles', this.graphicsConfig);
+
+    // Portal gateways: built alongside the next world, compiled and uploaded
+    // before they can be seen; each frame the view through the one ahead is
+    // rendered with the destination world's atmosphere (see renderPortalWindow).
+    this.portals = new PortalSystem({
+      scene: this.scene,
+      renderer: this.renderer,
+      sky: this.skyMgr,
+      compile: roots => this.shaders.compile(roots),
+      warmDraw: roots => {
+        this.shaders.warmDraw(roots, () => true);
+      },
+      currentWorldRoots: () => this.worlds.getCurrentRoots(),
+    });
+    this.portalHidden = [this.playerMgr.group];
 
     // Populate initial chunks & foliage
     this.terrainMgr.update(this.playerMgr.position.z, this.playerMgr.position.x, 3);
@@ -771,16 +792,6 @@ export class GameEngine {
 
         const collision = this.obstacleMgr.checkCollisions(this.playerMgr.position, this.playerMgr.isSliding);
 
-        // World Portal Warp: portals sit on world boundaries, so crossing one
-        // switches the campaign world below (and its "ENTERING" banner).
-        if (collision.hitPortal) {
-          const target = collision.hitPortal.targetBiome;
-          this.playerMgr.triggerPortalWarp(target, this.audio);
-          this.themeMgr.triggerPortalWarp(target, this.playerMgr.position);
-          this.obstacleMgr.clearAhead(this.playerMgr.position.z, 90);
-          this.boostGlitchTimer = 0.85;
-        }
-
         // Boost Gate Encounter
         if (collision.hitBoostGate) {
           this.playerMgr.applyBoostGateHit(this.audio);
@@ -866,8 +877,19 @@ export class GameEngine {
       // 3. World Distance Progression & Environmental Transitions
       const playerDistance = Math.max(0, this.playerMgr.position.z);
       const transitionResult = this.worldMgr.updateByDistance(playerDistance);
-      const { metrics, blended, shouldNotifyNewWorld, worldToAnnounce } = transitionResult;
+      const { metrics, shouldNotifyNewWorld, worldToAnnounce } = transitionResult;
       this.playerMgr.stats.currentWorldId = metrics.currentWorldId;
+
+      // Portal gateway: crossing its plane (any lane, airborne or not) is the
+      // world switch. It reports the same frame the world manager above flips
+      // the current world, and the sky/world swap below happen on it too.
+      const crossing = this.portals.update(this.playerMgr.position.z, timeSeconds, metrics.currentWorldId);
+      if (crossing && this.playerMgr.gameState === 'playing') {
+        const dest = getWorldConfig(crossing.worldId);
+        this.playerMgr.triggerPortalWarp(dest.compatibleBiomes[0], this.audio);
+        this.themeMgr.triggerPortalWarp(dest.palette.energy, this.playerMgr.position);
+        this.obstacleMgr.clearAhead(this.playerMgr.position.z, 90);
+      }
 
       if (metrics.state === 'TRANSITIONING' && this.lastTransitionState !== 'TRANSITIONING') {
         telemetry.startTransition();
@@ -934,10 +956,10 @@ export class GameEngine {
         this.foliageMgr.grassMaterial.uniforms.uPlayerPos.value.copy(this.playerMgr.position);
       }
 
-      // Sky, sun, fog and exposure blend over the last metres before a
-      // gateway; the reflection environment is a cached per-world bake that is
-      // swapped (never re-baked) when the boundary is crossed.
-      this.skyMgr.applyWorldAtmosphere(metrics.currentWorldId, metrics.nextWorldId, blended.nextWorldWeight);
+      // Sky, sun, fog, exposure and reflection environment are the current
+      // world's, snapped (no blend): the next world is seen through the
+      // gateway's window, and everything switches on the crossing frame.
+      this.skyMgr.applyAtmosphere(metrics.currentWorldId);
       this.skyMgr.update(this.playerMgr.position, this.playerMgr.velocity.z, timeSeconds, this.playerMgr.stats.speed);
       this.themeMgr.update(dt, this.skyMgr, this.terrainMgr, this.obstacleMgr, this.playerMgr.position, timeSeconds);
 
@@ -1114,12 +1136,14 @@ export class GameEngine {
       u.uChromaticAberration.value = chromaticAberration;
       u.uScanlines.value = this.shaderParams.scanlineIntensity ?? 0.0;
       u.uGlitch.value = glitchIntensity;
-      u.uWarpIntensity.value = this.playerMgr.warpTimer > 0 ? this.playerMgr.warpTimer * 0.75 : 0.0;
+      u.uWarpIntensity.value = this.portalFlash();
       u.uSpeedLines.value = effectiveSpeedLines;
       u.uHeatShimmer.value = heatShimmerFactor;
 
+      this.renderPortalWindow(true);
       totalDrawCalls = this.post.render(this.scene, this.camera);
     } else {
+      this.renderPortalWindow(false);
       this.renderer.setRenderTarget(null);
       this.renderer.render(this.scene, this.camera);
       totalDrawCalls = this.renderer.info.render.calls;
@@ -1138,6 +1162,38 @@ export class GameEngine {
       liveStats.publish(this.playerMgr.stats, this.currentFps, totalDrawCalls, instances, this.adaptive.label);
       if (this.onStatsUpdate) this.onStatsUpdate(this.playerMgr.stats, this.currentFps, totalDrawCalls, instances);
     }
+  }
+
+  /**
+   * Post-process flash on a portal crossing: a short exposure bloom that
+   * peaks on the crossing frame (hiding the world swap) and is gone in ~0.3 s.
+   */
+  private portalFlash(): number {
+    const warp = this.playerMgr.warpTimer;
+    if (!(warp > 0) || this.graphicsConfig.reducedFlash) return 0;
+    const elapsed = Math.max(0, 1.4 - warp);
+    const w = 0.85 * Math.exp(-elapsed * 9);
+    return w > 0.02 ? w : 0;
+  }
+
+  /**
+   * The view through the gateway ahead, drawn before the main pass with the
+   * destination world's atmosphere. Live on every tier with post-processing
+   * except the lowest; half resolution, quarter on mobile / when adaptive
+   * quality has scaled the frame down.
+   */
+  private renderPortalWindow(postEnabled: boolean): void {
+    const preset = this.graphicsConfig.preset;
+    const live = postEnabled && preset !== 'webgl-min';
+    const scale = preset === 'mobile-opt' || this.adaptive.levelIndex > 0 ? 0.25 : 0.5;
+    this.portals.renderWindow({
+      camera: this.camera,
+      width: this.drawingBufferSize.x,
+      height: this.drawingBufferSize.y,
+      live,
+      scale,
+      hide: this.portalHidden,
+    });
   }
 
   /** Draw calls of the last rendered frame (scene + post passes). */
@@ -1226,6 +1282,7 @@ export class GameEngine {
     // Back to Sky Isles: every world instance (current, next, retiring) is
     // dropped and the sky snaps to Sky Isles' atmosphere.
     this.worlds.reset('sky-isles', this.graphicsConfig);
+    this.portals.reset();
     this.skyMgr.applyAtmosphere('sky-isles');
     this.gameModeMgr.onRunStart();
     this.adaptive.resetTimers();
@@ -1294,6 +1351,7 @@ export class GameEngine {
     this.themeMgr.dispose();
     this.worldMgr.dispose();
     this.worlds.dispose();
+    this.portals.dispose();
 
     this.gpuTimer.dispose();
     this.shaders.dispose();

@@ -215,86 +215,134 @@ for (const [legacyId, targetId] of Object.entries(LEGACY_THEME_ALIASES)) {
   }
 }
 
+// Portal crossing FX: one ring of light expanding through the gateway plane
+// and a few short light streaks rushing past the rider, in the destination
+// world's energy colour. Kept brief and faint (realistic lens/air effect,
+// not a neon tunnel).
+const WARP_DURATION = 0.7;
+const STREAK_COUNT = 40;
+
 export class ThemeManager {
   scene: THREE.Scene;
   currentTheme: ThemeDefinition;
 
   // Warp Portal FX Group
   private warpGroup: THREE.Group;
-  private warpRings: THREE.Mesh[] = [];
+  private ring: THREE.Mesh;
+  private ringMat: THREE.MeshBasicMaterial;
+  private streaks: THREE.InstancedMesh;
+  private streakMat: THREE.MeshBasicMaterial;
+  private streakParams = new Float32Array(STREAK_COUNT * 4); // angle, radius, length, z offset
   private isWarping = false;
   private warpTimer = 0;
+  private warpZ = 0;
+  private color = new THREE.Color();
+  private dummy = new THREE.Object3D();
 
   constructor(scene: THREE.Scene) {
     this.scene = scene;
     this.currentTheme = THEME_REGISTRY['neon-undercity'];
 
     this.warpGroup = new THREE.Group();
+    this.warpGroup.name = 'PortalWarpFX';
     this.warpGroup.visible = false;
     this.scene.add(this.warpGroup);
 
-    // Build Portal Rings for transition FX
-    const ringMat = new THREE.MeshBasicMaterial({
-      color: 0x00f0ff,
-      transparent: true,
-      opacity: 0.8,
-    });
-    for (let i = 0; i < 5; i++) {
-      const ringGeom = new THREE.TorusGeometry(3.5 + i * 0.8, 0.12, 8, 32);
-      const ring = new THREE.Mesh(ringGeom, ringMat);
-      ring.position.z = i * 4.0;
-      this.warpRings.push(ring);
-      this.warpGroup.add(ring);
+    const fxMat = () =>
+      new THREE.MeshBasicMaterial({
+        color: 0xffffff,
+        transparent: true,
+        opacity: 0,
+        blending: THREE.AdditiveBlending,
+        depthWrite: false,
+        fog: false,
+      });
+    this.ringMat = fxMat();
+    this.ring = new THREE.Mesh(new THREE.TorusGeometry(1, 0.0055, 6, 128), this.ringMat);
+    this.ring.frustumCulled = false;
+    this.warpGroup.add(this.ring);
+
+    this.streakMat = fxMat();
+    this.streaks = new THREE.InstancedMesh(new THREE.BoxGeometry(1, 1, 1), this.streakMat, STREAK_COUNT);
+    this.streaks.frustumCulled = false;
+    this.warpGroup.add(this.streaks);
+    let seed = 7;
+    const rnd = () => ((seed = (seed * 16807) % 2147483647) - 1) / 2147483646;
+    for (let i = 0; i < STREAK_COUNT; i++) {
+      this.streakParams[i * 4] = (i / STREAK_COUNT) * Math.PI * 2 + rnd() * 0.3;
+      this.streakParams[i * 4 + 1] = 2.2 + rnd() * 6.5;
+      this.streakParams[i * 4 + 2] = 2.5 + rnd() * 6;
+      this.streakParams[i * 4 + 3] = 4 + rnd() * 34;
     }
+    this.layoutStreaks(0, 0, 1.5, 0);
   }
 
-  triggerPortalWarp(targetBiome: BiomeType, playerPos: THREE.Vector3): void {
-    const nextTheme = THEME_REGISTRY[targetBiome];
-    if (!nextTheme) {
-      console.warn(`[ThemeManager] Biome '${targetBiome}' not found in registry, falling back to neon-undercity`);
-      this.currentTheme = THEME_REGISTRY['neon-undercity'];
-    } else {
-      this.currentTheme = nextTheme;
-    }
-
+  /**
+   * Crossing a portal gateway: a ring of light expands through the gateway
+   * plane and light streaks rush past, tinted with the destination world's
+   * energy colour.
+   */
+  triggerPortalWarp(color: THREE.ColorRepresentation, playerPos: THREE.Vector3): void {
+    this.color.set(color).lerp(new THREE.Color(1, 1, 1), 0.4).multiplyScalar(2.2);
+    this.ringMat.color.copy(this.color);
+    this.streakMat.color.copy(this.color);
     this.isWarping = true;
-    this.warpTimer = 1.2;
-
-    this.warpGroup.position.set(playerPos.x, playerPos.y + 1.2, playerPos.z + 10);
+    this.warpTimer = WARP_DURATION;
+    this.warpZ = playerPos.z;
+    this.warpGroup.position.set(0, 0, 0);
     this.warpGroup.visible = true;
+  }
+
+  private layoutStreaks(px: number, py: number, cy: number, travel: number): void {
+    const d = this.dummy;
+    for (let i = 0; i < STREAK_COUNT; i++) {
+      const a = this.streakParams[i * 4];
+      const r = this.streakParams[i * 4 + 1];
+      const len = this.streakParams[i * 4 + 2];
+      const zo = this.streakParams[i * 4 + 3];
+      d.position.set(px * 0.5 + Math.cos(a) * r, py + cy + Math.sin(a) * r * 0.75, this.warpZ + zo - travel);
+      d.scale.set(0.022, 0.022, len);
+      d.rotation.set(0, 0, 0);
+      d.updateMatrix();
+      this.streaks.setMatrixAt(i, d.matrix);
+    }
+    this.streaks.instanceMatrix.needsUpdate = true;
   }
 
   update(
     dt: number,
-    skyMgr: SkyManager,
-    terrainMgr: TerrainManager,
-    obstacleMgr: ObstacleManager,
+    _skyMgr: SkyManager,
+    _terrainMgr: TerrainManager,
+    _obstacleMgr: ObstacleManager,
     playerPos: THREE.Vector3,
-    timeSeconds: number
+    _timeSeconds: number
   ): void {
-    if (this.isWarping) {
-      this.warpTimer -= dt;
-
-      // Animate expanding warp rings
-      for (let i = 0; i < this.warpRings.length; i++) {
-        const ring = this.warpRings[i];
-        ring.rotation.z = timeSeconds * (i % 2 === 0 ? 3 : -3);
-        const scale = 1.0 + (1.2 - this.warpTimer) * 0.8;
-        ring.scale.set(scale, scale, scale);
-      }
-
-      if (this.warpTimer <= 0) {
-        this.isWarping = false;
-        this.warpGroup.visible = false;
-      }
+    if (!this.isWarping) return;
+    this.warpTimer -= dt;
+    if (this.warpTimer <= 0) {
+      this.isWarping = false;
+      this.warpGroup.visible = false;
+      this.ringMat.opacity = 0;
+      this.streakMat.opacity = 0;
+      return;
     }
+    const e = 1 - this.warpTimer / WARP_DURATION; // 0 -> 1
+    // Ring: born at the gateway plane around the rider, expanding outward.
+    const radius = 1.5 + 13 * (1 - (1 - e) * (1 - e));
+    this.ring.position.set(playerPos.x * 0.5, playerPos.y + 1.5, this.warpZ + 0.5);
+    this.ring.scale.set(radius, radius * 0.8, radius);
+    this.ringMat.opacity = 0.55 * (1 - e) * Math.min(1, e * 8);
+    // Streaks rush backwards past the rider (relative speed ~70 m/s).
+    this.layoutStreaks(playerPos.x, playerPos.y, 1.5, e * WARP_DURATION * 70 - (playerPos.z - this.warpZ));
+    this.streakMat.opacity = 0.45 * Math.sin(Math.PI * Math.min(1, e * 1.15));
   }
 
   dispose(): void {
     this.scene.remove(this.warpGroup);
-    for (const ring of this.warpRings) {
-      ring.geometry.dispose();
-      (ring.material as THREE.Material).dispose();
-    }
+    this.ring.geometry.dispose();
+    this.ringMat.dispose();
+    this.streaks.geometry.dispose();
+    this.streaks.dispose();
+    this.streakMat.dispose();
   }
 }

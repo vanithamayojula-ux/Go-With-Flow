@@ -183,6 +183,11 @@ export class ObsidianCoreWorld extends StreamedWorld {
   private brazierStone: InstancePool | null = null;
   private brazierCoals: InstancePool | null = null;
   private rockPools: RockPools | null = null;
+  // Citadels, forge arches and lava falls are instanced too, so every draw
+  // configuration is compiled and warm-drawn before the world is shown.
+  private citadelPools: InstancePool[] = [];
+  private forgeArchPool: InstancePool | null = null;
+  private fallPools: InstancePool[] = [];
 
   constructor(scene: THREE.Scene, graphicsConfig: GraphicsConfig) {
     super(scene, graphicsConfig, 'obsidian-core', 'ObsidianCoreWorldRootGroup');
@@ -211,6 +216,16 @@ export class ObsidianCoreWorld extends StreamedWorld {
     this.rockPools = createRockPools('obsidian', ROCK_IDS, k.rockMats, 48, 32);
     for (const p of this.rockPools.near.values()) this.addPool(p);
     for (const p of this.rockPools.far.values()) this.addPool(p);
+    this.citadelPools = [
+      this.addPool(new InstancePool('obsidian-citadel-basalt', k.citadel.basalt, k.basalt.material, 6, { castShadow: true })),
+      this.addPool(new InstancePool('obsidian-citadel-glass', k.citadel.obsidian, k.obsidianGlass, 6, { castShadow: true })),
+      this.addPool(new InstancePool('obsidian-citadel-molten', k.citadel.molten, k.coreLava, 6)),
+    ];
+    this.forgeArchPool = this.addPool(new InstancePool('obsidian-forge-arch', k.forgeArch, k.basalt.material, 4, { castShadow: true }));
+    this.fallPools = [
+      this.addPool(new InstancePool('obsidian-fall-sheet', k.fall.sheet, k.fallLava, 12)),
+      this.addPool(new InstancePool('obsidian-fall-cliff', k.fall.cliff, k.basalt.material, 12, { castShadow: true })),
+    ];
   }
 
   protected applyScannedAssets(): void {
@@ -316,13 +331,9 @@ export class ObsidianCoreWorld extends StreamedWorld {
       const cSide = rnd(21) > 0.5 ? 1 : -1;
       const cx = cSide * (32 + rnd(22) * 20);
       const cz = centerZ + 16;
-      this.addObject(chunk, this.makeCitadel(cx, this.footprintBaseY(cx, cz, 10) - 1.0, cz, -cSide * Math.PI * 0.5));
+      this.placeParts(chunk, this.citadelPools, trs(cx, this.footprintBaseY(cx, cz, 10) - 1.0, cz, -cSide * Math.PI * 0.5, 1.1));
     } else if (rnd(15) > 0.85 && this.canSpanRoad(centerZ + 10)) {
-      const arch = new THREE.Mesh(k.forgeArch, k.basalt.material);
-      arch.position.set(0, 0, centerZ + 10);
-      arch.castShadow = true;
-      arch.receiveShadow = true;
-      this.addObject(chunk, arch);
+      this.place(chunk, this.forgeArchPool, trs(0, 0, centerZ + 10, 0, 1));
     }
 
     // 5. Roadside fire bowls on the ash shoulder (|x| = 8.2, bowl radius 1.4)
@@ -342,34 +353,10 @@ export class ObsidianCoreWorld extends StreamedWorld {
       const fSide = rnd(20) > 0.5 ? 1 : -1;
       const fz = centerZ + (rnd(24) - 0.5) * 30;
       if (this.inRange(fz, 5)) {
-        const sheet = new THREE.Mesh(k.fall.sheet, k.fallLava);
-        sheet.position.set(fSide * 17.4, -1.5, fz);
-        sheet.rotation.y = -fSide * Math.PI * 0.5; // sheet front faces the road
-        const cliff = new THREE.Mesh(k.fall.cliff, k.basalt.material);
-        cliff.castShadow = true;
-        cliff.receiveShadow = true;
-        sheet.add(cliff);
-        this.addObject(chunk, sheet);
+        // Sheet front faces the road; the cliff shares the sheet's frame
+        this.placeParts(chunk, this.fallPools, trs(fSide * 17.4, -1.5, fz, -fSide * Math.PI * 0.5, 1));
       }
     }
-  }
-
-  private makeCitadel(x: number, y: number, z: number, rotY: number): THREE.Group {
-    const k = K as ObsidianKit;
-    const g = new THREE.Group();
-    g.position.set(x, y, z);
-    g.rotation.y = rotY;
-    g.scale.setScalar(1.1);
-    const add = (geo: THREE.BufferGeometry, mat: THREE.Material, shadow: boolean) => {
-      const m = new THREE.Mesh(geo, mat);
-      m.castShadow = shadow;
-      m.receiveShadow = true;
-      g.add(m);
-    };
-    add(k.citadel.basalt, k.basalt.material, true);
-    add(k.citadel.obsidian, k.obsidianGlass, true);
-    add(k.citadel.molten, k.coreLava, false);
-    return g;
   }
 
   protected animate(playerZ: number, dt: number, time: number): void {
@@ -408,5 +395,8 @@ export class ObsidianCoreWorld extends StreamedWorld {
     this.brazierStone = null;
     this.brazierCoals = null;
     this.rockPools = null;
+    this.citadelPools = [];
+    this.forgeArchPool = null;
+    this.fallPools = [];
   }
 }

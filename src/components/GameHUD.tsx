@@ -2,8 +2,8 @@ import React, { useState } from 'react';
 import { Volume2, VolumeX, Sliders, Eye, Palette, Smartphone, Monitor, Shield, Trophy, Zap, Radio, Terminal, Pause, Camera, MoreHorizontal } from 'lucide-react';
 import { BiomeType, LightingMode, PlayerStats } from '../types';
 import { WorldIntroBanner } from './WorldIntroBanner';
-import { WORLDS, WORLD_ORDER, WorldId } from '../game/worlds';
-import { useLiveStats } from '../state/liveStats';
+import { WORLDS, WORLD_ORDER, WORLD_LENGTH_DISTANCE, WorldId } from '../game/worlds';
+import { useLiveStats, useLiveStatsSelector, type LiveStatsSnapshot } from '../state/liveStats';
 
 // The banner only depends on the world id; skip it on the HUD's stats ticks.
 const MemoWorldIntroBanner = React.memo(WorldIntroBanner);
@@ -54,6 +54,59 @@ const WORLD_SECTOR_INFO: Record<string, { sector: number; name: string; icon: st
     bg: 'bg-rose-950/40',
     swatch: 'bg-rose-500',
   },
+};
+
+/** Countdown chip shows within this distance of the next portal gateway. */
+const PORTAL_CHIP_RANGE = 600;
+
+/**
+ * "<index of the world behind the next portal>|<metres to it, in 10 m steps>",
+ * or "" when no portal is within range / in the final world. A primitive, so
+ * the chip only re-renders when the 10 m bucket changes.
+ */
+function selectPortalCountdown(snap: LiveStatsSnapshot): string {
+  const d = Math.max(0, snap.stats.distance || 0);
+  const nextIndex = Math.floor(d / WORLD_LENGTH_DISTANCE) + 1;
+  if (nextIndex >= WORLD_ORDER.length) return '';
+  const metres = nextIndex * WORLD_LENGTH_DISTANCE - d;
+  if (metres > PORTAL_CHIP_RANGE) return '';
+  return nextIndex + '|' + Math.max(0, Math.ceil(metres / 10) * 10);
+}
+
+/**
+ * "PORTAL -> <next world> . 350 m" on every screen size in the last ~600 m
+ * before a portal gateway; otherwise (desktop only) the next world's name.
+ */
+const PortalCountdownChip: React.FC<{ currentWorldId: WorldId }> = ({ currentWorldId }) => {
+  const countdown = useLiveStatsSelector(selectPortalCountdown);
+  if (countdown) {
+    const [idx, metres] = countdown.split('|');
+    const nextId = WORLD_ORDER[Number(idx)];
+    const info = WORLD_SECTOR_INFO[nextId];
+    return (
+      <div
+        role="status"
+        aria-live="off"
+        className={`flex px-2.5 py-1.5 rounded-lg bg-black/80 border text-xs font-bold items-center gap-1.5 shadow-md whitespace-nowrap ${info.border}`}
+      >
+        <span className="text-[9px] text-slate-300 font-black uppercase tracking-wider">PORTAL</span>
+        <span className="text-slate-400" aria-hidden="true">→</span>
+        <div className={`w-2 h-2 rounded-full ${info.swatch}`} aria-hidden="true" />
+        <span className={info.text}>{WORLDS[nextId].name}</span>
+        <span className="text-slate-500" aria-hidden="true">·</span>
+        <span className="text-white tabular-nums">{metres} m</span>
+      </div>
+    );
+  }
+  const nextId = WORLD_ORDER[WORLD_ORDER.indexOf(currentWorldId) + 1];
+  if (!nextId) return null;
+  return (
+    <div className="hidden sm:flex px-2.5 py-1.5 rounded-lg bg-black/75 border border-slate-700 text-xs font-bold items-center gap-1.5 shadow-md whitespace-nowrap">
+      <span className="text-[9px] text-slate-400 font-bold uppercase">NEXT:</span>
+      <div className={`w-2.5 h-2.5 rounded-full ${WORLD_SECTOR_INFO[nextId].swatch}`} />
+      <span className="text-slate-200">{WORLDS[nextId].name}</span>
+    </div>
+  );
 };
 
 interface GameHUDProps {
@@ -178,14 +231,7 @@ const GameHUDView: React.FC<GameHUDProps> = ({
     }
   };
 
-  // World behind the next portal; null in the final world (no portal after it).
-  const getNextWorldInfo = (current: WorldId) => {
-    const nextId = WORLD_ORDER[WORLD_ORDER.indexOf(current) + 1];
-    return nextId ? { name: WORLDS[nextId].name, swatch: WORLD_SECTOR_INFO[nextId].swatch } : null;
-  };
-
   const biomeBadge = getBiomeBadge(stats.currentBiome);
-  const nextThemeInfo = getNextWorldInfo(stats.currentWorldId || 'sky-isles');
   const overdrivePercent = Math.round(stats.overdriveMeter || stats.styleMeter || 0);
 
   const closeMenuAnd = (action?: () => void) => () => {
@@ -236,14 +282,8 @@ const GameHUDView: React.FC<GameHUDProps> = ({
               </div>
             )}
 
-            {/* Next World Preview Swatch */}
-            {nextThemeInfo && (
-              <div className="hidden sm:flex px-2.5 py-1.5 rounded-lg bg-black/75 border border-slate-700 text-xs font-bold items-center gap-1.5 shadow-md whitespace-nowrap">
-                <span className="text-[9px] text-slate-400 font-bold uppercase">NEXT:</span>
-                <div className={`w-2.5 h-2.5 rounded-full ${nextThemeInfo.swatch} animate-pulse`} />
-                <span className="text-slate-200">{nextThemeInfo.name}</span>
-              </div>
-            )}
+            {/* Next portal countdown (all sizes) / next world name (desktop) */}
+            <PortalCountdownChip currentWorldId={stats.currentWorldId || 'sky-isles'} />
 
             {/* Active Game Mode Badge */}
             {gameModeMgr && gameModeMgr.activeModeId !== 'standard-run' && (

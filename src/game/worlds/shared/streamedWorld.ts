@@ -21,6 +21,15 @@ export interface StreamChunk {
  */
 export type WarmTask = () => void | Iterator<unknown>;
 
+/**
+ * Shadow casters keep this far (plus their own horizontal reach) from the
+ * stream range ends: the shadow pass is not clipped at the range, so a caster
+ * right at a gateway would throw its shadow across into the neighbouring world.
+ */
+export const SHADOW_EDGE_MARGIN = 15;
+/** Length of the range start that warmup() pre-spawns (kept until the rider arrives). */
+export const PRESPAWN_LENGTH = 300;
+
 const now = (): number => (typeof performance !== 'undefined' ? performance.now() : Date.now());
 
 /**
@@ -132,7 +141,7 @@ export abstract class StreamedWorld {
     const startZ = Number.isFinite(this.lastPlayerZ)
       ? Math.max(this.streamMin, this.lastPlayerZ - this.behindDist)
       : this.streamMin;
-    const endZ = Math.min(this.streamMax, startZ + Math.min(this.aheadDist, 300));
+    const endZ = Math.min(this.streamMax, startZ + Math.min(this.aheadDist, PRESPAWN_LENGTH));
     do {
       const idx = this.nextMissingChunk(startZ, endZ);
       if (idx === null) return true;
@@ -206,13 +215,46 @@ export abstract class StreamedWorld {
     return pool;
   }
 
-  /** Adds an instance to `pool` and records it on the chunk. */
+  /**
+   * Adds an instance to `pool` and records it on the chunk. Shadow casters
+   * whose footprint comes within SHADOW_EDGE_MARGIN of a range end are skipped.
+   */
   protected place(chunk: StreamChunk, pool: InstancePool | null, matrix: THREE.Matrix4, color?: THREE.Color): boolean {
     if (!pool) return false;
+    if (pool.wantsShadow && !this.shadowSafe(pool, matrix)) return false;
     const h = pool.add(matrix, color);
     if (!h) return false;
     chunk.handles.push(h);
     return true;
+  }
+
+  /**
+   * Places one multi-part structure (one pool per part, same transform). All
+   * parts or none: if any shadow-casting part is too close to a range end the
+   * whole structure is skipped.
+   */
+  protected placeParts(chunk: StreamChunk, pools: Array<InstancePool | null>, matrix: THREE.Matrix4): boolean {
+    for (const p of pools) if (p && p.wantsShadow && !this.shadowSafe(p, matrix)) return false;
+    let ok = false;
+    for (const p of pools) {
+      if (!p) continue;
+      const h = p.add(matrix);
+      if (h) {
+        chunk.handles.push(h);
+        ok = true;
+      }
+    }
+    return ok;
+  }
+
+  /** True when a caster at `matrix` stays SHADOW_EDGE_MARGIN clear of both range ends. */
+  protected shadowSafe(pool: InstancePool, matrix: THREE.Matrix4): boolean {
+    const e = matrix.elements;
+    const sx = Math.hypot(e[0], e[1], e[2]);
+    const sz = Math.hypot(e[8], e[9], e[10]);
+    const r = pool.horizontalReach() * Math.max(sx, sz) + SHADOW_EDGE_MARGIN;
+    const z = e[14];
+    return z - r >= this.streamMin && z + r < this.streamMax;
   }
 
   protected addObject(chunk: StreamChunk, obj: THREE.Object3D): void {
@@ -345,9 +387,18 @@ export abstract class StreamedWorld {
     // Keep chunks pre-spawned by warmup() ahead of the rider (they are still
     // inside the distance fade); only drop what is behind, out of range, or
     // implausibly far ahead.
+    // While the rider has not reached the range yet, the pre-spawned start of
+    // the range ([streamMin, streamMin + PRESPAWN_LENGTH)) is always kept, so
+    // the engine's hidden pre-warm is never thrown away and re-spawned.
     const farLimit = playerZ + this.aheadDist + 800;
+    const keepEnd = playerZ < this.streamMin ? this.streamMin + PRESPAWN_LENGTH : -Infinity;
     for (const chunk of this.chunks.values()) {
-      if (chunk.z1 <= lo || chunk.z0 >= this.streamMax || chunk.z1 <= this.streamMin || chunk.z0 >= farLimit) this.releaseChunk(chunk);
+      if (chunk.z0 >= this.streamMax || chunk.z1 <= this.streamMin) {
+        this.releaseChunk(chunk);
+        continue;
+      }
+      if (chunk.z0 < keepEnd) continue;
+      if (chunk.z1 <= lo || chunk.z0 >= farLimit) this.releaseChunk(chunk);
     }
     if (!(hi > lo)) return;
 

@@ -199,7 +199,7 @@ export const HowToPlayModal: React.FC<HowToPlayModalProps> = ({ isOpen, onClose 
                 <div>
                   <div className="text-xs font-bold text-white">World Warp Portals</div>
                   <p className="text-[11px] text-white/60 mt-0.5">
-                    Ride through colossal swirling vortex gates every 450m to seamlessly teleport across 15 distinct cyberpunk worlds.
+                    Every 2,250 m a giant stone gateway spans the road: you can see the next world through it, and riding through takes you there. Five worlds: Sky Isles, Verdant Wilds, Crimson Dunes, Crystal Heights and Obsidian Core.
                   </p>
                 </div>
               </div>

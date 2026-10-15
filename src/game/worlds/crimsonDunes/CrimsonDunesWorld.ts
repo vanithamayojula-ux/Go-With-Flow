@@ -188,6 +188,8 @@ export class CrimsonDunesWorld extends StreamedWorld {
   private cactusPool: InstancePool | null = null;
   private shrubPool: InstancePool | null = null;
   private rockPools: RockPools | null = null;
+  /** Road-spanning arch parts (instanced so they are compiled before the world shows). */
+  private archPools: InstancePool[] = [];
 
   constructor(scene: THREE.Scene, graphicsConfig: GraphicsConfig) {
     super(scene, graphicsConfig, 'crimson-dunes', 'CrimsonDunesWorldRootGroup');
@@ -219,6 +221,11 @@ export class CrimsonDunesWorld extends StreamedWorld {
     this.rockPools = createRockPools('crimson', ROCK_IDS, k.rockMats, 32, 32);
     for (const p of this.rockPools.near.values()) this.addPool(p);
     for (const p of this.rockPools.far.values()) this.addPool(p);
+    this.archPools = [
+      this.addPool(new InstancePool('crimson-arch-stone', k.arch.stone, k.stone.material, 4, { castShadow: true })),
+      this.addPool(new InstancePool('crimson-arch-red', k.arch.red, k.stoneRed.material, 4, { castShadow: true })),
+      this.addPool(new InstancePool('crimson-arch-relic', k.arch.relic, k.relicMat, 4, { castShadow: true })),
+    ];
   }
 
   protected applyScannedAssets(): void {
@@ -280,7 +287,7 @@ export class CrimsonDunesWorld extends StreamedWorld {
 
     // 4. Rare monumental arch over the road, else a roadside obelisk / colonnade
     if (rnd(14) > 0.9 && this.canSpanRoad(centerZ + 12)) {
-      this.addObject(chunk, this.makeArch(centerZ + 12));
+      this.placeParts(chunk, this.archPools, trs(0, 0, centerZ + 12, 0, 1));
     } else if (rnd(15) > 0.45) {
       const side = rnd(16) > 0.5 ? 1 : -1;
       if (rnd(17) > 0.5) {
@@ -327,22 +334,6 @@ export class CrimsonDunesWorld extends StreamedWorld {
     }
   }
 
-  private makeArch(z: number): THREE.Group {
-    const k = K as CrimsonKit;
-    const g = new THREE.Group();
-    g.position.set(0, 0, z);
-    const add = (geo: THREE.BufferGeometry, mat: THREE.Material) => {
-      const m = new THREE.Mesh(geo, mat);
-      m.castShadow = true;
-      m.receiveShadow = true;
-      g.add(m);
-    };
-    add(k.arch.stone, k.stone.material);
-    add(k.arch.red, k.stoneRed.material);
-    add(k.arch.relic, k.relicMat);
-    return g;
-  }
-
   protected animate(playerZ: number, dt: number, time: number): void {
     const k = K as CrimsonKit;
     k.sand.tick(dt);
@@ -371,5 +362,6 @@ export class CrimsonDunesWorld extends StreamedWorld {
     this.cactusPool = null;
     this.shrubPool = null;
     this.rockPools = null;
+    this.archPools = [];
   }
 }
