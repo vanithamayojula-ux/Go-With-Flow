@@ -24,6 +24,37 @@ const COMBO_GRACE_SECONDS = 4.0;
 const CAM_OFFSET_UPRIGHT = new THREE.Vector3(0, 2.6, -5.2);
 const CAM_OFFSET_WIDE = new THREE.Vector3(0, 2.85, -5.8);
 
+// Jump arc. apex = v^2 / 2g and airtime = 2v / g. v = 15, g = 40 gives
+// 2.81 m / 0.75 s analytically; the per-frame integration trims ~v*dt/2, so
+// in game (60 Hz) the board peaks ~2.7 m above its hover line after ~0.73 s.
+// Still clears a 1 m hurdle for ~0.6 s (the old 15.5 / 30 arc floated 4 m for 1 s).
+export const JUMP_GRAVITY = 40.0;
+export const JUMP_VELOCITY = 15.0;
+/** Peak height of a jump above the board's hover line (metres). */
+export const JUMP_APEX_HEIGHT = (JUMP_VELOCITY * JUMP_VELOCITY) / (2 * JUMP_GRAVITY);
+/** Seconds from take-off to landing on flat ground. */
+export const JUMP_AIRTIME = (2 * JUMP_VELOCITY) / JUMP_GRAVITY;
+
+// A jump/slide press is remembered this long, so a tap made a few frames
+// before landing (or between two physics steps) is not lost.
+const INPUT_BUFFER_SECONDS = 0.15;
+
+// The double-tap Hoverboard Shield recharges for this long after each use.
+export const SHIELD_COOLDOWN_SECONDS = 20;
+
+// Jetpack: cruise above the traffic for the whole power-up, easing back down
+// over the last second.
+export const JETPACK_CRUISE_ALTITUDE = 5.5;
+const JETPACK_DESCENT_SECONDS = 1.0;
+const JETPACK_FOLLOW_RATE = 5.0;
+
+// Distance speed ramp: the full bonus arrives around world 3-4 (~6.5 km)
+// instead of 1.1 km. Ease-out so early speed-up is still noticeable.
+const TOP_SPEED_DISTANCE = 6500;
+const MAX_DISTANCE_SPEED_BONUS = 28.0;
+
+export type ShieldDeployResult = 'deployed' | 'already-active' | 'cooldown';
+
 export class PlayerManager {
   scene: THREE.Scene;
   group: THREE.Group;
@@ -89,6 +120,17 @@ export class PlayerManager {
   lastLaneSwitchTime = 0;
   isSliding = false;
   slideTimer = 0;
+
+  // Buffered input: set on key/button press, consumed by update().
+  jumpBufferTimer = 0;
+  slideBufferTimer = 0;
+  private prevJumpInput = false;
+
+  // Seconds until the double-tap shield can be deployed again.
+  shieldCooldown = 0;
+
+  // Extra chase-camera offset applied in portrait (y = up, z = back).
+  portraitCamOffset = new THREE.Vector3();
 
   // Overdrive, Boost & Rail Grinding
   overdriveMeter = 25.0; // 0 to 100
@@ -353,8 +395,8 @@ export class PlayerManager {
     const dustMat = new THREE.SpriteMaterial({
       map: this.dustTexture,
       transparent: true,
-      opacity: 0.8,
-      blending: THREE.AdditiveBlending,
+      opacity: 0.6,
+      blending: THREE.NormalBlending,
       depthWrite: false,
     });
 
@@ -407,7 +449,10 @@ export class PlayerManager {
     const bId = config.boardId || 'cyber-phantom';
     const boards = pc.boards;
     if (boards) {
-      const isCustomHero = heroById(nextHeroId).modelUrl.length > 0;
+      // Only hide the procedural board once a GLB rig is actually attached:
+      // until the model has loaded the procedural rider + board is the only
+      // visible character (switchHero hides the board when the rig arrives).
+      const isCustomHero = heroById(nextHeroId).modelUrl.length > 0 && !!pc.heroRig;
       Object.keys(boards).forEach(key => {
         if (boards[key]) boards[key].visible = !isCustomHero && (key === bId);
       });
@@ -561,6 +606,38 @@ export class PlayerManager {
     this.emitSparks(pos, 4, 0x00d2e0);
   }
 
+  /** Queue a jump; it fires on the next update in which the board is grounded. */
+  requestJump() {
+    this.jumpBufferTimer = INPUT_BUFFER_SECONDS;
+  }
+
+  /** Queue a slide (or mid-air fast-fall); consumed by the next update. */
+  requestSlide() {
+    this.slideBufferTimer = INPUT_BUFFER_SECONDS;
+  }
+
+  clearInputBuffers() {
+    this.jumpBufferTimer = 0;
+    this.slideBufferTimer = 0;
+    this.prevJumpInput = false;
+  }
+
+  get isJetpacking(): boolean {
+    return this.activePowerUps.jetpackTimer > 0 && this.gameState === 'playing';
+  }
+
+  /**
+   * Player-triggered shield (double-tap / shield button). Unlike shield
+   * pickups, revives and the capacitor upgrade, this starts a recharge.
+   */
+  tryDeployShield(audioManager?: AudioManager | null): ShieldDeployResult {
+    if (this.activePowerUps.hoverboardShield) return 'already-active';
+    if (this.shieldCooldown > 0) return 'cooldown';
+    this.activateHoverboardShield(audioManager);
+    this.shieldCooldown = SHIELD_COOLDOWN_SECONDS;
+    return 'deployed';
+  }
+
   triggerSlide(audioManager?: AudioManager | null) {
     if (!this.isGrounded && this.jumpVelocity > -10) {
       this.jumpVelocity = -24.0; // Cyber fast-fall dive
@@ -618,8 +695,11 @@ export class PlayerManager {
       const duration = 7.0 + (this.upgrades.jetpackLevel - 1) * 1.5;
       this.activePowerUps.jetpackTimer = duration;
       this.activePowerUps.jetpackMaxDuration = duration;
-      this.jumpVelocity = 15.0;
+      // update() lifts the board to cruise altitude and holds it there.
       this.isGrounded = false;
+      this.isSliding = false;
+      this.slideTimer = 0;
+      this.clearInputBuffers();
     } else if (type === 'overdrive-2x' || type === 'multiplier2x') {
       const duration = 12.0 + (this.upgrades.overdriveLevel - 1) * 3.0;
       this.activePowerUps.multiplierTimer = duration;
@@ -657,6 +737,8 @@ export class PlayerManager {
     this.warpTimer = 0;
     this.isGrinding = false;
     this.overdriveMeter = 25.0;
+    this.shieldCooldown = 0;
+    this.clearInputBuffers();
     this.activePowerUps = {
       magnetTimer: 0,
       magnetMaxDuration: 10 + (this.upgrades.magnetLevel - 1) * 2.5,
@@ -704,6 +786,8 @@ export class PlayerManager {
     this.stats.gameState = 'game-over';
     this.velocity.set(0, 0, 0);
     this.jumpVelocity = 0;
+    this.activePowerUps.jetpackTimer = 0;
+    this.clearInputBuffers();
     this.setGrinding(false);
   }
 
@@ -738,7 +822,7 @@ export class PlayerManager {
     // 350 x combo every frame (millions of points per minute).
     if (this.trickTimer > 0.2) return false;
     if (this.isGrounded && this.jumpVelocity === 0) {
-      this.jumpVelocity = 13.5;
+      this.jumpVelocity = JUMP_VELOCITY;
       this.isGrounded = false;
       this.stats.airTime = 0.01;
     }
@@ -832,7 +916,25 @@ export class PlayerManager {
       input.laneRight = false;
     }
 
-    if (input.slide) this.triggerSlide(audioManager);
+    // Buffered jump requests: a fresh press of input.jump (rising edge only, so
+    // holding the key does not bunny-hop) or requestJump() from the engine.
+    const jumpHeld = !!input.jump;
+    if (jumpHeld && !this.prevJumpInput) this.requestJump();
+    this.prevJumpInput = jumpHeld;
+
+    if (input.slide) this.requestSlide();
+    if (this.slideBufferTimer > 0) {
+      if (!this.isJetpacking && this.gameState === 'playing') {
+        this.slideBufferTimer = 0;
+        this.triggerSlide(audioManager);
+      } else {
+        this.slideBufferTimer = Math.max(0, this.slideBufferTimer - Math.min(dt, 0.05));
+      }
+    }
+
+    if (this.shieldCooldown > 0) {
+      this.shieldCooldown = Math.max(0, this.shieldCooldown - Math.min(dt, 0.05));
+    }
 
     if (this.slideTimer > 0) {
       this.slideTimer -= effectiveDt;
@@ -901,8 +1003,10 @@ export class PlayerManager {
       this.stats.warpTimer = this.warpTimer;
     }
 
-    // Dynamic distance-based speed scaling: starting slow at ~6.0, ramping up smoothly as distance increases (Subway Surfers style)
-    const distanceSpeedBonus = Math.min(28.0, (this.stats.distance / 80.0) * 2.0);
+    // Dynamic distance-based speed scaling: starting slow at ~6.0, easing up to
+    // the full bonus at TOP_SPEED_DISTANCE (Subway Surfers style).
+    const rampT = Math.min(1.0, Math.max(0, this.stats.distance) / TOP_SPEED_DISTANCE);
+    const distanceSpeedBonus = MAX_DISTANCE_SPEED_BONUS * (1.0 - (1.0 - rampT) * (1.0 - rampT));
     let targetSpeed = 6.0 + distanceSpeedBonus;
 
     if (input.forward) targetSpeed += 12.0;
@@ -925,8 +1029,9 @@ export class PlayerManager {
 
     // Solid ground physics: evaluate surface height (terrain + train roofs/ramps) at exact updated (x, z)
     const groundH = getTerrainHeight(this.position.x, this.position.z);
+    const jetpacking = this.isJetpacking;
     let obstacleSurfaceH = 0;
-    if (this.gameState === 'playing' && obstacleManager && typeof obstacleManager.getObstacleSurfaceHeight === 'function') {
+    if (!jetpacking && this.gameState === 'playing' && obstacleManager && typeof obstacleManager.getObstacleSurfaceHeight === 'function') {
       obstacleSurfaceH = obstacleManager.getObstacleSurfaceHeight(this.position.x, this.position.z, this.position.y);
     }
 
@@ -940,16 +1045,41 @@ export class PlayerManager {
       this.jumpVelocity = Math.min(this.jumpVelocity, 0); // Immediately start falling under gravity!
     }
 
-    const gravityRate = this.stats.slowMoActive ? 22.0 : 30.0;
+    // Slow-mo already scales effectiveDt, so gravity stays constant; the old
+    // extra slow-mo gravity cut made trick jumps float well above 3.5 m.
+    const gravityRate = JUMP_GRAVITY;
 
-    if (input.jump && this.isGrounded) {
-      this.jumpVelocity = 15.5;
-      this.isGrounded = false;
-      this.stats.airTime = 0.01;
-      this.emitJumpDust(this.position, 6);
+    if (this.jumpBufferTimer > 0) {
+      if (this.isGrounded && !jetpacking && this.gameState === 'playing') {
+        this.jumpBufferTimer = 0;
+        this.jumpVelocity = JUMP_VELOCITY;
+        this.isGrounded = false;
+        // Jumping out of a slide stands the rider back up.
+        this.isSliding = false;
+        this.slideTimer = 0;
+        this.stats.airTime = 0.01;
+        this.emitJumpDust(this.position, 6);
+        if (audioManager) audioManager.playJump();
+      } else {
+        this.jumpBufferTimer = Math.max(0, this.jumpBufferTimer - Math.min(dt, 0.05));
+      }
     }
 
-    if (!this.isGrounded) {
+    if (jetpacking) {
+      // Hold a cruising altitude above the track; over the final second the
+      // target eases back down so the hand-off to gravity is a soft landing.
+      const remaining = this.activePowerUps.jetpackTimer;
+      const descentT = Math.min(1.0, remaining / JETPACK_DESCENT_SECONDS);
+      const altitude = JETPACK_CRUISE_ALTITUDE * descentT * descentT * (3.0 - 2.0 * descentT);
+      const targetY = groundH + this.hoverHeight + altitude;
+      const prevY = this.position.y;
+      const follow = 1.0 - Math.exp(-JETPACK_FOLLOW_RATE * effectiveDt);
+      this.position.y = Math.max(minY, THREE.MathUtils.lerp(this.position.y, targetY, follow));
+      // Track vertical speed so the landing after the descent reads correctly.
+      this.jumpVelocity = effectiveDt > 0 ? (this.position.y - prevY) / effectiveDt : 0;
+      this.isGrounded = false;
+      this.stats.airTime += effectiveDt;
+    } else if (!this.isGrounded) {
       this.jumpVelocity = THREE.MathUtils.clamp(this.jumpVelocity - gravityRate * effectiveDt, -18.0, 16.0);
       this.position.y += this.jumpVelocity * effectiveDt;
       this.stats.airTime += effectiveDt;
@@ -967,7 +1097,7 @@ export class PlayerManager {
     }
 
     // Ground & platform solid snap check at updated (x, z) position
-    if (this.position.y <= minY) {
+    if (!jetpacking && this.position.y <= minY) {
       const wereAirborne = !this.isGrounded;
       this.position.y = minY;
       if (wereAirborne && this.jumpVelocity < -2.0) {
@@ -1060,7 +1190,7 @@ export class PlayerManager {
 
     // Slide Contact Sparks & Rail Grind Friction Sparks
     if (this.isSliding) {
-      this.emitSparks(this.position, 2, 0x00f0ff);
+      this.emitSparks(this.position, 2, 0xffa24a);
     }
     if (this.isGrinding) {
       this.emitSparks(this.position, 3, 0xffd700);
@@ -1089,7 +1219,7 @@ export class PlayerManager {
     if (this.overdriveMeter >= 99.0) {
       odTier = 'Max-Velocity';
       if (Math.random() < 0.3) {
-        this.emitSparks(this.position, 1, 0x00f0ff);
+        this.emitSparks(this.position, 1, 0xffe2b0);
       }
     } else if (this.overdriveMeter >= 70.0) {
       odTier = 'Overdrive';
@@ -1146,6 +1276,9 @@ export class PlayerManager {
     this.stats.activePowerUps.multiplierMaxDuration = this.activePowerUps.multiplierMaxDuration;
     this.stats.scoreMultiplier = this.scoreMultiplier;
     this.stats.gameState = this.gameState;
+    // Remaining double-tap shield recharge (seconds) for the HUD. Not yet a
+    // declared PlayerStats field, so it rides along as an extra property.
+    this.stats.shieldCooldown = this.shieldCooldown;
 
     this.updateTrailRibbon(effectiveDt);
     this.updateParticles(effectiveDt);
@@ -1158,10 +1291,11 @@ export class PlayerManager {
     const speedCamUp = Math.min(1.0, this.velocity.z / 35.0) * 0.15;
 
     // Camera ONE preset: pos x*0.58 y+2.6 z-5.2 look y+1.6 FOV 62
+    // (portraitCamOffset pulls the camera back/up on tall screens).
     this.cameraPos.set(
       this.position.x * 0.58,
-      this.position.y + 2.6 + speedCamUp + this.landingImpulseY,
-      this.position.z - 5.2 - speedCamBack
+      this.position.y + 2.6 + speedCamUp + this.landingImpulseY + this.portraitCamOffset.y,
+      this.position.z - 5.2 - speedCamBack - this.portraitCamOffset.z
     );
     this.cameraLookAt.set(
       this.position.x * 0.58,
@@ -1365,10 +1499,10 @@ function createDustParticleTexture(): THREE.Texture {
   const ctx = canvas.getContext('2d')!;
 
   const grad = ctx.createRadialGradient(32, 32, 2, 32, 32, 30);
-  grad.addColorStop(0, 'rgba(255, 255, 255, 1.0)');
-  grad.addColorStop(0.3, 'rgba(0, 240, 255, 0.8)');
-  grad.addColorStop(0.7, 'rgba(0, 240, 255, 0.2)');
-  grad.addColorStop(1, 'rgba(0, 0, 0, 0)');
+  // Soft, neutral road dust (lit like smoke, not a glowing neon puff)
+  grad.addColorStop(0, 'rgba(214, 206, 192, 0.55)');
+  grad.addColorStop(0.45, 'rgba(196, 188, 174, 0.28)');
+  grad.addColorStop(1, 'rgba(180, 172, 160, 0)');
 
   ctx.fillStyle = grad;
   ctx.fillRect(0, 0, 64, 64);

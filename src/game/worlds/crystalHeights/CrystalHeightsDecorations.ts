@@ -1,5 +1,6 @@
 import * as THREE from 'three';
 import { createProceduralCrystalGeometry, CrystalClusterArchetype } from './CrystalHeightsTerrain';
+import { createConiferCrownGeometry } from './conifer';
 
 const QUARTZ_ARCHETYPE: CrystalClusterArchetype = {
   id: 'shrine-quartz',
@@ -36,7 +37,7 @@ export class CrystalHeightsDecorations {
   // Templates
   private celestialGateTemplate: THREE.Group | null = null;
   private crystalShrineTemplate: THREE.Group | null = null;
-  private crystalTreeTemplate: THREE.Group | null = null;
+  private crystalTreeTemplates: THREE.Group[] = [];
   private floatingArchTemplate: THREE.Group | null = null;
 
   constructor(scene: THREE.Scene, noiseTexture: THREE.Texture | null = null) {
@@ -87,10 +88,11 @@ export class CrystalHeightsDecorations {
       flatShading: true,
     });
 
-    // Spruce needles
+    // Spruce crown: vertex colours carry the dark needles and the snow load
     this.needleMaterial = new THREE.MeshStandardMaterial({
-      color: 0x2b3a2d,
-      roughness: 0.88,
+      color: 0xffffff,
+      vertexColors: true,
+      roughness: 0.9,
       metalness: 0.0,
     });
 
@@ -178,36 +180,25 @@ export class CrystalHeightsDecorations {
       }
     });
 
-    // 3. Snow-laden spruce (max radius 2.4 m)
-    this.crystalTreeTemplate = new THREE.Group();
-    const trunk = new THREE.Mesh(new THREE.CylinderGeometry(0.22, 0.38, 7.0, 8), this.treeBarkMaterial);
-    trunk.position.set(0, 3.5, 0);
-    this.crystalTreeTemplate.add(trunk);
-
-    const tiers = 5;
-    for (let t = 0; t < tiers; t++) {
-      const f = t / (tiers - 1);
-      const radius = THREE.MathUtils.lerp(2.4, 0.8, f);
-      const height = THREE.MathUtils.lerp(2.8, 1.8, f);
-      const baseY = 1.6 + t * 1.45;
-
-      const needles = new THREE.Mesh(new THREE.ConeGeometry(radius, height, 12, 1), this.needleMaterial);
-      needles.position.set(0, baseY + height * 0.5, 0);
-      needles.rotation.y = t * 0.7;
-
-      // Snow cap shares the tier's apex and slope, slightly proud of the needles
-      const snowH = height * 0.5;
-      const snow = new THREE.Mesh(new THREE.ConeGeometry(radius * 0.5 * 1.05, snowH, 12, 1), this.snowMaterial);
-      snow.position.set(0, baseY + height - snowH * 0.5 + 0.03, 0);
-      snow.rotation.y = t * 0.7;
-
-      this.crystalTreeTemplate.add(needles, snow);
-    }
-    this.crystalTreeTemplate.traverse((o) => {
-      if ((o as THREE.Mesh).isMesh) {
-        o.castShadow = true;
-        o.receiveShadow = true;
-      }
+    // 3. Snow-laden spruce (max radius 2.4 m): three irregular crown variants
+    const trunkGeom = new THREE.CylinderGeometry(0.14, 0.32, 8.4, 8);
+    trunkGeom.translate(0, 4.2, 0);
+    const variants: Array<{ h: number; r: number; snow: number }> = [
+      { h: 9.2, r: 2.3, snow: 0.85 },
+      { h: 10.4, r: 2.1, snow: 0.7 },
+      { h: 8.4, r: 2.4, snow: 0.95 },
+    ];
+    variants.forEach((v, k) => {
+      const tree = new THREE.Group();
+      tree.add(new THREE.Mesh(trunkGeom, this.treeBarkMaterial));
+      tree.add(new THREE.Mesh(createConiferCrownGeometry(101 + k * 37, { height: v.h, maxRadius: v.r, snow: v.snow }), this.needleMaterial));
+      tree.traverse((o) => {
+        if ((o as THREE.Mesh).isMesh) {
+          o.castShadow = true;
+          o.receiveShadow = true;
+        }
+      });
+      this.crystalTreeTemplates.push(tree);
     });
 
     // 4. Granite slab fragment
@@ -237,7 +228,8 @@ export class CrystalHeightsDecorations {
   }
 
   public spawnCrystalTree(position: THREE.Vector3, scale = 1.0): THREE.Group {
-    const tree = this.crystalTreeTemplate!.clone(true);
+    const pick = Math.abs(Math.floor(position.z * 0.37 + position.x * 0.11)) % this.crystalTreeTemplates.length;
+    const tree = this.crystalTreeTemplates[pick].clone(true);
     tree.position.copy(position);
     tree.rotation.y = position.z * 0.53;
     tree.scale.set(scale, scale, scale);
@@ -266,12 +258,12 @@ export class CrystalHeightsDecorations {
     };
     collect(this.celestialGateTemplate);
     collect(this.crystalShrineTemplate);
-    collect(this.crystalTreeTemplate);
+    for (const t of this.crystalTreeTemplates) collect(t);
     collect(this.floatingArchTemplate);
     for (const g of geoms) g.dispose();
     this.celestialGateTemplate = null;
     this.crystalShrineTemplate = null;
-    this.crystalTreeTemplate = null;
+    this.crystalTreeTemplates = [];
     this.floatingArchTemplate = null;
 
     this.graniteMaterial.dispose();

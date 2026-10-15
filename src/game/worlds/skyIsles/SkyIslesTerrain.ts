@@ -104,7 +104,8 @@ export function createProceduralIslandGeometry(
     return s / 233280;
   };
 
-  const slices = Math.max(12, Math.round(segments * 1.5));
+  // Dense enough rings for smooth-shaded rock (no low-poly facets)
+  const slices = Math.max(24, Math.round(segments * 3));
   const roughK = roughness / 0.35;
 
   // Natural albedo palette (sRGB hex -> linear via THREE.Color)
@@ -126,10 +127,16 @@ export function createProceduralIslandGeometry(
   const ph1 = rnd() * Math.PI * 2;
   const ph2 = rnd() * Math.PI * 2;
   const ph3 = rnd() * Math.PI * 2;
+  const ph4 = rnd() * Math.PI * 2;
   const lobe = (theta: number, p: number) =>
     (0.10 * Math.sin(3 * theta + ph1 + p * 1.5) +
       0.06 * Math.sin(5 * theta + ph2 - p * 2.0) +
-      0.03 * Math.sin(11 * theta + ph3)) * roughK;
+      0.03 * Math.sin(11 * theta + ph3) +
+      0.025 * Math.sin(19 * theta + ph4 + p * 7.0) * Math.sin(p * 9.0 + theta * 2.0)) * roughK;
+  // Smooth fractured-rock relief (continuous, so smooth normals stay clean)
+  const relief = (theta: number, p: number) =>
+    0.035 * Math.sin(23 * theta + p * 11.0 + ph1) * Math.sin(13 * theta - p * 5.0 + ph2) +
+    0.02 * Math.sin(37 * theta + p * 17.0 + ph3);
 
   // Large-scale grass patch variation
   const pa = rnd() * 10;
@@ -156,11 +163,11 @@ export function createProceduralIslandGeometry(
     const t = r / capRings;
     for (let i = 0; i < slices; i++) {
       const theta = (i / slices) * Math.PI * 2;
-      const jitter = (rnd() - 0.5) * roughness * 0.25 * (r === capRings ? 1.0 : 0.6);
+      const jitter = relief(theta, t) * roughK * (r === capRings ? 1.0 : 0.6);
       const rr = t * radiusTop * (1.0 + jitter + lobe(theta, 0) * 0.35 * t);
       const x = Math.cos(theta) * rr;
       const z = Math.sin(theta) * rr;
-      const y = skyIslesCapHeight(heightGrass, radiusTop, rr) + (rnd() - 0.5) * 0.18 * t;
+      const y = skyIslesCapHeight(heightGrass, radiusTop, rr) + Math.sin(x * 0.9 + z * 0.4) * Math.sin(z * 0.7 - x * 0.3) * 0.08 * t;
 
       positions.push(x, y, z);
       uvs.push(x / DETAIL_TILE_M, z / DETAIL_TILE_M);
@@ -262,22 +269,22 @@ export function createProceduralIslandGeometry(
   emitRing(() => tmp.lerpColors(rockLight, moss, 0.25 + rnd() * 0.35), 0.12);
 
   // Underside rings: tapering inverted crag with strata and buttress ridges
-  const underRings = 8;
+  const underRings = 16;
   const topY = -1.0;
   for (let k = 1; k <= underRings; k++) {
     const p = k / (underRings + 1);
-    const ringJitter = 1.0 + (rnd() - 0.5) * 0.12 * roughK; // strata ledges
+    const ringJitter = 1.0 + (rnd() - 0.5) * 0.06 * roughK; // strata ledges
     const baseR = radiusTop * Math.pow(1.0 - p, 0.75) * ringJitter;
     const baseY = topY - p * (depthRock + topY);
     for (let i = 0; i < slices; i++) {
       const theta = (i / slices) * Math.PI * 2;
       const rr = Math.min(
-        baseR * (1.0 + lobe(theta, p) + (rnd() - 0.5) * 0.08 * roughK),
+        baseR * (1.0 + lobe(theta, p) + relief(theta, p) * roughK),
         radiusTop * MAX_RIM_FACTOR
       );
       ringX[i] = Math.cos(theta) * rr;
       ringZ[i] = Math.sin(theta) * rr;
-      ringY[i] = baseY + (rnd() - 0.5) * 0.9;
+      ringY[i] = baseY + Math.sin(theta * 4 + p * 6 + ph2) * 0.35;
     }
     const pk = p;
     emitRing((_i, y) => {
@@ -319,6 +326,19 @@ export function createProceduralIslandGeometry(
   geom.addGroup(0, capIndexCount, 0);
   geom.addGroup(capIndexCount, indices.length - capIndexCount, 1);
   geom.computeVertexNormals();
+  // The rock seam column duplicates column 0 (for UV wrap); average their
+  // normals so smooth shading shows no vertical crease.
+  const nrm = geom.getAttribute('normal') as THREE.BufferAttribute;
+  for (let r = 0; r < rockRingCount; r++) {
+    const a = rockStart + r * cols;
+    const b = a + slices;
+    const nx = nrm.getX(a) + nrm.getX(b);
+    const ny = nrm.getY(a) + nrm.getY(b);
+    const nz = nrm.getZ(a) + nrm.getZ(b);
+    const l = Math.hypot(nx, ny, nz) || 1;
+    nrm.setXYZ(a, nx / l, ny / l, nz / l);
+    nrm.setXYZ(b, nx / l, ny / l, nz / l);
+  }
   geom.computeBoundingSphere();
 
   return geom;
@@ -434,12 +454,13 @@ export function createSkyIslesIslandMaterials(): {
     bumpScale: 0.35,
   });
 
-  // Rock underside: earthy stratified stone, faceted like fractured rock
+  // Rock underside: earthy stratified stone; smooth shading on a dense mesh,
+  // surface breakup from the bump-mapped detail texture
   const islandRockMaterial = new THREE.MeshStandardMaterial({
     vertexColors: true,
     roughness: 0.9,
     metalness: 0.0,
-    flatShading: true,
+    flatShading: false,
     map: detailTexture,
     bumpMap: detailTexture,
     bumpScale: 1.0,

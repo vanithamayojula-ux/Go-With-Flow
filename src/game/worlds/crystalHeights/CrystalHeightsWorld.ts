@@ -352,6 +352,7 @@ export class CrystalHeightsWorld {
 
     // Dispose materials & textures
     this.materials.crystalMaterial.dispose();
+    this.materials.celestialGroundMaterial.normalMap?.dispose();
     this.materials.celestialGroundMaterial.dispose();
     this.materials.celestialArchStoneMaterial.dispose();
     this.materials.energyCoreMaterial.dispose();

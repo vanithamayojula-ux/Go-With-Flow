@@ -116,7 +116,8 @@ export type RateLimitedAction =
 
 export const RATE_LIMIT_POLICIES: Record<RateLimitedAction, RateLimitPolicy> = {
   auth_attempt: { maxRequests: 5, windowMs: 60 * 1000 },
-  run_submission: { maxRequests: 5, windowMs: 60 * 1000 },
+  // Quick deaths are legit: allow a short-run burst without rejecting real players.
+  run_submission: { maxRequests: 20, windowMs: 60 * 1000 },
   name_change: { maxRequests: 2, windowMs: 600 * 1000 },
   leaderboard_query: { maxRequests: 60, windowMs: 60 * 1000 },
   challenge_create: { maxRequests: 10, windowMs: 60 * 1000 },

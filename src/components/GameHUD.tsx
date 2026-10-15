@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { Volume2, VolumeX, Sliders, Eye, Palette, Smartphone, Monitor, Shield, Trophy, Zap, Radio, Terminal, Pause, Camera } from 'lucide-react';
+import { Volume2, VolumeX, Sliders, Eye, Palette, Smartphone, Monitor, Shield, Trophy, Zap, Radio, Terminal, Pause, Camera, MoreHorizontal } from 'lucide-react';
 import { BiomeType, LightingMode, PlayerStats } from '../types';
 import { WorldIntroBanner } from './WorldIntroBanner';
 import { WORLDS, WORLD_ORDER, WorldId } from '../game/worlds';
@@ -102,6 +102,7 @@ export const GameHUD: React.FC<GameHUDProps> = ({
   notification,
 }) => {
   const [showDevInspector, setShowDevInspector] = useState(false);
+  const [isMenuOpen, setIsMenuOpen] = useState(false);
 
   const getOverdriveTierColor = (tier: string) => {
     switch (tier) {
@@ -159,7 +160,7 @@ export const GameHUD: React.FC<GameHUDProps> = ({
       case 'bleach-bypass-steel':
         return { name: 'BLEACH BYPASS // STEEL COMPLEX', tag: 'VARIANT', color: 'border-slate-300 text-slate-200' };
       default:
-        return { name: 'NEON UNDERCITY // SECTOR-01', tag: 'ZONE 1', color: 'border-fuchsia-400 text-fuchsia-300' };
+        return { name: 'SKY ISLES', tag: 'SECTOR 1', color: 'border-cyan-400 text-cyan-300' };
     }
   };
 
@@ -173,37 +174,49 @@ export const GameHUD: React.FC<GameHUDProps> = ({
   const nextThemeInfo = getNextWorldInfo(stats.currentWorldId || 'sky-isles');
   const overdrivePercent = Math.round(stats.overdriveMeter || stats.styleMeter || 0);
 
+  const closeMenuAnd = (action?: () => void) => () => {
+    setIsMenuOpen(false);
+    action?.();
+  };
+
+  const toolButton = 'min-h-[40px] min-w-[40px] p-2 flex items-center justify-center rounded-lg border backdrop-blur-md transition-all active:scale-95 shadow-md';
+  const menuItem = 'w-full min-h-[40px] px-2.5 py-2 flex items-center gap-2 rounded-lg text-left text-xs font-bold transition-all active:scale-[0.98]';
+
   return (
-    <div id="game-hud-root" className="pointer-events-none absolute inset-0 z-20 flex flex-col justify-between p-3 sm:p-5 select-none font-mono">
+    <div
+      id="game-hud-root"
+      className="pointer-events-none absolute inset-0 z-20 flex flex-col justify-between pt-[max(0.75rem,env(safe-area-inset-top))] pl-[max(0.75rem,env(safe-area-inset-left))] pr-[max(0.75rem,env(safe-area-inset-right))] pb-3 sm:pt-[max(1.25rem,env(safe-area-inset-top))] sm:pl-[max(1.25rem,env(safe-area-inset-left))] sm:pr-[max(1.25rem,env(safe-area-inset-right))] select-none font-mono"
+    >
       {/* Subtle Cinematic World Introduction Banner */}
       <WorldIntroBanner worldId={stats.currentWorldId || 'sky-isles'} />
 
-      {/* Top Telemetry & Cyber Status Bar */}
-      <div className="flex items-start justify-between w-full">
-        {/* Left: Cyberpunk In-World Telemetry */}
-        <div className="flex flex-col space-y-2">
+      {/*
+        Top bar. Phones/tablets: the overdrive meter spans the first row, then
+        stats on the left and a compact toolbar on the right. Desktop (lg+):
+        stats | overdrive | toolbar in one row.
+      */}
+      <div className="flex flex-wrap items-start justify-between gap-x-3 gap-y-2 w-full lg:grid lg:grid-cols-[minmax(0,1fr)_20rem_minmax(0,1fr)] xl:grid-cols-[minmax(0,1fr)_24rem_minmax(0,1fr)]">
+        {/* Left: Run Telemetry */}
+        <div className="order-2 lg:order-1 flex flex-col gap-2 min-w-0 flex-1">
           {/* Logo & Zone Indicator */}
-          <div className="flex items-center space-x-2 pointer-events-auto flex-wrap gap-y-1.5">
-            <div className="flex items-center space-x-2 px-3 py-1.5 rounded-lg bg-black/80 backdrop-blur-md border border-cyan-500/50 shadow-lg shadow-cyan-950/40">
+          <div className="flex items-center gap-2 pointer-events-auto flex-wrap">
+            <div className="hidden sm:flex items-center gap-2 px-3 py-1.5 rounded-lg bg-black/80 backdrop-blur-md border border-cyan-500/50 shadow-lg shadow-cyan-950/40">
               <div className="w-2.5 h-2.5 rounded-sm bg-cyan-400 animate-pulse shadow-md shadow-cyan-400" />
-              <span className="font-black text-sm tracking-widest text-cyan-300">NEON // DRIFT</span>
-              <span className="text-[10px] px-1.5 py-0.5 rounded bg-cyan-950/80 border border-cyan-500/40 text-cyan-400 font-bold">
-                REV 2.0
-              </span>
+              <span className="font-black text-sm tracking-widest text-cyan-300 whitespace-nowrap">GO WITH FLOW</span>
             </div>
 
             {/* World Sector Indicator */}
             {stats.currentWorldId && WORLD_SECTOR_INFO[stats.currentWorldId] ? (
               <div
-                className={`px-2.5 py-1.5 rounded-lg bg-black/80 backdrop-blur-md border text-xs font-bold flex items-center space-x-1.5 shadow-md ${WORLD_SECTOR_INFO[stats.currentWorldId].border} ${WORLD_SECTOR_INFO[stats.currentWorldId].text}`}
+                className={`px-2.5 py-1.5 rounded-lg bg-black/80 backdrop-blur-md border text-xs font-bold flex items-center gap-1.5 shadow-md whitespace-nowrap ${WORLD_SECTOR_INFO[stats.currentWorldId].border} ${WORLD_SECTOR_INFO[stats.currentWorldId].text}`}
               >
                 <span className="text-[10px] bg-white/10 px-1 py-0.5 rounded font-black">
-                  {WORLD_SECTOR_INFO[stats.currentWorldId].icon} SECTOR {WORLD_SECTOR_INFO[stats.currentWorldId].sector}/5
+                  {WORLD_SECTOR_INFO[stats.currentWorldId].icon} {WORLD_SECTOR_INFO[stats.currentWorldId].sector}/5
                 </span>
                 <span>{WORLD_SECTOR_INFO[stats.currentWorldId].name}</span>
               </div>
             ) : (
-              <div className={`px-2.5 py-1.5 rounded-lg bg-black/75 backdrop-blur-md border text-xs font-bold flex items-center space-x-1.5 shadow-md ${biomeBadge.color}`}>
+              <div className={`px-2.5 py-1.5 rounded-lg bg-black/75 backdrop-blur-md border text-xs font-bold flex items-center gap-1.5 shadow-md ${biomeBadge.color}`}>
                 <span className="text-[10px] bg-white/10 px-1 py-0.5 rounded font-black">{biomeBadge.tag}</span>
                 <span>{biomeBadge.name}</span>
               </div>
@@ -211,7 +224,7 @@ export const GameHUD: React.FC<GameHUDProps> = ({
 
             {/* Next World Preview Swatch */}
             {nextThemeInfo && (
-              <div className="px-2.5 py-1.5 rounded-lg bg-black/75 backdrop-blur-md border border-slate-700 text-xs font-bold flex items-center space-x-1.5 shadow-md">
+              <div className="hidden sm:flex px-2.5 py-1.5 rounded-lg bg-black/75 backdrop-blur-md border border-slate-700 text-xs font-bold items-center gap-1.5 shadow-md whitespace-nowrap">
                 <span className="text-[9px] text-slate-400 font-bold uppercase">NEXT:</span>
                 <div className={`w-2.5 h-2.5 rounded-full ${nextThemeInfo.swatch} animate-pulse`} />
                 <span className="text-slate-200">{nextThemeInfo.name}</span>
@@ -220,7 +233,7 @@ export const GameHUD: React.FC<GameHUDProps> = ({
 
             {/* Active Game Mode Badge */}
             {gameModeMgr && gameModeMgr.activeModeId !== 'standard-run' && (
-              <div className="px-2.5 py-1.5 rounded-lg bg-amber-950/70 backdrop-blur-md border border-amber-400 text-amber-300 text-xs font-bold flex items-center space-x-1.5 shadow-md shadow-amber-950/40">
+              <div className="px-2.5 py-1.5 rounded-lg bg-amber-950/70 backdrop-blur-md border border-amber-400 text-amber-300 text-xs font-bold flex items-center gap-1.5 shadow-md shadow-amber-950/40">
                 <span className="text-[10px] bg-amber-400/20 px-1 py-0.5 rounded font-black text-amber-200 uppercase">
                   {gameModeMgr.activeMode.name}
                 </span>
@@ -233,9 +246,9 @@ export const GameHUD: React.FC<GameHUDProps> = ({
             )}
 
             {stats.isGrinding && (
-              <div className="px-2.5 py-1 rounded-lg bg-fuchsia-600/90 border border-fuchsia-300 text-white text-xs font-black tracking-wider shadow-lg shadow-fuchsia-500/40 animate-pulse flex items-center space-x-1">
+              <div className="px-2.5 py-1 rounded-lg bg-fuchsia-600/90 border border-fuchsia-300 text-white text-xs font-black tracking-wider shadow-lg shadow-fuchsia-500/40 animate-pulse flex items-center gap-1">
                 <Zap className="w-3.5 h-3.5 text-yellow-300" />
-                <span>RAIL GRIND ACTIVE</span>
+                <span>RAIL GRIND</span>
               </div>
             )}
           </div>
@@ -244,17 +257,17 @@ export const GameHUD: React.FC<GameHUDProps> = ({
           {gameModeMgr && gameModeMgr.activeModeId !== 'standard-run' && (() => {
             const m = gameModeMgr.activeMode.getHudMetrics();
             return (
-              <div className="flex items-center space-x-2 pointer-events-auto flex-wrap gap-y-1.5">
-                <div className="px-3 py-1.5 rounded-lg bg-slate-950/90 backdrop-blur-md border border-amber-500/40 text-amber-300 flex items-center space-x-2 shadow-sm">
+              <div className="flex items-center gap-2 pointer-events-auto flex-wrap">
+                <div className="px-3 py-1.5 rounded-lg bg-slate-950/90 backdrop-blur-md border border-amber-500/40 text-amber-300 flex items-center gap-2 shadow-sm">
                   <span className="text-[9px] text-amber-400 font-bold uppercase tracking-wider">{m.primaryLabel}</span>
                   <span className="text-base font-black font-mono tracking-tight text-white">{m.primaryValue}</span>
                 </div>
-                <div className="px-3 py-1.5 rounded-lg bg-slate-950/90 backdrop-blur-md border border-cyan-500/40 text-cyan-300 flex items-center space-x-2 shadow-sm">
+                <div className="px-3 py-1.5 rounded-lg bg-slate-950/90 backdrop-blur-md border border-cyan-500/40 text-cyan-300 flex items-center gap-2 shadow-sm">
                   <span className="text-[9px] text-cyan-400 font-bold uppercase tracking-wider">{m.secondaryLabel}</span>
                   <span className="text-sm font-bold font-mono tracking-tight text-white">{m.secondaryValue}</span>
                 </div>
                 {m.tertiaryLabel && m.tertiaryValue && (
-                  <div className="px-2.5 py-1.5 rounded-lg bg-slate-950/90 backdrop-blur-md border border-slate-700 text-slate-300 flex items-center space-x-1 shadow-sm">
+                  <div className="px-2.5 py-1.5 rounded-lg bg-slate-950/90 backdrop-blur-md border border-slate-700 text-slate-300 flex items-center gap-1 shadow-sm">
                     <span className="text-[10px] text-slate-400 font-bold uppercase">{m.tertiaryLabel}:</span>
                     <span className="text-xs font-bold font-mono text-white">{m.tertiaryValue}</span>
                   </div>
@@ -264,30 +277,30 @@ export const GameHUD: React.FC<GameHUDProps> = ({
           })()}
 
           {/* Core Metrics: Speed, Score, Shards, Distance */}
-          <div className="flex items-center space-x-2 pointer-events-auto flex-wrap gap-y-1.5">
+          <div className="flex items-center gap-1.5 sm:gap-2 pointer-events-auto flex-wrap">
             {/* Speedometer */}
-            <div className="px-3 py-1.5 rounded-lg bg-slate-950/90 backdrop-blur-md border border-cyan-500/30 text-cyan-300 flex items-center space-x-2 shadow-sm">
-              <span className="text-[9px] text-cyan-400 font-bold uppercase tracking-wider">SPEED</span>
-              <span className="text-base font-black font-mono tracking-tight text-white">
-                {stats.speed} <span className="text-[10px] text-cyan-400 font-normal">KM/H</span>
+            <div className="px-2.5 sm:px-3 py-1.5 rounded-lg bg-slate-950/90 backdrop-blur-md border border-cyan-500/30 text-cyan-300 flex items-center gap-1.5 sm:gap-2 shadow-sm whitespace-nowrap">
+              <span className="text-[9px] text-cyan-300 font-bold uppercase tracking-wider">SPEED</span>
+              <span className="text-sm sm:text-base font-black font-mono tracking-tight text-white">
+                {stats.speed} <span className="text-[10px] text-cyan-300 font-normal">KM/H</span>
               </span>
             </div>
 
             {/* Score & Multiplier */}
-            <div className="px-3 py-1.5 rounded-lg bg-slate-950/90 backdrop-blur-md border border-fuchsia-500/30 text-fuchsia-300 flex items-center space-x-2 shadow-sm">
-              <span className="text-[9px] text-fuchsia-400 font-bold uppercase tracking-wider">SCORE</span>
-              <span className="text-base font-black font-mono tracking-tight text-white">
+            <div className="px-2.5 sm:px-3 py-1.5 rounded-lg bg-slate-950/90 backdrop-blur-md border border-fuchsia-500/30 text-fuchsia-300 flex items-center gap-1.5 sm:gap-2 shadow-sm whitespace-nowrap">
+              <span className="text-[9px] text-fuchsia-300 font-bold uppercase tracking-wider">SCORE</span>
+              <span className="text-sm sm:text-base font-black font-mono tracking-tight text-white">
                 {Math.floor(stats.score).toLocaleString()}
               </span>
               {stats.scoreMultiplier > 1 && (
-                <span className="px-1.5 py-0.2 rounded bg-fuchsia-600 text-white text-[10px] font-black">
+                <span className="px-1.5 py-0.5 rounded bg-fuchsia-600 text-white text-[10px] font-black">
                   x{stats.scoreMultiplier}
                 </span>
               )}
             </div>
 
             {/* High Score Trophy */}
-            <div className="px-2.5 py-1.5 rounded-lg bg-slate-950/90 backdrop-blur-md border border-amber-500/30 text-amber-300 flex items-center space-x-1.5 shadow-sm">
+            <div className="hidden sm:flex px-2.5 py-1.5 rounded-lg bg-slate-950/90 backdrop-blur-md border border-amber-500/30 text-amber-300 items-center gap-1.5 shadow-sm" title="Best score">
               <Trophy className="w-3.5 h-3.5 text-amber-400" />
               <span className="text-xs font-bold text-amber-200">
                 {stats.highScore > 0 ? Math.floor(stats.highScore).toLocaleString() : '0'}
@@ -295,36 +308,36 @@ export const GameHUD: React.FC<GameHUDProps> = ({
             </div>
 
             {/* Data Shards Harvested this run */}
-            <div className="px-2.5 py-1.5 rounded-lg bg-slate-950/90 backdrop-blur-md border border-cyan-500/30 text-cyan-300 flex items-center space-x-1.5 shadow-sm" title="Run Data Shards">
+            <div className="px-2.5 py-1.5 rounded-lg bg-slate-950/90 backdrop-blur-md border border-cyan-500/30 text-cyan-300 flex items-center gap-1.5 shadow-sm" title="Shards collected this run">
               <span className="text-xs">💎</span>
               <span className="text-xs font-bold text-cyan-100">
                 +{stats.dataShardsCollected || stats.windOrbsCollected || 0}
               </span>
             </div>
 
-            {/* Total Banked Shards Wallet */}
-            <div className="px-2.5 py-1.5 rounded-lg bg-cyan-950/40 backdrop-blur-md border border-cyan-500/40 text-cyan-300 flex items-center space-x-1.5 shadow-sm" title="Banked Shards (Spend in Upgrades Bay)">
-              <span className="text-[10px] text-cyan-400 font-bold uppercase">BANK</span>
+            {/* Total Banked Shards Wallet (dark chip so the label stays readable over a bright sky) */}
+            <div className="hidden sm:flex px-2.5 py-1.5 rounded-lg bg-slate-950/90 backdrop-blur-md border border-cyan-500/40 items-center gap-1.5 shadow-sm" title="Banked Shards (spend in the Upgrades Bay)">
+              <span className="text-[10px] text-cyan-200 font-bold uppercase tracking-wider">BANK</span>
               <span className="text-xs font-black font-mono text-white">
                 {bankedShards.toLocaleString()}
               </span>
             </div>
 
             {/* Distance */}
-            <div className="px-2.5 py-1.5 rounded-lg bg-slate-950/90 backdrop-blur-md border border-slate-800 text-slate-300 flex items-center space-x-1 shadow-sm">
-              <span className="text-[10px] text-slate-500 font-bold">DST</span>
-              <span className="text-xs font-bold font-mono text-slate-200">{Math.floor(stats.distance)}M</span>
+            <div className="px-2.5 py-1.5 rounded-lg bg-slate-950/90 backdrop-blur-md border border-slate-700 text-slate-300 flex items-center gap-1 shadow-sm whitespace-nowrap">
+              <span className="text-[10px] text-slate-400 font-bold">DST</span>
+              <span className="text-xs font-bold font-mono text-slate-100">{Math.floor(stats.distance)}M</span>
             </div>
           </div>
 
-          {/* Active Cyber Power-Ups Strip with Live Countdown Gauges */}
-          <div className="flex items-center space-x-2 pointer-events-auto flex-wrap gap-y-1">
+          {/* Active Power-Ups Strip with Live Countdown Gauges */}
+          <div className="flex items-center gap-2 pointer-events-auto flex-wrap">
             {stats.activePowerUps?.magnetTimer > 0 && (() => {
               const maxDur = stats.activePowerUps.magnetMaxDuration || 10;
               const pct = Math.min(100, Math.max(0, (stats.activePowerUps.magnetTimer / maxDur) * 100));
               return (
                 <div className="flex flex-col px-2.5 py-1 rounded-lg bg-black/85 border border-cyan-400 text-white text-[10px] shadow-lg shadow-cyan-950/40">
-                  <div className="flex items-center space-x-1.5 font-bold">
+                  <div className="flex items-center gap-1.5 font-bold">
                     <span className="animate-pulse">🧲</span>
                     <span className="text-cyan-300">MAGNET</span>
                     <span className="font-mono text-white ml-auto">{stats.activePowerUps.magnetTimer.toFixed(1)}s</span>
@@ -341,7 +354,7 @@ export const GameHUD: React.FC<GameHUDProps> = ({
               const pct = Math.min(100, Math.max(0, (stats.activePowerUps.jetpackTimer / maxDur) * 100));
               return (
                 <div className="flex flex-col px-2.5 py-1 rounded-lg bg-black/85 border border-fuchsia-400 text-white text-[10px] shadow-lg shadow-fuchsia-950/40">
-                  <div className="flex items-center space-x-1.5 font-bold">
+                  <div className="flex items-center gap-1.5 font-bold">
                     <span className="animate-bounce">🚀</span>
                     <span className="text-fuchsia-300">JETPACK</span>
                     <span className="font-mono text-white ml-auto">{stats.activePowerUps.jetpackTimer.toFixed(1)}s</span>
@@ -358,7 +371,7 @@ export const GameHUD: React.FC<GameHUDProps> = ({
               const pct = Math.min(100, Math.max(0, (stats.activePowerUps.multiplierTimer / maxDur) * 100));
               return (
                 <div className="flex flex-col px-2.5 py-1 rounded-lg bg-black/85 border border-amber-400 text-white text-[10px] shadow-lg shadow-amber-950/40">
-                  <div className="flex items-center space-x-1.5 font-bold">
+                  <div className="flex items-center gap-1.5 font-bold">
                     <span className="animate-spin">⚡</span>
                     <span className="text-amber-300">2X BOOST</span>
                     <span className="font-mono text-white ml-auto">{stats.activePowerUps.multiplierTimer.toFixed(1)}s</span>
@@ -371,42 +384,42 @@ export const GameHUD: React.FC<GameHUDProps> = ({
             })()}
 
             {stats.activePowerUps?.hoverboardShield && (
-              <div className="flex items-center space-x-1.5 px-2.5 py-1 rounded-lg bg-emerald-950/80 border border-emerald-400 text-white text-[10px] font-bold shadow-md shadow-emerald-950/40 animate-pulse">
+              <div className="flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-emerald-950/80 border border-emerald-400 text-white text-[10px] font-bold shadow-md shadow-emerald-950/40 animate-pulse">
                 <span>🛡️</span>
-                <span className="text-emerald-300 uppercase tracking-wide">HOLO-SHIELD ENGAGED</span>
+                <span className="text-emerald-300 uppercase tracking-wide">SHIELD ON</span>
               </div>
             )}
           </div>
         </div>
 
-        {/* Center: Overdrive Gauge & Trick Banner */}
-        <div className="flex flex-col items-center max-w-xs sm:max-w-sm w-full px-2">
+        {/* Center: Overdrive Gauge & Trick Banner (full-width first row on small screens) */}
+        <div className="order-1 lg:order-2 basis-full lg:basis-auto shrink-0 flex flex-col items-center">
           {/* Active Trick / Combo Banner */}
           {stats.activeTrickName && (
-            <div className={`mb-2 px-3.5 py-1 rounded-full border text-xs font-black backdrop-blur-md flex items-center space-x-2 transition-all ${getComboBadgeColor(stats.combo)}`}>
+            <div className={`mb-2 px-3.5 py-1 rounded-full border text-xs font-black backdrop-blur-md flex items-center gap-2 transition-all ${getComboBadgeColor(stats.combo)}`}>
               <Zap className="w-3.5 h-3.5 animate-spin" />
               <span>{stats.activeTrickName}</span>
               {stats.combo > 1 && (
-                <span className="px-1.5 py-0.2 rounded bg-black text-cyan-300 font-black text-[10px]">
+                <span className="px-1.5 py-0.5 rounded bg-black text-cyan-300 font-black text-[10px]">
                   {stats.combo}X COMBO
                 </span>
               )}
             </div>
           )}
 
-          {/* Glitch Notification Toast */}
+          {/* Notification Toast */}
           {notification && !stats.activeTrickName && (
             <div className="mb-2 px-3.5 py-1 rounded-md bg-black/90 border border-cyan-500/60 text-cyan-300 text-xs font-bold backdrop-blur-md shadow-lg shadow-cyan-950/40 animate-pulse">
               {notification}
             </div>
           )}
 
-          {/* OVERDRIVE Segmented Tech Meter */}
+          {/* OVERDRIVE Segmented Meter */}
           <div className="w-full pointer-events-auto bg-black/85 backdrop-blur-md border border-cyan-500/40 rounded-xl p-2 shadow-lg shadow-cyan-950/30">
             <div className="flex items-center justify-between text-xs mb-1 px-1">
-              <div className="flex items-center space-x-1.5">
-                <span className="text-cyan-400 font-bold text-[10px] tracking-wider">OVERDRIVE</span>
-                <span className={`text-[9px] px-1.5 py-0.2 rounded font-black uppercase border ${getOverdriveTierColor(stats.overdriveTier || 'Charged')}`}>
+              <div className="flex items-center gap-1.5">
+                <span className="text-cyan-300 font-bold text-[10px] tracking-wider">OVERDRIVE</span>
+                <span className={`text-[9px] px-1.5 py-0.5 rounded font-black uppercase border ${getOverdriveTierColor(stats.overdriveTier || 'Charged')}`}>
                   {stats.overdriveTier || 'Charged'}
                 </span>
               </div>
@@ -415,7 +428,7 @@ export const GameHUD: React.FC<GameHUDProps> = ({
               </div>
             </div>
 
-            {/* Segmented Neon Bar */}
+            {/* Segmented Bar */}
             <div className="w-full h-2 bg-slate-900 rounded-full overflow-hidden p-0.5 border border-cyan-500/30">
               <div
                 className={`h-full rounded-full transition-all duration-200 ${getOverdriveTierColor(stats.overdriveTier || 'Charged')}`}
@@ -425,156 +438,158 @@ export const GameHUD: React.FC<GameHUDProps> = ({
           </div>
         </div>
 
-        {/* Right: Quick Cyber Controls Toolbar */}
-        <div className="flex items-center space-x-1.5 pointer-events-auto">
+        {/* Right: compact toolbar (Pause, Shield, Mute) + menu with the rest */}
+        <div className="order-3 shrink-0 relative flex items-start gap-1.5 pointer-events-auto lg:justify-self-end">
           {/* Pause / Standby Button */}
           {onPause && (
             <button
               onClick={onPause}
-              className="p-2 rounded-lg bg-black/60 border border-slate-700 hover:border-cyan-400 text-slate-300 hover:text-cyan-300 backdrop-blur-md active:scale-95 shadow-md"
+              className={`${toolButton} bg-black/70 border-slate-700 hover:border-cyan-400 text-slate-300 hover:text-cyan-300`}
               title="Pause Game (ESC / P)"
+              aria-label="Pause game"
             >
               <Pause className="w-4 h-4 text-cyan-400" />
             </button>
           )}
 
-          {/* Holo-Shield Deploy Button */}
+          {/* Shield Deploy Button */}
           <button
             onClick={onActivateShield}
-            className={`p-2 rounded-lg border backdrop-blur-md transition-all active:scale-95 ${
+            className={`${toolButton} ${
               stats.activePowerUps?.hoverboardShield
-                ? 'bg-emerald-500/20 border-emerald-400 text-emerald-300 shadow-md shadow-emerald-500/20'
-                : 'bg-black/60 border-slate-700 text-slate-400 hover:text-white'
+                ? 'bg-emerald-500/20 border-emerald-400 text-emerald-300 shadow-emerald-500/20'
+                : 'bg-black/70 border-slate-700 text-slate-300 hover:text-white'
             }`}
-            title="Deploy Holo-Shield (Double-Tap Space)"
+            title="Deploy Shield (Double-Tap Space)"
+            aria-label="Deploy shield"
           >
             <Shield className="w-4 h-4" />
           </button>
 
-          {/* Lighting Mode Selector */}
-          <div className="relative group">
-            <button
-              className="p-2 rounded-lg bg-black/60 border border-slate-700 text-slate-300 hover:text-white backdrop-blur-md active:scale-95"
-              title="Change Cyberpunk Lighting Mood"
-            >
-              <Radio className="w-4 h-4 text-cyan-400" />
-            </button>
-            <div className="absolute right-0 top-full mt-1.5 hidden group-hover:flex flex-col space-y-1 p-1.5 rounded-lg bg-black/95 border border-cyan-500/40 shadow-xl shadow-cyan-950/40 z-30 min-w-[140px]">
-              {(['midnight-cyan', 'synthwave-magenta', 'toxic-matrix', 'solar-amber'] as LightingMode[]).map(mode => (
-                <button
-                  key={mode}
-                  onClick={() => onSelectLighting(mode)}
-                  className={`px-2.5 py-1 text-left text-[11px] font-bold rounded transition-all ${
-                    lightingMode === mode
-                      ? 'bg-cyan-500/20 border border-cyan-400 text-cyan-200'
-                      : 'text-slate-400 hover:text-white hover:bg-white/5'
-                  }`}
-                >
-                  {mode.toUpperCase().replace('-', ' ')}
-                </button>
-              ))}
-            </div>
-          </div>
-
-          {/* Camera View Mode */}
-          <button
-            onClick={onToggleCam}
-            className={`p-2 rounded-lg border backdrop-blur-md transition-all active:scale-95 ${
-              isCinematicCam
-                ? 'bg-fuchsia-500/20 border-fuchsia-400 text-fuchsia-300'
-                : 'bg-black/60 border-slate-700 text-slate-400 hover:text-white'
-            }`}
-            title="Toggle Cinematic Fly Camera"
-          >
-            <Eye className="w-4 h-4" />
-          </button>
-
-          {/* Upright / Widescreen Cam */}
-          {onToggleUpright && (
-            <button
-              onClick={onToggleUpright}
-              className={`p-2 rounded-lg border backdrop-blur-md transition-all active:scale-95 ${
-                isUpright
-                  ? 'bg-cyan-500/20 border-cyan-400 text-cyan-300'
-                  : 'bg-black/60 border-slate-700 text-slate-400 hover:text-white'
-              }`}
-              title="Toggle Upright Portrait / Wide Chase Cam"
-            >
-              {isUpright ? <Smartphone className="w-4 h-4" /> : <Monitor className="w-4 h-4" />}
-            </button>
-          )}
-
           {/* Mute Audio */}
           <button
             onClick={onToggleMute}
-            className={`p-2 rounded-lg border backdrop-blur-md transition-all active:scale-95 ${
+            className={`${toolButton} ${
               isMuted
                 ? 'bg-red-500/20 border-red-500 text-red-400'
-                : 'bg-black/60 border-slate-700 text-slate-400 hover:text-white'
+                : 'bg-black/70 border-slate-700 text-slate-300 hover:text-white'
             }`}
-            title={isMuted ? 'Unmute Synthwave Score' : 'Mute Audio'}
+            title={isMuted ? 'Unmute Audio' : 'Mute Audio'}
+            aria-label={isMuted ? 'Unmute audio' : 'Mute audio'}
           >
             {isMuted ? <VolumeX className="w-4 h-4" /> : <Volume2 className="w-4 h-4" />}
           </button>
 
-          {/* Cosmetics Bay */}
+          {/* More: camera, lighting, bays and debug tools */}
           <button
-            onClick={onOpenCosmetics}
-            className="p-2 rounded-lg bg-black/60 border border-slate-700 text-slate-300 hover:text-cyan-300 backdrop-blur-md active:scale-95"
-            title="Cyberpunk Hoverboard & Armor Bay"
-          >
-            <Palette className="w-4 h-4" />
-          </button>
-
-          {/* Pilot Progression / Directives */}
-          {onOpenProgression && (
-            <button
-              onClick={onOpenProgression}
-              className="p-2 rounded-lg bg-black/60 border border-slate-700 text-slate-300 hover:text-amber-300 backdrop-blur-md active:scale-95"
-              title="Pilot Progression, Daily Directives & Achievements"
-            >
-              <Trophy className="w-4 h-4 text-amber-400" />
-            </button>
-          )}
-
-          {/* Dataset Capture & Visual Engineering */}
-          {onOpenDatasetCapture && (
-            <button
-              onClick={onOpenDatasetCapture}
-              className="p-2 rounded-lg bg-black/60 border border-slate-700 text-slate-300 hover:text-cyan-300 backdrop-blur-md active:scale-95"
-              title="Visual Dataset Capture & AI Prompt Engineering"
-            >
-              <Camera className="w-4 h-4 text-cyan-400" />
-            </button>
-          )}
-
-          {/* Graphics Settings */}
-          <button
-            onClick={onOpenGraphicsDrawer}
-            className="p-2 rounded-lg bg-black/60 border border-slate-700 text-slate-300 hover:text-cyan-300 backdrop-blur-md active:scale-95"
-            title="Graphics & Shaders Inspector"
-          >
-            <Sliders className="w-4 h-4" />
-          </button>
-
-          {/* Dev Debug Overlay Toggle */}
-          <button
-            onClick={() => setShowDevInspector(prev => !prev)}
-            className={`p-2 rounded-lg border backdrop-blur-md transition-all active:scale-95 ${
-              showDevInspector
-                ? 'bg-cyan-500/20 border-cyan-400 text-cyan-300'
-                : 'bg-black/60 border-slate-700 text-slate-400 hover:text-white'
+            onClick={() => setIsMenuOpen(open => !open)}
+            className={`${toolButton} ${
+              isMenuOpen
+                ? 'bg-cyan-500/20 border-cyan-400 text-cyan-200'
+                : 'bg-black/70 border-slate-700 text-slate-300 hover:text-white'
             }`}
-            title="Telemetry Debugger"
+            title="More options"
+            aria-label="More options"
+            aria-haspopup="menu"
+            aria-expanded={isMenuOpen}
           >
-            <Terminal className="w-4 h-4" />
+            <MoreHorizontal className="w-4 h-4" />
           </button>
+
+          {isMenuOpen && (
+            <>
+              {/* Tap outside to close */}
+              <div className="fixed inset-0 z-30" onClick={() => setIsMenuOpen(false)} aria-hidden="true" />
+              <div
+                role="menu"
+                className="absolute right-0 top-full mt-2 z-40 w-60 max-w-[calc(100vw-1.5rem)] max-h-[calc(100dvh-6rem)] overflow-y-auto p-2 rounded-xl bg-black/95 border border-cyan-500/40 shadow-xl shadow-cyan-950/40 flex flex-col gap-1"
+              >
+                <button
+                  role="menuitem"
+                  onClick={closeMenuAnd(onToggleCam)}
+                  className={`${menuItem} ${isCinematicCam ? 'bg-fuchsia-500/20 text-fuchsia-200' : 'text-slate-200 hover:bg-white/10'}`}
+                >
+                  <Eye className="w-4 h-4 shrink-0" />
+                  <span>Cinematic camera {isCinematicCam ? '(on)' : '(off)'}</span>
+                </button>
+
+                {onToggleUpright && (
+                  <button
+                    role="menuitem"
+                    onClick={closeMenuAnd(onToggleUpright)}
+                    className={`${menuItem} ${isUpright ? 'bg-cyan-500/15 text-cyan-200' : 'text-slate-200 hover:bg-white/10'}`}
+                  >
+                    {isUpright ? <Smartphone className="w-4 h-4 shrink-0" /> : <Monitor className="w-4 h-4 shrink-0" />}
+                    <span>{isUpright ? 'Portrait camera' : 'Wide chase camera'}</span>
+                  </button>
+                )}
+
+                <div className="px-2.5 pt-1.5 pb-1 text-[10px] font-black uppercase tracking-widest text-cyan-300 flex items-center gap-1.5">
+                  <Radio className="w-3 h-3" />
+                  <span>Lighting mood</span>
+                </div>
+                <div className="grid grid-cols-2 gap-1 px-1 pb-1">
+                  {(['midnight-cyan', 'synthwave-magenta', 'toxic-matrix', 'solar-amber'] as LightingMode[]).map(mode => (
+                    <button
+                      key={mode}
+                      role="menuitemradio"
+                      aria-checked={lightingMode === mode}
+                      onClick={() => onSelectLighting(mode)}
+                      className={`min-h-[36px] px-2 py-1 text-[10px] font-bold rounded-md border transition-all ${
+                        lightingMode === mode
+                          ? 'bg-cyan-500/20 border-cyan-400 text-cyan-100'
+                          : 'border-white/10 text-slate-300 hover:text-white hover:bg-white/5'
+                      }`}
+                    >
+                      {mode.toUpperCase().replace('-', ' ')}
+                    </button>
+                  ))}
+                </div>
+
+                <div className="h-px bg-white/10 my-1" />
+
+                <button role="menuitem" onClick={closeMenuAnd(onOpenCosmetics)} className={`${menuItem} text-slate-200 hover:bg-white/10`}>
+                  <Palette className="w-4 h-4 shrink-0 text-cyan-300" />
+                  <span>Boards &amp; cosmetics</span>
+                </button>
+
+                {onOpenProgression && (
+                  <button role="menuitem" onClick={closeMenuAnd(onOpenProgression)} className={`${menuItem} text-slate-200 hover:bg-white/10`}>
+                    <Trophy className="w-4 h-4 shrink-0 text-amber-400" />
+                    <span>Progression &amp; missions</span>
+                  </button>
+                )}
+
+                <button role="menuitem" onClick={closeMenuAnd(onOpenGraphicsDrawer)} className={`${menuItem} text-slate-200 hover:bg-white/10`}>
+                  <Sliders className="w-4 h-4 shrink-0 text-cyan-300" />
+                  <span>Graphics settings</span>
+                </button>
+
+                {onOpenDatasetCapture && (
+                  <button role="menuitem" onClick={closeMenuAnd(onOpenDatasetCapture)} className={`${menuItem} text-slate-200 hover:bg-white/10`}>
+                    <Camera className="w-4 h-4 shrink-0 text-cyan-300" />
+                    <span>Screenshot capture</span>
+                  </button>
+                )}
+
+                <button
+                  role="menuitemcheckbox"
+                  aria-checked={showDevInspector}
+                  onClick={closeMenuAnd(() => setShowDevInspector(prev => !prev))}
+                  className={`${menuItem} ${showDevInspector ? 'bg-cyan-500/15 text-cyan-200' : 'text-slate-200 hover:bg-white/10'}`}
+                >
+                  <Terminal className="w-4 h-4 shrink-0" />
+                  <span>Performance overlay {showDevInspector ? '(on)' : '(off)'}</span>
+                </button>
+              </div>
+            </>
+          )}
         </div>
       </div>
 
       {/* Dev Inspector Mini-HUD */}
       {showDevInspector && (
-        <div className="pointer-events-auto absolute top-20 right-5 p-3 rounded-lg bg-black/90 border border-cyan-500/40 text-[11px] text-cyan-300 backdrop-blur-md shadow-xl z-30 flex flex-col space-y-1">
+        <div className="pointer-events-auto absolute top-28 lg:top-20 right-[max(0.75rem,env(safe-area-inset-right))] sm:right-5 p-3 rounded-lg bg-black/90 border border-cyan-500/40 text-[11px] text-cyan-300 backdrop-blur-md shadow-xl z-30 flex flex-col gap-1">
           <div className="text-white font-bold border-b border-cyan-500/30 pb-1 mb-1">
             [TELEMETRY DIAGNOSTICS]
           </div>

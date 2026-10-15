@@ -2,6 +2,7 @@ import * as THREE from 'three';
 import { Sky } from 'three/examples/jsm/objects/Sky.js';
 import { LightingMode } from '../types';
 import { WorldId } from './WorldConfig';
+import { atmosphereBlendWeight } from './systems/worldTransition/WorldTransitionManager';
 
 export interface LightingPresetConfig {
   skyTop: string;
@@ -405,41 +406,47 @@ interface WorldAtmosphere {
   fogDensity: number;
 }
 
+// Sky light comes almost entirely from the image-based environment baked from
+// the same sky; the hemisphere light only adds a faint directional sky/ground
+// tint (0.1-0.15). Stacking a strong hemisphere light on top of the IBL fills
+// in every shadow and flattens the image.
 const WORLD_ATMOSPHERES: Record<WorldId, WorldAtmosphere> = {
   // Clear high-altitude midday above a sea of cloud
   'sky-isles': {
     sunElevation: 52, sunAzimuth: 150, turbidity: 2.2, rayleigh: 1.0, mieCoefficient: 0.003, mieDirectionalG: 0.8,
-    cloudCoverage: 0.35, cloudDensity: 0.45, exposure: 0.45,
-    sunColor: '#fff3e2', sunIntensity: 2.8, hemiSky: '#bcd6ff', hemiGround: '#6f7a5c', hemiIntensity: 0.6,
+    cloudCoverage: 0.35, cloudDensity: 0.45, exposure: 0.5,
+    sunColor: '#fff3e2', sunIntensity: 3.0, hemiSky: '#bcd6ff', hemiGround: '#6f7a5c', hemiIntensity: 0.12,
     envIntensity: 1.0, fogColor: '#a9c1db', fogDensity: 0.0008,
   },
   // Humid forest morning, low warm sun through haze
   'verdant-wilds': {
-    sunElevation: 18, sunAzimuth: 125, turbidity: 5.0, rayleigh: 1.6, mieCoefficient: 0.006, mieDirectionalG: 0.85,
-    cloudCoverage: 0.5, cloudDensity: 0.5, exposure: 0.62,
-    sunColor: '#ffd8a6', sunIntensity: 2.6, hemiSky: '#a8c3d6', hemiGround: '#3c4a2a', hemiIntensity: 0.55,
-    envIntensity: 0.9, fogColor: '#9fb2a2', fogDensity: 0.0022,
+    sunElevation: 22, sunAzimuth: 125, turbidity: 4.5, rayleigh: 1.5, mieCoefficient: 0.005, mieDirectionalG: 0.82,
+    cloudCoverage: 0.45, cloudDensity: 0.5, exposure: 0.66,
+    sunColor: '#ffdcae', sunIntensity: 2.9, hemiSky: '#a8c3d6', hemiGround: '#3c4a2a', hemiIntensity: 0.12,
+    envIntensity: 0.95, fogColor: '#9fb2a2', fogDensity: 0.0022,
   },
-  // Late-afternoon desert, sun low ahead of the rider
+  // Late-afternoon desert: sun off to the side so it rakes across the dunes
+  // without flooding half the sky with forward-scattered glare
   'crimson-dunes': {
-    sunElevation: 10, sunAzimuth: 30, turbidity: 8.0, rayleigh: 2.2, mieCoefficient: 0.007, mieDirectionalG: 0.88,
-    cloudCoverage: 0.12, cloudDensity: 0.35, exposure: 0.5,
-    sunColor: '#ffb274', sunIntensity: 3.0, hemiSky: '#e6c39c', hemiGround: '#8a5a34', hemiIntensity: 0.6,
-    envIntensity: 1.0, fogColor: '#d4ae88', fogDensity: 0.0012,
+    sunElevation: 16, sunAzimuth: 60, turbidity: 4.0, rayleigh: 1.8, mieCoefficient: 0.004, mieDirectionalG: 0.8,
+    cloudCoverage: 0.12, cloudDensity: 0.35, exposure: 0.52,
+    sunColor: '#ffbf86', sunIntensity: 3.2, hemiSky: '#e6c39c', hemiGround: '#8a5a34', hemiIntensity: 0.12,
+    envIntensity: 1.0, fogColor: '#d9bc9a', fogDensity: 0.0012,
   },
   // Cold, crisp alpine air
   'crystal-heights': {
-    sunElevation: 38, sunAzimuth: 160, turbidity: 1.6, rayleigh: 0.7, mieCoefficient: 0.002, mieDirectionalG: 0.8,
+    sunElevation: 34, sunAzimuth: 145, turbidity: 1.8, rayleigh: 0.8, mieCoefficient: 0.002, mieDirectionalG: 0.8,
     cloudCoverage: 0.25, cloudDensity: 0.4, exposure: 0.5,
-    sunColor: '#ffffff', sunIntensity: 3.4, hemiSky: '#cfe1ff', hemiGround: '#9aa7b6', hemiIntensity: 0.7,
-    envIntensity: 1.1, fogColor: '#bcd0e6', fogDensity: 0.0009,
+    sunColor: '#fffaf2', sunIntensity: 3.4, hemiSky: '#cfe1ff', hemiGround: '#9aa7b6', hemiIntensity: 0.12,
+    envIntensity: 1.05, fogColor: '#bcd0e6', fogDensity: 0.0009,
   },
-  // Volcanic dusk: ash-laden air, sun on the horizon
+  // Volcanic dusk: ash haze and a low orange sun. Kept moderate so the sky
+  // light (and the IBL baked from it) is not flooded to white.
   'obsidian-core': {
-    sunElevation: 2.5, sunAzimuth: 10, turbidity: 16.0, rayleigh: 3.0, mieCoefficient: 0.02, mieDirectionalG: 0.95,
-    cloudCoverage: 0.7, cloudDensity: 0.8, exposure: 0.6,
-    sunColor: '#ff6a3a', sunIntensity: 2.0, hemiSky: '#6b4a48', hemiGround: '#1a0d0a', hemiIntensity: 0.45,
-    envIntensity: 0.7, fogColor: '#4a2c28', fogDensity: 0.003,
+    sunElevation: 9, sunAzimuth: 25, turbidity: 6.0, rayleigh: 2.4, mieCoefficient: 0.005, mieDirectionalG: 0.8,
+    cloudCoverage: 0.6, cloudDensity: 0.7, exposure: 0.66,
+    sunColor: '#ff8a55', sunIntensity: 3.0, hemiSky: '#6b4a48', hemiGround: '#24120c', hemiIntensity: 0.15,
+    envIntensity: 0.55, fogColor: '#3a2622', fogDensity: 0.006,
   },
 };
 
@@ -480,7 +487,7 @@ export class SkyManager {
     this.scene.add(this.skyMesh);
 
     // 2. Sky light (hemisphere) and the sun
-    this.hemiLight = new THREE.HemisphereLight(0xbcd6ff, 0x6f7a5c, 0.6);
+    this.hemiLight = new THREE.HemisphereLight(0xbcd6ff, 0x6f7a5c, 0.12);
     this.scene.add(this.hemiLight);
 
     this.dirLight = new THREE.DirectionalLight(0xffffff, 3.0);
@@ -518,13 +525,16 @@ export class SkyManager {
   applyLightingPreset(_mode: LightingMode) {}
 
   /**
-   * Blend the atmosphere of `current` toward `next` by `t` (0..1) and apply it
-   * to the sky, sun, sky light, fog, exposure and reflection environment.
+   * Blend the atmosphere of `current` toward `next` and apply it to the sky,
+   * sun, sky light, fog, exposure and reflection environment. `t` is the
+   * transition corridor's weight (0..1 over the last 300 m); the atmosphere
+   * itself only moves over the final ATMOSPHERE_BLEND_LENGTH metres, under the
+   * portal's warp flash.
    */
   applyWorldAtmosphere(current: WorldId, next: WorldId, t: number) {
     const a = WORLD_ATMOSPHERES[current] ?? WORLD_ATMOSPHERES['sky-isles'];
     const b = WORLD_ATMOSPHERES[next] ?? a;
-    const w = THREE.MathUtils.clamp(t, 0, 1);
+    const w = atmosphereBlendWeight(THREE.MathUtils.clamp(t, 0, 1));
     const mix = (x: number, y: number) => x + (y - x) * w;
 
     const elev = THREE.MathUtils.degToRad(mix(a.sunElevation, b.sunElevation));
@@ -572,9 +582,10 @@ export class SkyManager {
     const dst = (this.envSky.material as THREE.ShaderMaterial).uniforms;
     for (const k of SKY_UNIFORMS_TO_BAKE) dst[k].value = src[k].value;
     dst.sunPosition.value.copy(src.sunPosition.value);
-    // Ground radiance ~ sky-lit albedo: hemisphere ground colour, scaled to the
-    // sky's brightness (Preetham radiance is roughly 0.5-2 in these units).
-    this.envGroundMat.color.copy(this.hemiLight.groundColor).multiplyScalar(this.hemiLight.intensity * 1.5);
+    // Ground radiance ~ sky-lit albedo: hemisphere ground colour at a fixed
+    // scale (Preetham radiance is roughly 0.5-2 in these units). Independent of
+    // the (now faint) hemisphere light so the IBL keeps a realistic bounce.
+    this.envGroundMat.color.copy(this.hemiLight.groundColor).multiplyScalar(0.9);
 
     const target = this.pmrem.fromScene(this.envScene, 0, 0.1, 100);
     this.envTarget?.dispose();

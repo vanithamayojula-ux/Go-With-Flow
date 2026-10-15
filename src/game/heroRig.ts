@@ -65,10 +65,12 @@ export interface HeroRig {
 }
 
 const cache = new Map<HeroId, Promise<LoadedHeroData | null> | LoadedHeroData>();
-// model02.glb (Shadow Blade, the default hero) uses EXT_meshopt_compression,
-// so the meshopt decoder is required; without it the hero fails to load and
-// the procedural skater + board is shown instead. The decoder runs on
-// WebAssembly, so a CSP must allow 'wasm-unsafe-eval' (none is set today).
+// Hero GLBs (the default hero is 'custom' / model.glb; the others are
+// model02..06.glb) may use EXT_meshopt_compression, so the meshopt decoder is
+// required; without it the hero fails to load and the procedural skater +
+// board is shown instead. The decoder runs on WebAssembly, so a CSP must allow
+// 'wasm-unsafe-eval' (none is set today). EXT_texture_webp textures decode
+// through the <img>-based TextureLoader registered below.
 const loader = new GLTFLoader();
 loader.setMeshoptDecoder(MeshoptDecoder);
 
@@ -188,6 +190,40 @@ export function isHeroModelReady(heroId: HeroId): boolean {
   return !!v && !(v instanceof Promise);
 }
 
+/**
+ * Keep the hero's authored PBR look: base-colour/normal/roughness/metalness
+ * maps and values exactly as exported, a white colour factor (so the texture
+ * shows true), no added emissive and a neutral environment response. Only the
+ * render state is normalised so the hero is always a solid, opaque mesh.
+ */
+function applyAuthoredHeroMaterial(m: THREE.Material) {
+  const stdMat = m as THREE.MeshStandardMaterial;
+  stdMat.transparent = false;
+  stdMat.opacity = 1.0;
+  stdMat.depthWrite = true;
+  stdMat.depthTest = true;
+  stdMat.side = THREE.FrontSide;
+  stdMat.blending = THREE.NormalBlending;
+  stdMat.fog = false;
+
+  if (stdMat.map) {
+    stdMat.map.colorSpace = THREE.SRGBColorSpace;
+    stdMat.map.generateMipmaps = true;
+    stdMat.map.minFilter = THREE.LinearMipmapLinearFilter;
+    stdMat.map.magFilter = THREE.LinearFilter;
+    stdMat.map.anisotropy = 4;
+    stdMat.map.needsUpdate = true;
+  }
+
+  // Textured parts show the texture unmodified; untextured parts keep their
+  // authored base colour (never recoloured to a flat dark blue).
+  if (stdMat.map && stdMat.color) stdMat.color.setRGB(1, 1, 1);
+  if ('envMapIntensity' in stdMat) stdMat.envMapIntensity = 1.0;
+  if (stdMat.emissive) stdMat.emissive.setRGB(0, 0, 0);
+  if ('emissiveIntensity' in stdMat) stdMat.emissiveIntensity = 0;
+  stdMat.needsUpdate = true;
+}
+
 export function buildHeroRig(heroId: HeroId): HeroRig | null {
   const entry = cache.get(heroId);
   if (!entry || entry instanceof Promise) return null;
@@ -247,30 +283,7 @@ export function buildHeroRig(heroId: HeroId): HeroRig | null {
 
         const mats = Array.isArray(mesh.material) ? mesh.material : [mesh.material];
         for (const m of mats) {
-          if (!m) continue;
-          const stdMat = m as THREE.MeshStandardMaterial;
-          stdMat.transparent = false;
-          stdMat.opacity = 1.0;
-          stdMat.depthWrite = true;
-          stdMat.depthTest = true;
-          stdMat.side = THREE.FrontSide;
-          stdMat.blending = THREE.NormalBlending;
-          stdMat.fog = false;
-
-          if (stdMat.map) {
-            stdMat.map.colorSpace = THREE.SRGBColorSpace;
-            stdMat.map.generateMipmaps = true;
-            stdMat.map.minFilter = THREE.LinearMipmapLinearFilter;
-            stdMat.map.magFilter = THREE.LinearFilter;
-            stdMat.map.anisotropy = 4; // Razor-sharp 2K textures at distance
-            stdMat.map.needsUpdate = true;
-          }
-
-          stdMat.color.setRGB(1, 1, 1); // Authentic texture colour; roughness/metalness stay as authored
-          stdMat.envMapIntensity = 1.0;
-          stdMat.emissive.setRGB(0, 0, 0); // No bloom clip / no blown-out white blobs
-          stdMat.emissiveIntensity = 0;
-          stdMat.needsUpdate = true;
+          if (m) applyAuthoredHeroMaterial(m);
         }
       }
     });
@@ -361,10 +374,8 @@ export function buildHeroRig(heroId: HeroId): HeroRig | null {
     }
   });
 
-  const heroColor = new THREE.Color(heroDef.color);
-  const trailColor = new THREE.Color(heroDef.trail);
-
-  // Traverse skinned meshes and apply albedo lift, specular highlight & rim emissive
+  // Skinned heroes: same authored-PBR treatment as the rigid hero above (no
+  // forced metalness/roughness, no albedo recolour, no hero-tinted emissive).
   scene.traverse((o: THREE.Object3D) => {
     if ((o as THREE.Mesh).isMesh || (o as THREE.SkinnedMesh).isSkinnedMesh) {
       const mesh = o as THREE.Mesh;
@@ -374,78 +385,7 @@ export function buildHeroRig(heroId: HeroId): HeroRig | null {
 
       const mats = Array.isArray(mesh.material) ? mesh.material : [mesh.material];
       for (const m of mats) {
-        if (!m) continue;
-        if ((m as THREE.MeshStandardMaterial).isMeshStandardMaterial || (m as any).isMaterial) {
-          const stdMat = m as THREE.MeshStandardMaterial;
-
-          // Hero materials solid & opaque: transparent=false, opacity=1, depthWrite=true, side=FrontSide, blending=NormalBlending
-          stdMat.transparent = false;
-          stdMat.opacity = 1.0;
-          stdMat.depthWrite = true;
-          stdMat.depthTest = true;
-          stdMat.side = THREE.FrontSide;
-          stdMat.blending = THREE.NormalBlending;
-          stdMat.fog = false;
-
-          // 1. Color map sRGB color space, anisotropic filtering & mipmaps
-          if (stdMat.map) {
-            stdMat.map.colorSpace = THREE.SRGBColorSpace;
-            stdMat.map.generateMipmaps = true;
-            stdMat.map.minFilter = THREE.LinearMipmapLinearFilter;
-            stdMat.map.magFilter = THREE.LinearFilter;
-            stdMat.map.anisotropy = 4; // High-resolution texture sharpness at distance
-            stdMat.map.needsUpdate = true;
-          }
-
-          // 2. Normal map softening (spikes *0.35 to prevent noisy spongy appearance)
-          if (stdMat.normalMap) {
-            stdMat.normalScale.set(0.35, 0.35);
-          }
-
-          // 3. Roughness & metalness tuning: base #1a2438 metal 0.6 rough 0.5
-          stdMat.roughness = 0.5;
-          stdMat.metalness = 0.6;
-          stdMat.envMapIntensity = 0.9;
-
-          // 4. Remove transmission, clearcoat, sheen noise
-          (stdMat as any).transmission = 0;
-          (stdMat as any).clearcoat = 0;
-          (stdMat as any).sheen = 0;
-
-          // 5. Albedo lift for dark heroes (Shadow, Void) — base #1a2438 (never pure black albedo)
-          const hsl = { h: 0, s: 0, l: 0 };
-          stdMat.color.getHSL(hsl);
-          if (hsl.l < 0.22) {
-            stdMat.color.setHex(0x1a2438);
-          } else if (hsl.l < 0.40) {
-            stdMat.color.setHSL(hsl.h, Math.min(1.0, hsl.s * 1.1), Math.max(0.35, hsl.l * 1.5));
-          }
-
-          // 6. Visor (*2.0), veins (*1.2) and chest (cap 0.4) emissive tuning
-          const matName = (stdMat.name || '').toLowerCase();
-          const meshName = (mesh.name || '').toLowerCase();
-          const isVisor = matName.includes('visor') || matName.includes('eye') || matName.includes('glass') || meshName.includes('visor');
-          const isChest = matName.includes('chest') || matName.includes('body') || matName.includes('torso') || meshName.includes('chest') || meshName.includes('body');
-
-          if (isVisor) {
-            stdMat.emissive = new THREE.Color(0x00f0ff);
-            stdMat.emissiveIntensity = 2.0; // visor 2.0
-          } else if (isChest) {
-            stdMat.emissive = heroColor.clone().multiplyScalar(0.20);
-            stdMat.emissiveIntensity = 0.4; // chest cap 0.4
-          } else {
-            stdMat.emissive = heroColor.clone().multiplyScalar(0.40);
-            stdMat.emissiveIntensity = 1.2; // veins 1.2
-          }
-
-          // Cap emissive channels at 245/255 to prevent pure white bloom clip
-          const cap = 245 / 255;
-          stdMat.emissive.r = Math.min(stdMat.emissive.r, cap);
-          stdMat.emissive.g = Math.min(stdMat.emissive.g, cap);
-          stdMat.emissive.b = Math.min(stdMat.emissive.b, cap);
-
-          stdMat.needsUpdate = true;
-        }
+        if (m) applyAuthoredHeroMaterial(m);
       }
     }
   });

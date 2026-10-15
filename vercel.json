@@ -2,14 +2,24 @@
   "framework": "vite",
   "buildCommand": "vite build",
   "outputDirectory": "dist",
-  "rewrites": [
+  "headers": [
     {
-      "source": "/hero-lab",
-      "destination": "/hero-lab.html"
+      "source": "/assets/(.*)",
+      "headers": [
+        { "key": "Cache-Control", "value": "public, max-age=31536000, immutable" }
+      ]
     },
     {
-      "source": "/((?!assets|models|hero-lab.html|hero-previews|favicon.ico|player_sprite.jpg|model.*|obstacle.*).*)",
-      "destination": "/index.html"
+      "source": "/(.*)\\.glb",
+      "headers": [
+        { "key": "Cache-Control", "value": "public, max-age=604800, stale-while-revalidate=86400" }
+      ]
+    },
+    {
+      "source": "/hero-previews/(.*)",
+      "headers": [
+        { "key": "Cache-Control", "value": "public, max-age=604800" }
+      ]
     }
   ]
 }

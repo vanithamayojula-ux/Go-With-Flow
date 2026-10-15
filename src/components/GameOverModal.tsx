@@ -53,8 +53,15 @@ export const GameOverModal: React.FC<GameOverModalProps> = ({
   const xpProg = progressionData ? getXPProgress(progressionData.xp, progressionData.level) : null;
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/85 backdrop-blur-xl animate-fade-in font-mono">
-      <div className="relative w-full max-w-md p-6 sm:p-8 bg-black/95 border-2 border-cyan-500/50 rounded-2xl shadow-[0_0_50px_rgba(0,240,255,0.25)] text-center overflow-hidden max-h-[90vh] overflow-y-auto">
+    <div
+      className="fixed inset-0 z-50 flex items-center justify-center p-3 sm:p-4 pt-[max(0.75rem,env(safe-area-inset-top))] pb-[max(0.75rem,env(safe-area-inset-bottom))] bg-black/85 backdrop-blur-xl animate-fade-in font-mono"
+      role="dialog"
+      aria-modal="true"
+      aria-labelledby="game-over-title"
+    >
+      <div className="relative w-full max-w-md max-h-full flex flex-col bg-black/95 border-2 border-cyan-500/50 rounded-2xl shadow-[0_0_50px_rgba(0,240,255,0.25)] text-center overflow-hidden">
+        {/* Scrollable run summary; the actions below stay pinned in view. */}
+        <div className="relative flex-1 min-h-0 overflow-y-auto px-5 sm:px-7 pt-5 sm:pt-6 pb-3">
         {/* Neon Glow Accents */}
         <div className="absolute -top-20 -right-20 w-44 h-44 rounded-full bg-pink-500/20 blur-3xl pointer-events-none" />
         <div className="absolute -bottom-20 -left-20 w-44 h-44 rounded-full bg-cyan-500/20 blur-3xl pointer-events-none" />
@@ -62,14 +69,14 @@ export const GameOverModal: React.FC<GameOverModalProps> = ({
         {/* Tech Header Status Tag */}
         <div className="inline-flex items-center space-x-2 px-3 py-1 rounded border border-red-500/50 bg-red-950/40 text-red-400 text-xs font-black mb-3 tracking-widest animate-pulse">
           <ShieldAlert className="w-3.5 h-3.5 text-red-400" />
-          <span>// NEURAL DESYNC DETECTED</span>
+          <span>RUN OVER</span>
         </div>
 
-        <h2 className="text-3xl sm:text-4xl font-black text-transparent bg-clip-text bg-gradient-to-r from-cyan-400 via-pink-400 to-amber-300 tracking-tight mb-1 uppercase">
-          SYSTEM CRASH
+        <h2 id="game-over-title" className="text-3xl sm:text-4xl font-black text-transparent bg-clip-text bg-gradient-to-r from-cyan-400 via-pink-400 to-amber-300 tracking-tight mb-1 uppercase">
+          WIPEOUT
         </h2>
         <p className="text-xs text-white/60 mb-3">
-          PHYSICAL IMPACT COLLISION // TELEMETRY LINK SEVERED
+          You clipped an obstacle. Shake it off and drop back in.
         </p>
 
         {/* World Sector Reached Banner */}
@@ -115,7 +122,7 @@ export const GameOverModal: React.FC<GameOverModalProps> = ({
         {/* Score Showcase Terminal Card */}
         <div className="bg-slate-950/90 border border-cyan-500/30 rounded-xl p-4 sm:p-5 mb-4 shadow-inner">
           <div className="text-[10px] uppercase tracking-widest text-cyan-400 font-bold mb-1">
-            SYNC DATA HARVESTED
+            RUN SCORE
           </div>
           <div className="text-4xl sm:text-5xl font-black text-white font-mono tracking-tight text-shadow-[0_0_15px_rgba(0,240,255,0.6)]">
             {Math.floor(stats.score).toLocaleString()}
@@ -125,7 +132,7 @@ export const GameOverModal: React.FC<GameOverModalProps> = ({
           <div className="mt-3 pt-3 border-t border-white/10 flex items-center justify-center space-x-2">
             <Trophy className={`w-4 h-4 ${isNewHighScore ? 'text-amber-400 animate-bounce' : 'text-cyan-400'}`} />
             <span className="text-xs font-bold text-white/80">
-              {isNewHighScore ? '⚡ NEW RECORD TELEMETRY!' : `BEST: ${Math.floor(stats.highScore).toLocaleString()}`}
+              {isNewHighScore ? '⚡ NEW PERSONAL BEST!' : `BEST: ${Math.floor(stats.highScore).toLocaleString()}`}
             </span>
           </div>
         </div>
@@ -164,7 +171,7 @@ export const GameOverModal: React.FC<GameOverModalProps> = ({
             <div className="flex items-center justify-between text-xs mb-1 font-bold">
               <div className="flex items-center space-x-1.5 text-cyan-300">
                 <Zap className="w-3.5 h-3.5 text-cyan-400" />
-                <span>PILOT RANK {xpProg.currentLevel}</span>
+                <span>RIDER LEVEL {xpProg.currentLevel}</span>
               </div>
               <span className="text-[10px] font-mono text-cyan-400">
                 {xpProg.currentLevelXP}/{xpProg.nextLevelXPRequired} XP ({xpProg.percent}%)
@@ -178,7 +185,7 @@ export const GameOverModal: React.FC<GameOverModalProps> = ({
             </div>
             <div className="flex justify-between items-center text-[9px] text-white/40 mt-1 font-mono">
               <span>VIEW MISSIONS & UNLOCKS</span>
-              <span className="text-cyan-400 font-bold">OPEN PROTOCOL →</span>
+              <span className="text-cyan-400 font-bold">OPEN →</span>
             </div>
           </div>
         )}
@@ -189,7 +196,7 @@ export const GameOverModal: React.FC<GameOverModalProps> = ({
             <div className="text-[10px] font-bold uppercase tracking-wider text-cyan-400 flex items-center justify-between">
               <span className="flex items-center space-x-1.5">
                 <Trophy className="w-3.5 h-3.5 text-amber-400" />
-                <span>DAILY PROTOCOL MISSIONS</span>
+                <span>DAILY MISSIONS</span>
               </span>
               <span className="text-white/40">RESET 00:00 UTC</span>
             </div>
@@ -231,89 +238,90 @@ export const GameOverModal: React.FC<GameOverModalProps> = ({
         )}
 
         {/* Banked Shards Wallet Status Banner */}
-        <div className="flex items-center justify-between px-3.5 py-2 rounded-xl bg-cyan-950/40 border border-cyan-400/40 text-cyan-300 text-xs font-bold mb-4">
+        <div className="flex items-center justify-between px-3.5 py-2 rounded-xl bg-cyan-950/40 border border-cyan-400/40 text-cyan-300 text-xs font-bold">
           <div className="flex items-center space-x-2">
             <Coins className="w-4 h-4 text-cyan-300" />
-            <span className="text-[11px] uppercase tracking-wider">TOTAL BANK WALLET:</span>
+            <span className="text-[11px] uppercase tracking-wider">BANKED SHARDS:</span>
           </div>
           <span className="text-sm font-black text-white font-mono">
             {bankedShards.toLocaleString()} SHARDS
           </span>
         </div>
 
-        {/* Action Buttons */}
-        <div className="flex flex-col space-y-2.5">
-          {/* Emergency Reboot */}
-          {canRevive && (!gameModeMgr || gameModeMgr.isReviveAllowed()) && (
-            <button
-              onClick={onRevive}
-              className="w-full py-3.5 px-4 rounded-xl bg-gradient-to-r from-emerald-500 to-teal-500 text-black font-black text-xs uppercase tracking-widest shadow-[0_0_20px_rgba(0,255,102,0.4)] hover:brightness-110 active:scale-[0.98] transition-all flex items-center justify-center space-x-2"
-            >
-              <Zap className="w-4 h-4 fill-current" />
-              <span>EMERGENCY REBOOT (-15 SHARDS)</span>
-            </button>
-          )}
+        </div>
 
+        {/* Action Buttons: pinned footer, always visible without scrolling */}
+        <div className="relative shrink-0 border-t border-cyan-500/30 bg-black/95 px-5 sm:px-7 py-3 flex flex-col gap-2">
           {gameModeMgr && !gameModeMgr.isReviveAllowed() && (
-            <div className="py-2 px-3 rounded-lg bg-red-950/40 border border-red-500/30 text-red-400 text-xs font-bold text-center">
+            <div className="py-1.5 px-3 rounded-lg bg-red-950/40 border border-red-500/30 text-red-400 text-[11px] font-bold text-center">
               ⚠️ REVIVES DISABLED FOR {gameModeMgr.activeMode.name.toUpperCase()}
             </div>
           )}
 
-          {/* Reboot Run Button */}
-          <button
-            onClick={onRestart}
-            className="w-full py-3.5 px-4 rounded-xl bg-gradient-to-r from-cyan-500 to-blue-600 text-black font-black text-xs uppercase tracking-widest shadow-[0_0_20px_rgba(0,240,255,0.4)] hover:brightness-110 active:scale-[0.98] transition-all flex items-center justify-center space-x-2"
-          >
-            <RotateCcw className="w-4 h-4" />
-            <span>REBOOT NEURAL LINK (RELAUNCH)</span>
-          </button>
-
-          {/* Share Result & Leaderboard Actions (Phase 16) */}
-          <div className="grid grid-cols-2 gap-2">
-            {socialMgr && gameModeMgr?.getLastSummary() && (
+          {/* Primary actions: revive (when affordable) and relaunch */}
+          <div className={`grid gap-2 ${canRevive && (!gameModeMgr || gameModeMgr.isReviveAllowed()) ? 'grid-cols-2' : 'grid-cols-1'}`}>
+            {canRevive && (!gameModeMgr || gameModeMgr.isReviveAllowed()) && (
               <button
-                onClick={() => {
-                  const summary = gameModeMgr.getLastSummary();
-                  if (summary) socialMgr.copyShareCardToClipboard(summary);
-                }}
-                className="py-2.5 px-3 rounded-xl bg-purple-950/60 border border-purple-500/40 text-purple-300 hover:text-white font-bold text-xs uppercase tracking-wider transition-all flex items-center justify-center space-x-1.5 cursor-pointer active:scale-95"
+                onClick={onRevive}
+                className="min-h-[48px] py-3 px-3 rounded-xl bg-gradient-to-r from-emerald-500 to-teal-500 text-black font-black text-xs uppercase tracking-widest shadow-[0_0_20px_rgba(0,255,102,0.4)] hover:brightness-110 active:scale-[0.98] transition-all flex items-center justify-center gap-2"
               >
-                <span>📋 SHARE CARD</span>
+                <Zap className="w-4 h-4 fill-current shrink-0" />
+                <span>REVIVE <span className="whitespace-nowrap">(-15 💎)</span></span>
+              </button>
+            )}
+
+            <button
+              onClick={onRestart}
+              className="min-h-[48px] py-3 px-3 rounded-xl bg-gradient-to-r from-cyan-500 to-blue-600 text-black font-black text-xs uppercase tracking-widest shadow-[0_0_20px_rgba(0,240,255,0.4)] hover:brightness-110 active:scale-[0.98] transition-all flex items-center justify-center gap-2 focus-visible:ring-4 focus-visible:ring-cyan-200"
+            >
+              <RotateCcw className="w-4 h-4 shrink-0" />
+              <span>RELAUNCH RUN</span>
+            </button>
+          </div>
+
+          {/* Secondary actions */}
+          <div className="grid grid-cols-2 gap-2">
+            {onMainMenu && (
+              <button
+                onClick={onMainMenu}
+                className="min-h-[40px] py-2 px-3 rounded-xl bg-white/5 border border-white/15 text-white/80 hover:text-white hover:bg-white/10 font-bold text-[11px] uppercase tracking-wider transition-all cursor-pointer"
+              >
+                MAIN MENU
+              </button>
+            )}
+
+            {onOpenShop && (
+              <button
+                onClick={onOpenShop}
+                className="min-h-[40px] py-2 px-3 rounded-xl bg-slate-900/90 border border-cyan-500/40 text-cyan-300 hover:text-white hover:bg-cyan-950/50 font-bold text-[11px] uppercase tracking-wider transition-all flex items-center justify-center gap-1.5 cursor-pointer"
+              >
+                <ShoppingBag className="w-3.5 h-3.5 text-cyan-400 shrink-0" />
+                <span>UPGRADES</span>
               </button>
             )}
 
             {onOpenCompetitive && (
               <button
                 onClick={onOpenCompetitive}
-                className="py-2.5 px-3 rounded-xl bg-amber-950/60 border border-amber-500/40 text-amber-300 hover:text-white font-bold text-xs uppercase tracking-wider transition-all flex items-center justify-center space-x-1.5 cursor-pointer active:scale-95"
+                className="min-h-[40px] py-2 px-3 rounded-xl bg-amber-950/60 border border-amber-500/40 text-amber-300 hover:text-white font-bold text-[11px] uppercase tracking-wider transition-all flex items-center justify-center gap-1.5 cursor-pointer active:scale-95"
               >
-                <Trophy className="w-3.5 h-3.5 text-amber-400" />
+                <Trophy className="w-3.5 h-3.5 text-amber-400 shrink-0" />
                 <span>LEADERBOARDS</span>
               </button>
             )}
+
+            {socialMgr && gameModeMgr?.getLastSummary() && (
+              <button
+                onClick={() => {
+                  const summary = gameModeMgr.getLastSummary();
+                  if (summary) socialMgr.copyShareCardToClipboard(summary);
+                }}
+                className="min-h-[40px] py-2 px-3 rounded-xl bg-purple-950/60 border border-purple-500/40 text-purple-300 hover:text-white font-bold text-[11px] uppercase tracking-wider transition-all flex items-center justify-center gap-1.5 cursor-pointer active:scale-95"
+              >
+                <span>📋 SHARE</span>
+              </button>
+            )}
           </div>
-
-          {/* Open Cyber Shop & Upgrades */}
-          {onOpenShop && (
-            <button
-              onClick={onOpenShop}
-              className="w-full py-2.5 px-4 rounded-xl bg-slate-900/90 border border-cyan-500/40 text-cyan-300 hover:text-white hover:bg-cyan-950/50 font-bold text-xs uppercase tracking-wider transition-all flex items-center justify-center space-x-2 cursor-pointer"
-            >
-              <ShoppingBag className="w-4 h-4 text-cyan-400" />
-              <span>UPGRADES & LOADOUT BAY</span>
-            </button>
-          )}
-
-          {/* Return to Main Menu */}
-          {onMainMenu && (
-            <button
-              onClick={onMainMenu}
-              className="w-full py-2.5 px-4 rounded-xl bg-white/5 border border-white/10 text-white/70 hover:text-white hover:bg-white/10 font-bold text-xs uppercase tracking-wider transition-all cursor-pointer"
-            >
-              RETURN TO OPENING MENU
-            </button>
-          )}
         </div>
       </div>
     </div>

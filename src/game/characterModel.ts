@@ -888,8 +888,12 @@ export function createPlayerCharacter(heroId?: HeroId): PlayerCharacter {
   playerChar.setHero = async (targetHeroId?: HeroId): Promise<boolean> => {
     if (targetHeroId) {
       playerChar.activeHeroId = targetHeroId;
-      spineGroup.visible = false;
+      // Keep whatever is on screen (the procedural rider, or the previous hero
+      // rig) visible while the GLB loads; the run is already live, so hiding
+      // it first left the player invisible until the download finished.
       const loaded = await loadHeroModel(targetHeroId);
+      // A newer setHero() call superseded this one while it was loading.
+      if (playerChar.activeHeroId !== targetHeroId) return false;
       if (loaded) {
         const rig = buildHeroRig(targetHeroId);
         if (rig) {
@@ -946,7 +950,8 @@ export function createPlayerCharacter(heroId?: HeroId): PlayerCharacter {
   };
 
   if (heroId) {
-    spineGroup.visible = false;
+    // The procedural rider stays visible as the fallback until the hero GLB
+    // is ready; setHero() hides it when it swaps the rig in.
     playerChar.activeHeroId = heroId;
     playerChar.setHero(heroId);
   }

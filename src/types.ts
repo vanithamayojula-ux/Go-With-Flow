@@ -159,6 +159,8 @@ export type ComboTier = 'blue' | 'cyan' | 'magenta' | 'white-hot';
 
 export interface PlayerStats {
   speed: number;
+  // Seconds until the double-tap shield can be deployed again (0 = ready)
+  shieldCooldown?: number;
   maxSpeed: number;
   distance: number;
   score: number;

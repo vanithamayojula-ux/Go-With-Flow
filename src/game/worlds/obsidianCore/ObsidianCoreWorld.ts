@@ -6,6 +6,7 @@ import {
   createVolcanicHighwayChunkGeometry,
   createLavaRiverGeometry,
   createObsidianCoreMaterials,
+  OBSIDIAN_LAVA_EMISSIVE,
   volcanicGroundHeight,
 } from './ObsidianCoreTerrain';
 import { ObsidianCoreAtmosphere } from './ObsidianCoreAtmosphere';
@@ -97,8 +98,8 @@ export class ObsidianCoreWorld {
 
     // Slow lava flow + breathing heat
     const lava = this.materials.moltenLavaMaterial;
-    const base = this.materials.lavaTexture ? 4.0 : 2.4;
-    lava.emissiveIntensity = base + Math.sin(time * 0.6) * 0.35 + Math.sin(time * 2.3) * 0.12;
+    const base = this.materials.lavaTexture ? OBSIDIAN_LAVA_EMISSIVE : 1.6;
+    lava.emissiveIntensity = base * (1 + Math.sin(time * 0.6) * 0.09 + Math.sin(time * 2.3) * 0.03);
     if (this.materials.lavaTexture) {
       this.materials.lavaTexture.offset.y = (time * 0.012) % 1;
     }

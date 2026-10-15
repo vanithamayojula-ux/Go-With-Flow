@@ -248,8 +248,8 @@ const C_BASALT_LIGHT = new THREE.Color(0x3a3734);
 const C_ASH = new THREE.Color(0x4a4744);
 const C_ASH_DARK = new THREE.Color(0x3d3a37);
 const C_SCORCHED = new THREE.Color(0x2a221e);
-const C_OBSIDIAN = new THREE.Color(0x121214);
-const C_OBSIDIAN_EDGE = new THREE.Color(0x1c1c20);
+const C_OBSIDIAN = new THREE.Color(0x17171b);
+const C_OBSIDIAN_EDGE = new THREE.Color(0x2a2832);
 const C_SOOT = new THREE.Color(0x1d1b1a);
 
 /**
@@ -597,6 +597,9 @@ function mergeBufferGeometriesCustom(geometries: THREE.BufferGeometry[]): THREE.
   return merged;
 }
 
+/** Lava glow (HDR). Bright enough to bloom, not to blow the frame out. */
+export const OBSIDIAN_LAVA_EMISSIVE = 2.0;
+
 /**
  * Shared Obsidian Core materials (physically based; lava is the only emitter)
  */
@@ -624,12 +627,17 @@ export function createObsidianCoreMaterials() {
     roughnessMap: noiseTexture,
   });
 
-  // Glassy obsidian shards (faceted, low roughness)
-  const obsidianGlassMaterial = new THREE.MeshStandardMaterial({
+  // Volcanic glass: near-black body that reads through its glossy reflections
+  // (sky, lava glow) on conchoidal facets, never as a flat black hole.
+  const obsidianGlassMaterial = new THREE.MeshPhysicalMaterial({
     vertexColors: true,
-    roughness: 0.2,
+    roughness: 0.14,
     metalness: 0.0,
     flatShading: true,
+    clearcoat: 1.0,
+    clearcoatRoughness: 0.05,
+    ior: 1.49,
+    envMapIntensity: 1.8,
   });
 
   // Smooth ash slopes for distant volcanoes
@@ -645,7 +653,7 @@ export function createObsidianCoreMaterials() {
   const moltenLavaMaterial = new THREE.MeshStandardMaterial({
     color: 0x2a0a00,
     emissive: 0xff4a10,
-    emissiveIntensity: lavaTexture ? 4.0 : 2.4,
+    emissiveIntensity: lavaTexture ? OBSIDIAN_LAVA_EMISSIVE : 1.6,
     emissiveMap: lavaTexture,
     roughness: 0.6,
     metalness: 0.0,

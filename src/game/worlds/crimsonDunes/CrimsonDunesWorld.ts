@@ -288,6 +288,7 @@ export class CrimsonDunesWorld {
     }
 
     // Dispose materials & textures
+    this.materials.duneMaterial.normalMap?.dispose();
     this.materials.duneMaterial.dispose();
     this.materials.mesaRockMaterial.dispose();
     this.materials.ancientStoneMaterial.dispose();

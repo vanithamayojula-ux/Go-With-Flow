@@ -14,6 +14,7 @@ import { SettingsModal } from './components/SettingsModal';
 import { ProgressionModal } from './components/ProgressionModal';
 import { GameModesModal } from './components/GameModesModal';
 import { CompetitiveModal } from './components/CompetitiveModal';
+import { ToastStack, ToastItem } from './components/ToastStack';
 import { AudioManager } from './game/audio';
 import { HEROES } from './game/heroes';
 import { ProgressionManager } from './game/progression';
@@ -70,6 +71,14 @@ const DEFAULT_SHADER_PARAMS: ShaderParams = {
   scanlineIntensity: 0.0, // Pure 4K display fidelity
   glitchIntensity: 0.0,
 };
+
+// Toasts: up to 3 on screen at once, extras wait their turn (bounded).
+const MAX_VISIBLE_TOASTS = 3;
+const MAX_TOASTS_TOTAL = 8;
+const TOAST_DURATION_MS = 2400;
+// Resume countdown shown after closing a modal that was opened mid-run.
+const RESUME_COUNTDOWN_FROM = 3;
+const RESUME_COUNTDOWN_STEP_MS = 650;
 
 const DEFAULT_MISSIONS: SessionGoal[] = [
   {
@@ -222,7 +231,8 @@ export default function App() {
   const [isSettingsOpen, setIsSettingsOpen] = useState(false);
   const [isDatasetOpen, setIsDatasetOpen] = useState(false);
   const [activeMobileTrick, setActiveMobileTrick] = useState<TrickType | null>(null);
-  const [notification, setNotification] = useState<string | null>(null);
+  const [toasts, setToasts] = useState<ToastItem[]>([]);
+  const [resumeCountdown, setResumeCountdown] = useState(0);
   const [isUprightMode, setIsUprightMode] = useState<boolean>(true);
 
   // Phase 13 Progression System Instance
@@ -328,14 +338,50 @@ export default function App() {
   const [instanceCount, setInstanceCount] = useState(850);
 
   const audioManagerRef = useRef<AudioManager | null>(null);
-  const notifTimeoutRef = useRef<number | null>(null);
+  const toastIdRef = useRef(0);
+  const toastTimersRef = useRef<Map<number, number>>(new Map());
 
+  // Queue a toast. A repeat of a message already shown/queued bumps its
+  // counter and restarts its timer instead of taking another slot.
   const triggerNotification = useCallback((msg: string) => {
-    setNotification(msg);
-    if (notifTimeoutRef.current) clearTimeout(notifTimeoutRef.current);
-    notifTimeoutRef.current = window.setTimeout(() => {
-      setNotification(null);
-    }, 2400);
+    setToasts(prev => {
+      const existing = prev.find(t => t.msg === msg);
+      if (existing) {
+        const timer = toastTimersRef.current.get(existing.id);
+        if (timer !== undefined) {
+          clearTimeout(timer);
+          toastTimersRef.current.delete(existing.id);
+        }
+        return prev.map(t => (t.id === existing.id ? { ...t, count: t.count + 1 } : t));
+      }
+      const next = [...prev, { id: ++toastIdRef.current, msg, count: 1 }];
+      // Drop the oldest *waiting* toast if the backlog grows too long.
+      if (next.length > MAX_TOASTS_TOTAL) next.splice(MAX_VISIBLE_TOASTS, 1);
+      return next;
+    });
+  }, []);
+
+  // Each toast's lifetime starts when it becomes visible.
+  useEffect(() => {
+    const timers = toastTimersRef.current;
+    for (const t of toasts.slice(0, MAX_VISIBLE_TOASTS)) {
+      if (timers.has(t.id)) continue;
+      timers.set(
+        t.id,
+        window.setTimeout(() => {
+          timers.delete(t.id);
+          setToasts(prev => prev.filter(x => x.id !== t.id));
+        }, TOAST_DURATION_MS)
+      );
+    }
+  }, [toasts]);
+
+  useEffect(() => {
+    const timers = toastTimersRef.current;
+    return () => {
+      timers.forEach(id => clearTimeout(id));
+      timers.clear();
+    };
   }, []);
 
   const handleClaimMission = useCallback((missionId: string) => {
@@ -543,6 +589,7 @@ export default function App() {
   // System Crash / Game Over Handler: Bank run harvest into persistent wallet
   const handleGameOver = useCallback(() => {
     setIsGameOver(true);
+    setResumeCountdown(0);
     const finalStats = statsRef.current;
     const runShards = finalStats.dataShardsCollected || 0;
     const unbankedShards = Math.max(0, runShards - bankedThisRunRef.current);
@@ -615,36 +662,92 @@ export default function App() {
     }
   }, [triggerNotification]);
 
-  // Keyboard shortcut listener for Escape and P to pause/resume
+  const isAnyModalOpen =
+    isGraphicsDrawerOpen ||
+    isDeliverablesOpen ||
+    isCosmeticsOpen ||
+    isProgressionOpen ||
+    isHowToOpen ||
+    isSettingsOpen ||
+    isDatasetOpen ||
+    isModesOpen ||
+    isCompetitiveOpen;
+
+  // The 3D run is frozen whenever the pause menu, any modal or the resume
+  // countdown is up; GameCanvas receives this as its isPaused flag.
+  const isRunFrozen = isPaused || isAnyModalOpen || resumeCountdown > 0;
+
+  const handleCloseProgression = useCallback(() => {
+    setIsProgressionOpen(false);
+    if (progressionMgrRef.current) {
+      setPlayerLevel(progressionMgrRef.current.getLevel());
+    }
+  }, []);
+
+  const closeAllModals = useCallback(() => {
+    setIsGraphicsDrawerOpen(false);
+    setIsDeliverablesOpen(false);
+    setIsCosmeticsOpen(false);
+    setIsHowToOpen(false);
+    setIsSettingsOpen(false);
+    setIsDatasetOpen(false);
+    setIsModesOpen(false);
+    setIsCompetitiveOpen(false);
+    handleCloseProgression();
+  }, [handleCloseProgression]);
+
+  const pauseRun = useCallback(() => {
+    setResumeCountdown(0);
+    setIsPaused(true);
+  }, []);
+
+  const resumeRun = useCallback(() => {
+    setIsPaused(false);
+  }, []);
+
+  // A modal opened mid-run (not from the pause menu) resumes with a short
+  // 3-2-1 countdown when it closes; one opened from the pause menu just
+  // returns to the pause menu because isPaused is still set.
+  const prevModalOpenRef = useRef(isAnyModalOpen);
+  useEffect(() => {
+    const wasOpen = prevModalOpenRef.current;
+    prevModalOpenRef.current = isAnyModalOpen;
+    if (wasOpen && !isAnyModalOpen && hasStarted && !isPaused && !isGameOver) {
+      setResumeCountdown(RESUME_COUNTDOWN_FROM);
+    }
+  }, [isAnyModalOpen, hasStarted, isPaused, isGameOver]);
+
+  useEffect(() => {
+    if (resumeCountdown <= 0 || isAnyModalOpen || isPaused) return;
+    const t = window.setTimeout(() => setResumeCountdown(c => Math.max(0, c - 1)), RESUME_COUNTDOWN_STEP_MS);
+    return () => clearTimeout(t);
+  }, [resumeCountdown, isAnyModalOpen, isPaused]);
+
+  // Keyboard: Escape closes an open modal first (never opens pause behind it);
+  // Escape / P toggle pause; Space resumes from the pause menu.
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.code === 'Escape' && isAnyModalOpen) {
+        e.preventDefault();
+        closeAllModals();
+        return;
+      }
       if (e.code === 'Escape' || e.code === 'KeyP') {
-        if (
-          hasStarted &&
-          !isGameOver &&
-          !isHowToOpen &&
-          !isSettingsOpen &&
-          !isCosmeticsOpen &&
-          !isGraphicsDrawerOpen &&
-          !isDeliverablesOpen &&
-          !isDatasetOpen
-        ) {
-          setIsPaused(prev => !prev);
+        if (hasStarted && !isGameOver && !isAnyModalOpen) {
+          if (isPaused) resumeRun();
+          else pauseRun();
         }
+        return;
+      }
+      if (e.code === 'Space' && !e.repeat && isPaused && hasStarted && !isGameOver && !isAnyModalOpen) {
+        // The engine is still paused for this keydown, so it can't also jump.
+        e.preventDefault();
+        resumeRun();
       }
     };
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
-  }, [
-    hasStarted,
-    isGameOver,
-    isHowToOpen,
-    isSettingsOpen,
-    isCosmeticsOpen,
-    isGraphicsDrawerOpen,
-    isDeliverablesOpen,
-    isDatasetOpen,
-  ]);
+  }, [hasStarted, isGameOver, isPaused, isAnyModalOpen, closeAllModals, pauseRun, resumeRun]);
 
   // Bridge touch overlay buttons to synthetic keyboard events
   const handleControlAction = useCallback((action: 'left' | 'right' | 'jump' | 'forward' | 'drift' | 'slide' | 'shield', pressed: boolean) => {
@@ -672,12 +775,14 @@ export default function App() {
     setHasStarted(true);
     setIsGameOver(false);
     setIsPaused(false);
+    setResumeCountdown(0);
     setRestartCount((c) => c + 1);
   }, []);
 
   const handleQuitToMenu = useCallback(() => {
     bankedThisRunRef.current = 0;
     setIsPaused(false);
+    setResumeCountdown(0);
     setIsGameOver(false);
     setHasStarted(false);
     if (audioManagerRef.current) {
@@ -696,7 +801,7 @@ export default function App() {
   }, []);
 
   return (
-    <div id="skyflow-app-container" className="relative w-screen h-screen overflow-hidden bg-slate-950">
+    <div id="skyflow-app-container" className="relative w-screen h-dvh overflow-hidden bg-slate-950">
       {/* 1. Opening Screen / Landing Interface */}
       {!hasStarted && !isGameOver && !isPaused ? (
         <OpeningScreen
@@ -754,9 +859,11 @@ export default function App() {
             audioManagerRef={audioManagerRef}
             isCinematicCam={isCinematicCam}
             isUpright={isUprightMode}
-            isPaused={isPaused}
+            isPaused={isRunFrozen}
+            isMuted={isMuted}
             onNotification={triggerNotification}
             onGameOver={handleGameOver}
+            onRequestPause={pauseRun}
             restartTrigger={restartCount}
             reviveTrigger={reviveCount}
             shieldTrigger={shieldCount}
@@ -789,9 +896,9 @@ export default function App() {
             onOpenCosmetics={() => handleOpenShop('boards')}
             onOpenProgression={() => setIsProgressionOpen(true)}
             onOpenDatasetCapture={() => setIsDatasetOpen(true)}
-            onPause={() => setIsPaused(prev => !prev)}
+            onPause={() => (isPaused ? resumeRun() : pauseRun())}
             gameModeMgr={gameModeMgrRef.current || undefined}
-            notification={notification}
+            notification={null /* toasts render in <ToastStack> */}
           />
 
           {/* On-Screen Touch & Keybind Controls */}
@@ -866,24 +973,20 @@ export default function App() {
         progressionMgr={progressionMgrRef.current || undefined}
       />
 
-      {/* Game Paused Modal */}
-      {isPaused && !isGameOver && (
+      {/* Game Paused Modal (hidden while a modal opened from it is on top;
+          the run stays paused and the menu returns when that modal closes) */}
+      {isPaused && !isGameOver && !isAnyModalOpen && (
         <PauseModal
           isOpen={isPaused}
-          onResume={() => setIsPaused(false)}
+          onResume={resumeRun}
           onRestart={() => {
             bankedThisRunRef.current = 0;
             setIsPaused(false);
+            setResumeCountdown(0);
             setRestartCount(c => c + 1);
           }}
-          onOpenCosmetics={() => {
-            setIsPaused(false);
-            handleOpenShop('boards');
-          }}
-          onOpenGraphics={() => {
-            setIsPaused(false);
-            setIsSettingsOpen(true);
-          }}
+          onOpenCosmetics={() => handleOpenShop('boards')}
+          onOpenGraphics={() => setIsSettingsOpen(true)}
           isMuted={isMuted}
           onToggleMute={handleToggleMute}
           stats={stats}
@@ -893,8 +996,9 @@ export default function App() {
         />
       )}
 
-      {/* Game Over / Journey's Respite Modal */}
-      {isGameOver && (
+      {/* Game Over / Journey's Respite Modal (stays the active screen while a
+          modal such as the shop is open over it, and returns when it closes) */}
+      {isGameOver && !isAnyModalOpen && (
         <GameOverModal
           stats={stats}
           bankedShards={bankedShards}
@@ -911,10 +1015,7 @@ export default function App() {
             setRestartCount(c => c + 1);
           }}
           onRevive={handleRevive}
-          onOpenShop={() => {
-            setIsGameOver(false);
-            handleOpenShop('boards');
-          }}
+          onOpenShop={() => handleOpenShop('boards')}
           onMainMenu={handleQuitToMenu}
         />
       )}
@@ -923,12 +1024,7 @@ export default function App() {
       {isProgressionOpen && progressionMgrRef.current && (
         <ProgressionModal
           progressionMgr={progressionMgrRef.current}
-          onClose={() => {
-            setIsProgressionOpen(false);
-            if (progressionMgrRef.current) {
-              setPlayerLevel(progressionMgrRef.current.getLevel());
-            }
-          }}
+          onClose={handleCloseProgression}
           onClaimChallenge={(_id, shards) => {
             if (progressionMgrRef.current) {
               setPlayerLevel(progressionMgrRef.current.getLevel());
@@ -977,6 +1073,22 @@ export default function App() {
           }}
         />
       )}
+
+      {/* Resume countdown after closing a modal opened mid-run */}
+      {resumeCountdown > 0 && hasStarted && !isPaused && !isGameOver && !isAnyModalOpen && (
+        <div className="fixed inset-0 z-[55] flex flex-col items-center justify-center pointer-events-none font-mono">
+          <span
+            key={resumeCountdown}
+            className="text-7xl sm:text-8xl font-black text-cyan-300 drop-shadow-[0_0_24px_rgba(0,240,255,0.7)]"
+          >
+            {resumeCountdown}
+          </span>
+          <span className="mt-2 text-xs font-bold tracking-widest text-white/70">GET READY</span>
+        </div>
+      )}
+
+      {/* Stacked notification toasts */}
+      <ToastStack toasts={toasts.slice(0, MAX_VISIBLE_TOASTS)} />
     </div>
   );
 }

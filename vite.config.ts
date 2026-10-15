@@ -6,7 +6,11 @@ import {defineConfig} from 'vite';
 
 const rootDir = path.dirname(fileURLToPath(import.meta.url));
 
-export default defineConfig(() => {
+export default defineConfig(({ mode }) => {
+  // hero-lab.html is a dev-only rig inspector. The dev server serves it from
+  // the project root without listing it here, so production builds ship only
+  // the game (set INCLUDE_HERO_LAB=true to build the lab as well).
+  const includeHeroLab = mode !== 'production' || process.env.INCLUDE_HERO_LAB === 'true';
   return {
     // Relative asset URLs so the build works from any path (Vercel root,
     // a subfolder, or a static host).
@@ -22,7 +26,7 @@ export default defineConfig(() => {
       rollupOptions: {
         input: {
           main: path.resolve(rootDir, 'index.html'),
-          heroLab: path.resolve(rootDir, 'hero-lab.html'),
+          ...(includeHeroLab ? { heroLab: path.resolve(rootDir, 'hero-lab.html') } : {}),
         },
         output: {
           manualChunks(id) {

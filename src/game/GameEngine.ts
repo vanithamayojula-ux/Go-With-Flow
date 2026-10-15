@@ -45,6 +45,21 @@ export interface GameEngineOptions {
   onStatsUpdate: (stats: PlayerStats, fps: number, drawCalls: number, instanceCount: number) => void;
   onNotification: (msg: string) => void;
   onGameOver?: () => void;
+  /** Called when the engine wants the UI to show the pause menu (tab hidden / window blur). */
+  onRequestPause?: () => void;
+}
+
+// Two Space presses (or screen taps) closer than this deploy the shield.
+const DOUBLE_TAP_MS = 320;
+// While the jetpack cruises above the track, coins in this radius fly up to it.
+const JETPACK_COIN_PULL_RADIUS = 14.0;
+const BASE_FOV = 62;
+
+function isTypingTarget(target: EventTarget | null): boolean {
+  const el = target as HTMLElement | null;
+  if (!el || typeof el.tagName !== 'string') return false;
+  const tag = el.tagName.toUpperCase();
+  return tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT' || el.isContentEditable === true;
 }
 
 export class GameEngine {
@@ -84,13 +99,30 @@ export class GameEngine {
   public shaderParams: ShaderParams;
   public cosmeticsConfig: CosmeticsConfig;
   public isUpright: boolean;
-  public isPaused: boolean = false;
   public isCinematicCam: boolean = false;
+  // Field of view before the per-frame speed widening; wider in portrait.
+  public baseFov: number = BASE_FOV;
+  private _isPaused: boolean = false;
+
+  /**
+   * Pausing (or resuming) re-anchors the frame clock so the next delta is not
+   * the whole pause, and drops held/buffered input so nothing fires on resume.
+   */
+  public get isPaused(): boolean {
+    return this._isPaused;
+  }
+  public set isPaused(value: boolean) {
+    if (value === this._isPaused) return;
+    this._isPaused = value;
+    this.lastTime = performance.now();
+    this.releaseAllInput();
+  }
 
   // Callbacks
   public onStatsUpdate: (stats: PlayerStats, fps: number, drawCalls: number, instanceCount: number) => void;
   public onNotification: (msg: string) => void;
   public onGameOver?: () => void;
+  public onRequestPause?: () => void;
 
   // Input State
   public keys = {
@@ -143,6 +175,7 @@ export class GameEngine {
   private handlePointerMoveBound: (e: PointerEvent) => void;
   private handlePointerUpBound: () => void;
   private handleVisibilityChangeBound: () => void;
+  private handleWindowBlurBound: () => void;
 
   constructor(options: GameEngineOptions) {
     this.container = options.container;
@@ -155,6 +188,7 @@ export class GameEngine {
     this.onStatsUpdate = options.onStatsUpdate;
     this.onNotification = options.onNotification;
     this.onGameOver = options.onGameOver;
+    this.onRequestPause = options.onRequestPause;
 
     const width = Math.max(this.container.clientWidth || window.innerWidth || 800, 100);
     const height = Math.max(this.container.clientHeight || window.innerHeight || 600, 100);
@@ -174,7 +208,8 @@ export class GameEngine {
     this.renderer.toneMapping = THREE.ACESFilmicToneMapping;
     this.renderer.toneMappingExposure = 1.05;
     this.renderer.shadowMap.enabled = this.graphicsConfig.enableShadows;
-    this.renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+    // PCFSoftShadowMap is deprecated/removed in three r18x; PCF is the supported soft-ish filter.
+    this.renderer.shadowMap.type = THREE.PCFShadowMap;
     this.container.appendChild(this.renderer.domElement);
 
     // 2. Post-processing Render Target & Quad
@@ -230,6 +265,7 @@ export class GameEngine {
     this.playerMgr.setUpright(this.isUpright);
     if (options.upgrades) this.playerMgr.applyUpgrades(options.upgrades);
     this.playerMgr.applyCosmetics(this.cosmeticsConfig);
+    this.applyViewportFraming(width, height);
 
     this.obstacleMgr = new ObstacleManager(this.scene);
     this.themeMgr = new ThemeManager(this.scene);
@@ -273,6 +309,7 @@ export class GameEngine {
     this.handlePointerMoveBound = this.onPointerMove.bind(this);
     this.handlePointerUpBound = this.onPointerUp.bind(this);
     this.handleVisibilityChangeBound = this.onVisibilityChange.bind(this);
+    this.handleWindowBlurBound = this.onWindowBlur.bind(this);
 
     window.addEventListener('keydown', this.handleKeyDownBound);
     window.addEventListener('keyup', this.handleKeyUpBound);
@@ -280,6 +317,7 @@ export class GameEngine {
     window.addEventListener('pointermove', this.handlePointerMoveBound);
     window.addEventListener('pointerup', this.handlePointerUpBound);
     document.addEventListener('visibilitychange', this.handleVisibilityChangeBound);
+    window.addEventListener('blur', this.handleWindowBlurBound);
 
     this.setupResizeObserver();
   }
@@ -287,6 +325,70 @@ export class GameEngine {
   private onVisibilityChange(): void {
     // Reset delta-time anchor when tab visibility changes to prevent runaway physics
     this.lastTime = performance.now();
+    if (typeof document !== 'undefined' && document.hidden) this.autoPause();
+  }
+
+  private onWindowBlur(): void {
+    this.autoPause();
+  }
+
+  /** Tab hidden / window lost focus mid-run: freeze and ask the UI to show the pause menu. */
+  private autoPause(): void {
+    if (this.isDisposed || !this.onRequestPause) return;
+    if (this.playerMgr.gameState !== 'playing') return;
+    this.isPaused = true;
+    this.onRequestPause();
+  }
+
+  private canAcceptGameplayInput(): boolean {
+    return !this.isDisposed && !this._isPaused && this.playerMgr.gameState === 'playing';
+  }
+
+  private releaseAllInput(): void {
+    this.keys.left = false;
+    this.keys.right = false;
+    this.keys.forward = false;
+    this.keys.jump = false;
+    this.keys.drift = false;
+    this.keys.trickSpin = false;
+    this.keys.trickFlip = false;
+    this.keys.trickGrab = false;
+    this.keys.trickPose = false;
+    this.touchSwipeState.active = false;
+    this.touchSwipeState.swiped = false;
+    this.lastTapTime = 0;
+    if (this.playerMgr) this.playerMgr.clearInputBuffers();
+  }
+
+  /** Portrait screens get a wider base FOV and a camera pulled back/up. */
+  private applyViewportFraming(w: number, h: number): void {
+    const aspect = w / h;
+    this.camera.aspect = aspect;
+    if (aspect < 1.0) {
+      this.baseFov = Math.min(70, Math.max(BASE_FOV, 58 / Math.sqrt(aspect)));
+      this.playerMgr.portraitCamOffset.set(0, 0.3, 1.5);
+    } else {
+      this.baseFov = BASE_FOV;
+      this.playerMgr.portraitCamOffset.set(0, 0, 0);
+    }
+    this.camera.fov = this.baseFov;
+    this.camera.updateProjectionMatrix();
+  }
+
+  /**
+   * Shared by the double-tap and the HUD shield button. Returns true when a
+   * shield was deployed; on cooldown it tells the player how long is left.
+   */
+  private tryDeployShield(): boolean {
+    const result = this.playerMgr.tryDeployShield(this.audio);
+    if (result === 'deployed') {
+      this.onNotification('🛡️ Hoverboard Shield Deployed!');
+      return true;
+    }
+    if (result === 'cooldown') {
+      this.onNotification(`🛡️ Shield recharging (${Math.ceil(this.playerMgr.shieldCooldown)}s)`);
+    }
+    return false;
   }
 
   private getTargetDpr(preset: QualityPreset): number {
@@ -311,14 +413,7 @@ export class GameEngine {
       const h = this.container.clientHeight || window.innerHeight || 600;
       if (w <= 0 || h <= 0) return;
 
-      const aspect = w / h;
-      this.camera.aspect = aspect;
-      if (aspect < 1.0) {
-        this.camera.fov = Math.min(70, Math.max(62, 58 / Math.sqrt(aspect)));
-      } else {
-        this.camera.fov = 62;
-      }
-      this.camera.updateProjectionMatrix();
+      this.applyViewportFraming(w, h);
 
       const pr = this.getTargetDpr(this.graphicsConfig.preset);
       this.renderer.setPixelRatio(pr);
@@ -343,7 +438,17 @@ export class GameEngine {
   }
 
   private onKeyDown(e: KeyboardEvent): void {
+    // Gameplay input only while a run is live: not paused, not behind the
+    // game-over screen, and never while the player is typing in a form field.
+    if (!this.canAcceptGameplayInput() || isTypingTarget(e.target)) return;
     const code = e.code;
+    if (code === 'Space' || code === 'ArrowUp' || code === 'ArrowDown' || code === 'ArrowLeft' || code === 'ArrowRight') {
+      e.preventDefault();
+    }
+    // OS key auto-repeat must not re-trigger lanes, jumps, slides, the shield
+    // or tricks: every action needs a fresh press.
+    if (e.repeat) return;
+
     if (code === 'KeyA' || code === 'ArrowLeft') {
       if (!this.keys.left) this.playerMgr.switchLane(-1, this.audio);
       this.keys.left = true;
@@ -353,42 +458,33 @@ export class GameEngine {
       this.keys.right = true;
     }
     if (code === 'KeyS' || code === 'ArrowDown') {
-      this.playerMgr.triggerSlide(this.audio);
-      e.preventDefault();
+      this.playerMgr.requestSlide();
     }
     if (code === 'KeyW' || code === 'ArrowUp') {
-      if (!this.keys.jump && this.playerMgr.isGrounded) {
-        this.audio.playJump();
-        this.keys.jump = true;
-      }
-      e.preventDefault();
+      this.playerMgr.requestJump();
     }
     if (code === 'Space') {
+      // Double-tap = shield (when charged); otherwise every tap is a buffered jump.
       const now = performance.now();
-      if (now - this.lastTapTime < 320) {
-        this.playerMgr.activateHoverboardShield(this.audio);
-        this.onNotification('🛡️ Hoverboard Shield Deployed!');
+      if (now - this.lastTapTime < DOUBLE_TAP_MS && this.tryDeployShield()) {
+        this.lastTapTime = 0;
       } else {
-        this.audio.playJump();
-        this.keys.jump = true;
+        this.playerMgr.requestJump();
+        this.lastTapTime = now;
       }
-      this.lastTapTime = now;
-      e.preventDefault();
     }
     if (code === 'ShiftLeft' || code === 'ShiftRight') {
       this.keys.drift = true;
     }
-    // Tricks: J/K/L/I (shown in the HUD stunt rig) or 1-4. Ignore OS key
-    // auto-repeat so holding a key doesn't chain tricks.
-    if (!e.repeat) {
-      if (code === 'KeyJ' || code === 'Digit1') this.triggerTrick('spin');
-      if (code === 'KeyK' || code === 'Digit2') this.triggerTrick('flip');
-      if (code === 'KeyL' || code === 'Digit3') this.triggerTrick('grab');
-      if (code === 'KeyI' || code === 'Digit4') this.triggerTrick('pose');
-    }
+    // Tricks: J/K/L/I (shown in the HUD stunt rig) or 1-4.
+    if (code === 'KeyJ' || code === 'Digit1') this.triggerTrick('spin');
+    if (code === 'KeyK' || code === 'Digit2') this.triggerTrick('flip');
+    if (code === 'KeyL' || code === 'Digit3') this.triggerTrick('grab');
+    if (code === 'KeyI' || code === 'Digit4') this.triggerTrick('pose');
   }
 
   private onKeyUp(e: KeyboardEvent): void {
+    // Releases are always honoured so no key stays "held" across a pause.
     const code = e.code;
     if (code === 'KeyA' || code === 'ArrowLeft') this.keys.left = false;
     if (code === 'KeyD' || code === 'ArrowRight') this.keys.right = false;
@@ -397,6 +493,7 @@ export class GameEngine {
   }
 
   private onPointerDown(e: PointerEvent): void {
+    if (!this.canAcceptGameplayInput()) return;
     this.touchSwipeState.active = true;
     this.touchSwipeState.startX = e.clientX;
     this.touchSwipeState.startY = e.clientY;
@@ -406,6 +503,7 @@ export class GameEngine {
 
   private onPointerMove(e: PointerEvent): void {
     if (!this.touchSwipeState.active || this.touchSwipeState.swiped) return;
+    if (!this.canAcceptGameplayInput()) return;
     const dx = e.clientX - this.touchSwipeState.startX;
     const dy = e.clientY - this.touchSwipeState.startY;
     const absDx = Math.abs(dx);
@@ -421,26 +519,22 @@ export class GameEngine {
         }
       } else {
         if (dy < 0) {
-          if (this.playerMgr.isGrounded) {
-            this.audio.playJump();
-            this.keys.jump = true;
-            setTimeout(() => { this.keys.jump = false; }, 160);
-          }
+          this.playerMgr.requestJump();
         } else {
-          this.playerMgr.triggerSlide(this.audio);
+          this.playerMgr.requestSlide();
         }
       }
     }
   }
 
   private onPointerUp(): void {
-    if (this.touchSwipeState.active && !this.touchSwipeState.swiped) {
+    if (this.touchSwipeState.active && !this.touchSwipeState.swiped && this.canAcceptGameplayInput()) {
       const now = performance.now();
-      if (now - this.lastTapTime < 320) {
-        this.playerMgr.activateHoverboardShield(this.audio);
-        this.onNotification('🛡️ Hoverboard Shield Deployed!');
+      if (now - this.lastTapTime < DOUBLE_TAP_MS && this.tryDeployShield()) {
+        this.lastTapTime = 0;
+      } else {
+        this.lastTapTime = now;
       }
-      this.lastTapTime = now;
     }
     this.touchSwipeState.active = false;
     this.touchSwipeState.swiped = false;
@@ -449,8 +543,12 @@ export class GameEngine {
   }
 
   public update(now: number): void {
-    const rawDt = Math.min((now - this.lastTime) / 1000, 0.05);
+    // rAF timestamps can be older than a performance.now() anchor taken at
+    // start/resume, so the raw delta may be negative: clamp to [0, 0.05].
+    const elapsed = (now - this.lastTime) / 1000;
     this.lastTime = now;
+    const realElapsed = Number.isFinite(elapsed) ? Math.max(0, elapsed) : 0;
+    const rawDt = Math.min(realElapsed, 0.05);
     this.lastFrameDt = rawDt;
     const timeSeconds = now * 0.001;
     const currentBiome = this.playerMgr.stats.currentBiome;
@@ -465,7 +563,9 @@ export class GameEngine {
     // FPS Counter Accumulator & Telemetry
     telemetry.recordFrame(rawDt);
     this.frameCount++;
-    this.fpsAccum += rawDt;
+    // FPS uses real elapsed time; the clamped physics delta counted every slow
+    // frame as 50 ms, so hitches never showed below 20 fps.
+    this.fpsAccum += realElapsed;
     if (this.fpsAccum >= 0.5) {
       this.currentFps = Math.round(this.frameCount / this.fpsAccum);
       this.frameCount = 0;
@@ -481,9 +581,14 @@ export class GameEngine {
       if (this.playerMgr.gameState === 'playing') {
         this.obstacleMgr.update(this.playerMgr.position.z, timeSeconds, this.playerMgr.stats.speed);
 
+        // Jetpack flight cruises above the track: ground hazards can't touch it
+        // and coins below are pulled up to the board instead.
+        const jetpacking = this.playerMgr.isJetpacking;
         if (this.playerMgr.activePowerUps.magnetTimer > 0) {
           const magnetRadius = 26.0 + (this.playerMgr.upgrades?.magnetLevel ?? 1) * 4.0;
           this.obstacleMgr.attractCoinsToPlayer(this.playerMgr.position, magnetRadius, dt);
+        } else if (jetpacking) {
+          this.obstacleMgr.attractCoinsToPlayer(this.playerMgr.position, JETPACK_COIN_PULL_RADIUS, dt);
         }
 
         const collision = this.obstacleMgr.checkCollisions(this.playerMgr.position, this.playerMgr.isSliding);
@@ -508,7 +613,7 @@ export class GameEngine {
         }
 
         // Near-Miss Bonus
-        if (collision.nearMiss) {
+        if (collision.nearMiss && !jetpacking) {
           this.playerMgr.addCoins(3);
           this.playerMgr.overdriveMeter = Math.min(100, this.playerMgr.overdriveMeter + 10);
           this.playerMgr.stats.nearMissCount = (this.playerMgr.stats.nearMissCount || 0) + 1;
@@ -519,37 +624,45 @@ export class GameEngine {
           this.screenShakeIntensity = 0.22;
           this.playerMgr.emitNearMissSparks(collision.nearMissPos || this.playerMgr.position);
           this.audio.playNearMissSound();
-          this.onNotification('⚡ NEAR MISS! +300 Style Bonus');
+          this.onNotification('⚡ NEAR MISS! +3 Data Shards');
         }
 
         // Rail Grinding
-        this.playerMgr.setGrinding(!!collision.isGrinding, this.audio);
+        this.playerMgr.setGrinding(!jetpacking && !!collision.isGrinding, this.audio);
 
         if (collision.collectedCoins > 0) {
           this.playerMgr.addCoins(collision.collectedCoins);
           this.progressionMgr.recordShardCollection(collision.collectedCoins);
           this.gameModeMgr.onCollect(collision.collectedCoins, this.playerMgr.stats);
           this.audio.playDataShardCollect();
-          this.onNotification(`+${collision.collectedCoins * 100 * this.playerMgr.scoreMultiplier} Data Shards!`);
+          // addCoins() grants exactly one shard per coin, so say that.
+          const n = collision.collectedCoins;
+          this.onNotification(`+${n} Data Shard${n === 1 ? '' : 's'}!`);
         }
 
         if (collision.collectedPowerUp) {
           this.playerMgr.applyPowerUp(collision.collectedPowerUp, this.audio);
+          // Durations come from the power-up just applied (base + upgrade level).
+          const apu = this.playerMgr.activePowerUps;
+          const secs = (d?: number) => `${Math.round((d ?? 0) * 10) / 10}s`;
+          const magnetText = `🧲 QUANTUM SHARD ATTRACTOR (${secs(apu.magnetMaxDuration)})`;
+          const jetpackText = `🚀 HYPERDRIVE FLIGHT (${secs(apu.jetpackMaxDuration)})`;
+          const multiplierText = `⚡ 2X OVERDRIVE MULTIPLIER (${secs(apu.multiplierMaxDuration)})`;
           const pNames: Record<string, string> = {
-            'quantum-magnet': '🧲 QUANTUM SHARD ATTRACTOR (12s)',
-            'sonic-jetpack': '🚀 HYPERDRIVE FLIGHT (8.5s)',
+            'quantum-magnet': magnetText,
+            'sonic-jetpack': jetpackText,
             'holo-shield': '🛡️ HOLO-DEFENSE SHIELD ENGAGED',
-            'overdrive-2x': '⚡ 2X OVERDRIVE MULTIPLIER (15s)',
-            'magnet': '🧲 QUANTUM SHARD ATTRACTOR (12s)',
-            'jetpack': '🚀 HYPERDRIVE FLIGHT (8.5s)',
+            'overdrive-2x': multiplierText,
+            'magnet': magnetText,
+            'jetpack': jetpackText,
             'hoverboard-shield': '🛡️ HOLO-DEFENSE SHIELD ENGAGED',
-            'multiplier2x': '⚡ 2X OVERDRIVE MULTIPLIER (15s)',
+            'multiplier2x': multiplierText,
           };
           this.onNotification(pNames[collision.collectedPowerUp] || 'Power-Up Collected!');
         }
 
         // Collisions: Stumble or Crash
-        if (collision.hasCrashed || collision.hasStumbled) {
+        if (!jetpacking && (collision.hasCrashed || collision.hasStumbled)) {
           if (this.playerMgr.activePowerUps.hoverboardShield) {
             this.playerMgr.absorbShieldHit();
             this.audio.playCarveWhoosh();
@@ -573,7 +686,7 @@ export class GameEngine {
             this.audio.playCrashSound();
             this.screenShakeTimer = 0.75;
             this.screenShakeIntensity = 1.05;
-            this.onNotification('💥 SYSTEM CRASH! NEURAL DESYNC DETECTED');
+            this.onNotification('💥 WIPEOUT!');
             if (this.onGameOver) this.onGameOver();
           } else if (collision.hasStumbled) {
             this.playerMgr.stumble(this.audio);
@@ -637,7 +750,7 @@ export class GameEngine {
       if (collectedTotal > 0) {
         this.progressionMgr.recordShardCollection(collectedTotal);
         this.audio.playDataShardCollect();
-        this.onNotification(`+${collectedTotal * 200} Data Shards Harvested!`);
+        this.onNotification(`+${collectedTotal} Data Shard${collectedTotal === 1 ? '' : 's'} Harvested!`);
       }
 
       // Update Audio Dynamics
@@ -707,10 +820,12 @@ export class GameEngine {
       this.camera.position.set(camX, this.playerMgr.position.y + 4.5, camZ);
       this.camera.lookAt(this.playerMgr.position.x, this.playerMgr.position.y + 1.5, this.playerMgr.position.z);
     } else {
-      const baseFov = 62;
+      // Speed widening is added on top of the aspect-derived base (portrait is
+      // wider), so the resize FOV is no longer overwritten every frame.
+      const baseFov = this.baseFov;
       const targetFov = Math.min(
-        70,
-        Math.max(62, baseFov + (this.playerMgr.stats.speed / 150) * 6 + (this.playerMgr.stats.isBoosting ? 2 : 0))
+        baseFov + 8,
+        Math.max(baseFov, baseFov + (this.playerMgr.stats.speed / 150) * 6 + (this.playerMgr.stats.isBoosting ? 2 : 0))
       );
       this.camera.fov = THREE.MathUtils.lerp(this.camera.fov, targetFov, 3.5 * rawDt);
       this.camera.updateProjectionMatrix();
@@ -976,6 +1091,9 @@ export class GameEngine {
   }
 
   public resetRun(): void {
+    // Fresh frame-clock anchor + no leftover input from the previous run.
+    this.lastTime = performance.now();
+    this.releaseAllInput();
     resetBiomeState();
     this.screenShakeTimer = 0;
     this.boostGlitchTimer = 0;
@@ -1017,6 +1135,8 @@ export class GameEngine {
       this.onNotification('⚠️ REVIVES ARE DISABLED IN THIS GAME MODE!');
       return;
     }
+    this.lastTime = performance.now();
+    this.releaseAllInput();
     this.playerMgr.revive(this.audio);
     this.gameModeMgr.onRevive();
     this.obstacleMgr.clearAhead(this.playerMgr.position.z, 30);
@@ -1024,8 +1144,9 @@ export class GameEngine {
   }
 
   public deployShield(): void {
-    this.playerMgr.activateHoverboardShield(this.audio);
-    this.onNotification('🛡️ Hoverboard Shield Deployed!');
+    // HUD / on-screen shield button: same cooldown as the double-tap.
+    if (!this.canAcceptGameplayInput()) return;
+    this.tryDeployShield();
   }
 
   public triggerTrick(trick: TrickType): void {
@@ -1052,6 +1173,7 @@ export class GameEngine {
     window.removeEventListener('pointermove', this.handlePointerMoveBound);
     window.removeEventListener('pointerup', this.handlePointerUpBound);
     document.removeEventListener('visibilitychange', this.handleVisibilityChangeBound);
+    window.removeEventListener('blur', this.handleWindowBlurBound);
 
     if (this.resizeObserver) {
       this.resizeObserver.disconnect();

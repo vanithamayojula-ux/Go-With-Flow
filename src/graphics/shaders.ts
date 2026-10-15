@@ -356,10 +356,19 @@ export const PostProcessShader = {
     }
 
     // Highlights above ~1.0 in linear HDR (sun glints, emissive parts).
+    // Soft knee so the bloom fades in instead of switching on at a hard edge.
     vec3 brightPass(vec2 uv) {
       vec3 c = texture2D(tDiffuse, uv).rgb;
       float l = max(c.r, max(c.g, c.b));
-      return c * smoothstep(1.0, 2.5, l);
+      return c * smoothstep(1.0, 3.0, l);
+    }
+
+    // One lens sample with lateral chromatic aberration: red and blue are
+    // displaced radially, green stays put. Used for every tap of the motion
+    // blur so all three channels are blurred identically (no colour fringes).
+    vec3 lensSample(vec2 p, vec2 caOff) {
+      vec4 g = texture2D(tDiffuse, p);
+      return vec3(texture2D(tDiffuse, p - caOff).r, g.g, texture2D(tDiffuse, p + caOff).b);
     }
 
     void main() {
@@ -370,52 +379,53 @@ export const PostProcessShader = {
         uv.x += sin(uv.y * 80.0 + uTime * 12.0) * 0.0015 * uHeatShimmer;
       }
 
-      // Portal transit: radial lens twist
-      if (uWarpIntensity > 0.01) {
-        vec2 d = uv - 0.5;
-        float r = length(d);
-        float a = atan(d.y, d.x) + uWarpIntensity * 3.0 * (1.0 - smoothstep(0.0, 0.8, r));
-        uv = 0.5 + vec2(cos(a), sin(a)) * r * (1.0 - uWarpIntensity * 0.3 * (1.0 - r));
-      }
+      // Lateral chromatic aberration: a real lens only fringes slightly, and
+      // only toward the frame edge. Capped so it can never become a visible
+      // colour split.
+      float edge = length(uv - 0.5);
+      vec2 caOff = (uv - 0.5) * min(uChromaticAberration, 0.0012) * smoothstep(0.35, 0.8, edge);
+      bool useCa = dot(caOff, caOff) > 1.0e-10;
 
-      vec3 col = texture2D(tDiffuse, uv).rgb;
+      vec3 col = useCa ? lensSample(uv, caOff) : texture2D(tDiffuse, uv).rgb;
 
-      // Speed: radial motion blur toward the screen edges (no stylised streaks)
-      float blur = max(uHighSpeedBlur, uSpeedLines * 0.6) + uWarpIntensity;
+      // Speed: radial motion blur toward the screen edges. A portal transit adds
+      // a little extra blur under the exposure flash (no screen-space swirl).
+      float blur = max(uHighSpeedBlur, uSpeedLines * 0.6) + uWarpIntensity * 0.6;
       if (blur > 0.02) {
         vec2 center = vec2(0.5, 0.45);
         vec2 dir = (uv - center) * blur * 0.012 * smoothstep(0.15, 0.6, length(uv - center));
         vec3 acc = col;
         for (int i = 1; i <= 5; i++) {
-          acc += texture2D(tDiffuse, uv - dir * float(i)).rgb;
+          vec2 p = uv - dir * float(i);
+          acc += useCa ? lensSample(p, caOff) : texture2D(tDiffuse, p).rgb;
         }
         col = acc / 6.0;
       }
 
-      // Subtle lateral chromatic aberration at the lens edge only
-      float ca = uChromaticAberration;
-      float edge = length(uv - 0.5);
-      if (ca > 0.0001 && edge > 0.3) {
-        vec2 off = (uv - 0.5) * ca * smoothstep(0.3, 0.75, edge);
-        col.r = texture2D(tDiffuse, uv - off).r;
-        col.b = texture2D(tDiffuse, uv + off).b;
-      }
-
-      // Soft bloom from true highlights (13-tap disc)
+      // Bloom: gaussian-weighted golden-angle disc of 32 taps reaching ~40 px
+      // at 1080p (scaled with resolution), so small lights get a smooth halo
+      // instead of a ring of discrete dots.
       if (uBloom > 0.02) {
-        vec2 texel = 1.0 / max(uResolution, vec2(1.0));
-        vec3 b = brightPass(uv) * 0.2;
-        for (int i = 0; i < 12; i++) {
-          float ang = float(i) * 0.5236;
-          float rad = (i < 6 ? 4.0 : 10.0);
-          b += brightPass(uv + vec2(cos(ang), sin(ang)) * rad * texel) * (i < 6 ? 0.09 : 0.045);
+        vec2 res = max(uResolution, vec2(1.0));
+        vec2 texel = 1.0 / res;
+        float radius = 40.0 * (res.y / 1080.0);
+        vec3 b = vec3(0.0);
+        float wsum = 0.0;
+        for (int i = 0; i < 32; i++) {
+          float fi = float(i) + 0.5;
+          float r = sqrt(fi / 32.0);
+          float ang = fi * 2.39996323;
+          float w = exp(-r * r * 3.0);
+          b += brightPass(uv + vec2(cos(ang), sin(ang)) * r * radius * texel) * w;
+          wsum += w;
         }
-        col += b * uBloom;
+        col += (b / wsum) * uBloom * 1.6;
       }
 
-      // Portal transit flash (white, like over-exposure)
-      if (uWarpIntensity > 0.05) {
-        col += vec3(1.0) * uWarpIntensity * 0.6;
+      // Portal transit: brief over-exposure flash, like a camera crossing into
+      // bright light.
+      if (uWarpIntensity > 0.02) {
+        col = col * (1.0 + uWarpIntensity * 2.0) + vec3(uWarpIntensity * 0.35);
       }
 
       // Raindrops on the lens

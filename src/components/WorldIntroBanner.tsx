@@ -1,5 +1,4 @@
 import React, { useEffect, useState, useRef } from 'react';
-import { Sparkles, Compass } from 'lucide-react';
 
 interface WorldIntroBannerProps {
   worldId?: string;
@@ -99,37 +98,33 @@ export const WorldIntroBanner: React.FC<WorldIntroBannerProps> = ({ worldId = 's
 
   const meta = WORLD_DATA[activeWorld] || WORLD_DATA['sky-isles'];
 
+  // Placement: toasts (ToastStack) start at 22vh in the centre. On desktop
+  // (lg+) the banner sits above them, between the overdrive meter and the
+  // toasts; on phones/tablets the top-left stat chips fill that band, so it
+  // drops just below the toast stack instead. Either way it is a single
+  // compact row that clears the stunt bar (bottom / right edge).
   return (
     <div
-      className={`fixed top-20 left-1/2 -translate-x-1/2 z-40 pointer-events-none transition-all duration-700 ease-out transform ${
-        isVisible ? 'opacity-100 scale-100 translate-y-0' : 'opacity-0 scale-95 -translate-y-4'
+      className={`fixed left-1/2 -translate-x-1/2 z-40 pointer-events-none transition-all duration-700 ease-out top-[calc(22vh+6.5rem)] lg:top-[calc(22vh-3.75rem)] w-max max-w-[calc(100vw-2rem)] ${
+        isVisible ? 'opacity-100 translate-y-0' : 'opacity-0 -translate-y-2'
       }`}
+      role="status"
+      aria-live="polite"
     >
       <div
-        className={`flex flex-col items-center justify-center px-8 py-3.5 rounded-2xl bg-black/85 backdrop-blur-xl border ${meta.borderColor} ${meta.glowColor} text-center min-w-[280px] max-w-md`}
+        className={`flex items-center gap-3 px-4 py-2 rounded-xl bg-black/80 backdrop-blur-xl border ${meta.borderColor} ${meta.glowColor}`}
       >
-        {/* Sector Tag */}
-        <div className="flex items-center space-x-1.5 text-[10px] font-mono font-bold tracking-widest uppercase text-white/70 mb-0.5">
-          <span>{meta.icon}</span>
-          <span>SECTOR {meta.sector} OF 5</span>
-          <span className="text-white/40">//</span>
-          <Compass className="w-3 h-3 text-white/50" />
+        <span className="text-2xl leading-none" aria-hidden="true">{meta.icon}</span>
+        <div className="text-left min-w-0">
+          <div className="text-[10px] font-mono font-bold tracking-widest uppercase text-white/75 whitespace-nowrap">
+            Sector {meta.sector} of 5 · <span className="normal-case italic tracking-normal">{meta.subtitle}</span>
+          </div>
+          <h2
+            className={`text-lg sm:text-xl font-black uppercase tracking-wider leading-tight text-transparent bg-clip-text bg-gradient-to-r ${meta.gradientText} drop-shadow-[0_2px_10px_rgba(0,0,0,0.8)] whitespace-nowrap`}
+          >
+            {meta.name}
+          </h2>
         </div>
-
-        {/* World Name Title */}
-        <h1
-          className={`text-2xl sm:text-3xl font-black uppercase tracking-wider text-transparent bg-clip-text bg-gradient-to-r ${meta.gradientText} drop-shadow-[0_2px_10px_rgba(0,0,0,0.8)]`}
-        >
-          {meta.name}
-        </h1>
-
-        {/* Luminous Divider */}
-        <div className="w-24 h-0.5 bg-gradient-to-r from-transparent via-white/60 to-transparent my-1" />
-
-        {/* Subtitle */}
-        <p className="text-xs sm:text-sm font-medium tracking-wide text-white/90 italic">
-          {meta.subtitle}
-        </p>
       </div>
     </div>
   );

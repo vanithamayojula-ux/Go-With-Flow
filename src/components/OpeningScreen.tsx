@@ -170,6 +170,18 @@ const TECH_CONFIGS = [
   },
 ];
 
+/**
+ * True while a modal, drawer or other full-screen overlay is shown above the
+ * opening screen. The modals render as `fixed inset-0` layers (some also set
+ * aria-modal), so either marker counts.
+ */
+function isOverlayOpen(): boolean {
+  if (typeof document === 'undefined') return false;
+  return !!document.querySelector(
+    '[aria-modal="true"], [role="dialog"], .fixed.inset-0.z-50, .fixed.inset-0.z-40, #graphics-drawer-backdrop'
+  );
+}
+
 export const OpeningScreen: React.FC<OpeningScreenProps> = ({
   heroes,
   selectedHero,
@@ -227,6 +239,11 @@ export const OpeningScreen: React.FC<OpeningScreenProps> = ({
       if (document.activeElement?.tagName === 'INPUT' || document.activeElement?.tagName === 'SELECT') {
         return;
       }
+      // Settings, guide, shop and other overlays render above this screen;
+      // Enter / arrows must not start a run or swap heroes behind them.
+      if (isOverlayOpen()) {
+        return;
+      }
 
       // Arrow keys cycle through heroes the player owns; locked heroes are
       // bought with the UNLOCK button instead.
@@ -267,27 +284,27 @@ export const OpeningScreen: React.FC<OpeningScreenProps> = ({
       {/* ------------------------------------------------------------------- */}
       {/* HEADER BAR */}
       {/* ------------------------------------------------------------------- */}
-      <header className="h-12 px-4 flex items-center justify-between bg-black/60 backdrop-blur sticky top-0 z-30 border-b border-cyan-500/20">
+      <header className="min-h-12 py-1 pl-[max(0.75rem,env(safe-area-inset-left))] pr-[max(0.75rem,env(safe-area-inset-right))] sm:px-4 flex items-center justify-between gap-2 bg-black/60 backdrop-blur sticky top-0 z-30 border-b border-cyan-500/20">
         {/* Left: Brand & Biome Tag */}
-        <div className="flex items-center space-x-2.5">
-          <div className="flex items-center space-x-2">
+        <div className="flex items-center space-x-2.5 min-w-0">
+          <div className="flex items-center space-x-2 min-w-0">
             <div className="w-2.5 h-2.5 rounded-sm bg-cyan-400 animate-pulse shadow-[0_0_8px_rgba(0,240,255,0.8)]" />
-            <span className="font-black text-sm tracking-widest text-cyan-300 drop-shadow-[0_0_10px_rgba(0,240,255,0.4)]">
-              NEON // DRIFT
+            <span className="font-black text-xs sm:text-sm tracking-wider sm:tracking-widest text-cyan-300 drop-shadow-[0_0_10px_rgba(0,240,255,0.4)] whitespace-nowrap">
+              GO WITH FLOW
             </span>
           </div>
 
-          <div className="hidden sm:flex items-center space-x-1.5 px-2 py-0.5 rounded bg-cyan-950/60 border border-cyan-500/30 text-[10px] font-bold text-cyan-300">
+          <div className="hidden md:flex items-center space-x-1.5 px-2 py-0.5 rounded bg-cyan-950/60 border border-cyan-500/30 text-[10px] font-bold text-cyan-300 whitespace-nowrap">
             <span className="w-1.5 h-1.5 rounded-full bg-cyan-400 animate-ping" />
-            <span>WORLD 1 // NEON UNDERCITY</span>
+            <span>WORLD 1 // SKY ISLES</span>
           </div>
         </div>
 
         {/* Right: Wallet & Toolbar (Min 48px Touch Targets) */}
-        <div className="flex items-center space-x-2">
+        <div className="flex items-center gap-1.5 sm:gap-2 shrink-0">
           {/* Banked Shards */}
           <div
-            className="flex items-center space-x-1.5 px-3 py-1.5 rounded-xl bg-cyan-950/60 border border-cyan-400/50 text-cyan-300 font-mono shadow-sm"
+            className="flex items-center space-x-1.5 px-2 sm:px-3 py-1.5 rounded-xl bg-cyan-950/60 border border-cyan-400/50 text-cyan-300 font-mono shadow-sm"
             title="Total Banked Shards"
           >
             <span className="text-sm">💎</span>
@@ -298,11 +315,11 @@ export const OpeningScreen: React.FC<OpeningScreenProps> = ({
           {onOpenProgression && (
             <button
               onClick={onOpenProgression}
-              className="min-h-[48px] px-3 flex items-center space-x-1.5 rounded-xl bg-gradient-to-r from-cyan-950/80 to-blue-950/80 hover:from-cyan-900/90 hover:to-blue-900/90 border border-cyan-400/50 text-cyan-300 hover:text-white transition-all cursor-pointer shadow-sm"
+              className="min-h-[44px] sm:min-h-[48px] px-2 sm:px-3 flex items-center space-x-1.5 rounded-xl bg-gradient-to-r from-cyan-950/80 to-blue-950/80 hover:from-cyan-900/90 hover:to-blue-900/90 border border-cyan-400/50 text-cyan-300 hover:text-white transition-all cursor-pointer shadow-sm"
               title="View Pilot Progression & Daily Directives"
             >
               <Zap className="w-3.5 h-3.5 text-cyan-400" />
-              <span className="text-xs font-black">LVL {playerLevel}</span>
+              <span className="text-xs font-black whitespace-nowrap">LVL {playerLevel}</span>
             </button>
           )}
 
@@ -319,7 +336,7 @@ export const OpeningScreen: React.FC<OpeningScreenProps> = ({
           {onToggleMute && (
             <button
               onClick={onToggleMute}
-              className="min-h-[48px] min-w-[48px] flex items-center justify-center rounded-xl bg-white/5 hover:bg-cyan-950/40 border border-white/10 hover:border-cyan-500/40 text-white/70 hover:text-cyan-300 focus-visible:ring-2 focus-visible:ring-cyan-400 transition-all cursor-pointer"
+              className="min-h-[44px] min-w-[44px] sm:min-h-[48px] sm:min-w-[48px] flex items-center justify-center rounded-xl bg-white/5 hover:bg-cyan-950/40 border border-white/10 hover:border-cyan-500/40 text-white/70 hover:text-cyan-300 focus-visible:ring-2 focus-visible:ring-cyan-400 transition-all cursor-pointer"
               aria-label={isMuted ? 'Unmute Audio' : 'Mute Audio'}
             >
               {isMuted ? <VolumeX className="w-4 h-4 text-red-400" /> : <Volume2 className="w-4 h-4 text-emerald-400" />}
@@ -329,7 +346,7 @@ export const OpeningScreen: React.FC<OpeningScreenProps> = ({
           {/* Settings Button */}
           <button
             onClick={onSettings}
-            className="min-h-[48px] min-w-[48px] flex items-center justify-center rounded-xl bg-white/5 hover:bg-cyan-950/40 border border-white/10 hover:border-cyan-500/40 text-white/70 hover:text-cyan-300 focus-visible:ring-2 focus-visible:ring-cyan-400 transition-all cursor-pointer"
+            className="min-h-[44px] min-w-[44px] sm:min-h-[48px] sm:min-w-[48px] flex items-center justify-center rounded-xl bg-white/5 hover:bg-cyan-950/40 border border-white/10 hover:border-cyan-500/40 text-white/70 hover:text-cyan-300 focus-visible:ring-2 focus-visible:ring-cyan-400 transition-all cursor-pointer"
             aria-label="Open Game Settings"
           >
             <Settings className="w-4 h-4" />
@@ -340,13 +357,13 @@ export const OpeningScreen: React.FC<OpeningScreenProps> = ({
       {/* ------------------------------------------------------------------- */}
       {/* MAIN CONTENT GRID */}
       {/* ------------------------------------------------------------------- */}
-      <main className="w-full max-w-7xl mx-auto p-3 sm:p-4 grid gap-4 lg:grid-cols-[320px_1fr_300px] flex-1">
+      <main className="w-full max-w-7xl mx-auto p-3 sm:p-4 grid grid-cols-1 gap-4 lg:grid-cols-[320px_minmax(0,1fr)_300px] flex-1">
         {/* ================================================================= */}
         {/* A) HEROES PANEL (Left) */}
         {/* ================================================================= */}
         <section
           aria-label="Hero Characters"
-          className="flex flex-col bg-black/60 border border-cyan-500/20 rounded-2xl p-3.5 sm:p-4 backdrop-blur-md shadow-lg shadow-cyan-950/30"
+          className="order-2 lg:order-none min-w-0 flex flex-col bg-black/60 border border-cyan-500/20 rounded-2xl p-3.5 sm:p-4 backdrop-blur-md shadow-lg shadow-cyan-950/30"
         >
           <div className="flex items-center justify-between mb-3">
             <div className="flex items-center space-x-2">
@@ -468,24 +485,24 @@ export const OpeningScreen: React.FC<OpeningScreenProps> = ({
         {/* ================================================================= */}
         <section
           aria-label="Game Launcher"
-          className="flex flex-col justify-between bg-black/60 border border-cyan-500/20 rounded-2xl p-4 sm:p-6 backdrop-blur-md shadow-lg shadow-cyan-950/30 text-center relative overflow-hidden"
+          className="order-1 lg:order-none min-w-0 flex flex-col justify-between bg-black/60 border border-cyan-500/20 rounded-2xl p-4 sm:p-6 backdrop-blur-md shadow-lg shadow-cyan-950/30 text-center relative overflow-hidden"
         >
           {/* Subtle Ambient Backdrops */}
           <div className="absolute -top-24 left-1/2 -translate-x-1/2 w-72 h-72 bg-cyan-500/10 rounded-full blur-3xl pointer-events-none" />
           <div className="absolute -bottom-24 left-1/2 -translate-x-1/2 w-72 h-72 bg-fuchsia-500/10 rounded-full blur-3xl pointer-events-none" />
 
           {/* Top Title & Tagline */}
-          <div className="relative z-10 pt-2 sm:pt-4">
+          <div className="relative z-10 pt-1 sm:pt-4">
             <div className="inline-flex items-center space-x-2 px-3 py-1 rounded-full bg-cyan-950/80 border border-cyan-400/40 text-cyan-300 text-[10px] font-black uppercase tracking-widest mb-2 shadow-[0_0_10px_rgba(0,240,255,0.2)]">
               <Zap className="w-3 h-3 text-cyan-400" />
-              <span>HIGH-VELOCITY CYBERPUNK SURFER</span>
+              <span>3D HOVERBOARD RUNNER</span>
             </div>
 
-            <h1 className="text-4xl sm:text-5xl lg:text-6xl font-black tracking-tight text-transparent bg-clip-text bg-gradient-to-r from-cyan-300 via-white to-pink-400 uppercase drop-shadow-[0_0_25px_rgba(0,240,255,0.5)]">
-              NEON DRIFT
+            <h1 className="text-3xl sm:text-5xl lg:text-6xl font-black tracking-tight text-transparent bg-clip-text bg-gradient-to-r from-cyan-300 via-white to-pink-400 uppercase drop-shadow-[0_0_25px_rgba(0,240,255,0.5)]">
+              GO WITH FLOW
             </h1>
             <p className="text-xs sm:text-sm text-cyan-200/70 mt-1 max-w-md mx-auto">
-              Surf the endless neon chasm, carve through quantum rails, and defy the void.
+              Ride through five worlds, from the Sky Isles and Verdant Wilds to the Crimson Dunes, Crystal Heights and Obsidian Core. Dodge, grind and boost your way to each warp portal.
             </p>
           </div>
 
@@ -531,14 +548,14 @@ export const OpeningScreen: React.FC<OpeningScreenProps> = ({
               ref={playButtonRef}
               onClick={onPlay}
               className="w-full min-h-[72px] sm:min-h-[80px] text-xl sm:text-2xl font-black uppercase tracking-widest bg-cyan-400 hover:bg-cyan-300 text-black rounded-2xl shadow-[0_0_35px_rgba(0,240,255,0.6)] active:scale-95 transition-all flex items-center justify-center space-x-3 cursor-pointer focus-visible:ring-4 focus-visible:ring-cyan-200"
-              aria-label="Launch Neon Drift Run (Press Space or Enter)"
+              aria-label="Launch run (press Space or Enter)"
             >
               <Play className="w-7 h-7 fill-current" />
               <span>LAUNCH RUN</span>
             </button>
 
             {/* Secondary Action Row */}
-            <div className="grid grid-cols-4 gap-1.5 sm:gap-2">
+            <div className="grid grid-flow-col auto-cols-fr gap-1.5 sm:gap-2">
               <button
                 onClick={() => onOpenShop('tech')}
                 className="min-h-[48px] px-2 py-2 rounded-xl bg-white/5 hover:bg-cyan-950/40 border border-white/10 hover:border-cyan-500/40 text-xs font-bold text-cyan-200 flex items-center justify-center space-x-1.5 transition-all active:scale-95 cursor-pointer focus-visible:ring-2 focus-visible:ring-cyan-400"
@@ -568,6 +585,7 @@ export const OpeningScreen: React.FC<OpeningScreenProps> = ({
                 <span className="truncate sm:hidden">GUIDE</span>
               </button>
 
+              {import.meta.env.DEV && (
               <a
                 href={`hero-lab.html?hero=${selectedHero}&pose=run&view=three&time=1.0`}
                 target="_blank"
@@ -579,6 +597,7 @@ export const OpeningScreen: React.FC<OpeningScreenProps> = ({
                 <span className="truncate hidden sm:inline">LAB</span>
                 <ExternalLink className="w-3 h-3 opacity-60 shrink-0" />
               </a>
+              )}
             </div>
           </div>
 
@@ -626,7 +645,7 @@ export const OpeningScreen: React.FC<OpeningScreenProps> = ({
         {/* ================================================================= */}
         <section
           aria-label="Loadout & Augments"
-          className="flex flex-col space-y-4 bg-black/60 border border-cyan-500/20 rounded-2xl p-3.5 sm:p-4 backdrop-blur-md shadow-lg shadow-cyan-950/30 overflow-y-auto max-h-[680px] custom-scrollbar"
+          className="order-3 lg:order-none min-w-0 flex flex-col space-y-4 bg-black/60 border border-cyan-500/20 rounded-2xl p-3.5 sm:p-4 backdrop-blur-md shadow-lg shadow-cyan-950/30 overflow-y-auto max-h-[680px] custom-scrollbar"
         >
           {/* Section 1: Hoverboards Selection */}
           <div>
@@ -918,7 +937,7 @@ export const OpeningScreen: React.FC<OpeningScreenProps> = ({
       {/* FOOTER */}
       {/* ------------------------------------------------------------------- */}
       <footer className="text-[11px] opacity-70 text-center pb-20 lg:pb-6 pt-3 border-t border-white/5">
-        <span>GOWITHFLOW v{GAME_VERSION} · Flowrider Cyber Engine (flowrider.vercel.app) · 60 FPS Target · React 19 + Three.js + Tailwind v4</span>
+        <span>Go With Flow v{GAME_VERSION} · React 19 + Three.js + Tailwind v4</span>
       </footer>
     </div>
   );

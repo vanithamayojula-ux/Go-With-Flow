@@ -32,8 +32,11 @@ interface GameCanvasProps {
   isCinematicCam: boolean;
   isUpright?: boolean;
   isPaused?: boolean;
+  isMuted?: boolean;
   onNotification: (msg: string) => void;
   onGameOver?: () => void;
+  /** Engine auto-pause (tab hidden / window blur): the UI should show the pause menu. */
+  onRequestPause?: () => void;
   restartTrigger?: number;
   reviveTrigger?: number;
   shieldTrigger?: number;
@@ -55,8 +58,10 @@ export const GameCanvas: React.FC<GameCanvasProps> = ({
   isCinematicCam,
   isUpright = true,
   isPaused = false,
+  isMuted = false,
   onNotification,
   onGameOver,
+  onRequestPause,
   restartTrigger,
   reviveTrigger,
   shieldTrigger,
@@ -74,13 +79,26 @@ export const GameCanvas: React.FC<GameCanvasProps> = ({
   const onNotificationRef = useRef(onNotification);
   onNotificationRef.current = onNotification;
 
+  const onRequestPauseRef = useRef(onRequestPause);
+  onRequestPauseRef.current = onRequestPause;
+
+  const isMutedRef = useRef(isMuted);
+  isMutedRef.current = isMuted;
+
+  const isPausedRef = useRef(isPaused);
+  isPausedRef.current = isPaused;
+
   // Initialize and run the GameEngine runtime
   useEffect(() => {
     const container = containerRef.current;
     if (!container) return;
 
+    // Quit to Menu disposes the AudioManager; the new one must start with the
+    // player's current mute setting or the mute button and audio desync.
     if (!audioManagerRef.current) {
-      audioManagerRef.current = new AudioManager();
+      audioManagerRef.current = new AudioManager(isMutedRef.current);
+    } else {
+      audioManagerRef.current.setMuted(isMutedRef.current);
     }
 
     const engine = new GameEngine({
@@ -104,13 +122,21 @@ export const GameCanvas: React.FC<GameCanvasProps> = ({
       onGameOver: () => {
         onGameOverRef.current?.();
       },
+      onRequestPause: () => {
+        onRequestPauseRef.current?.();
+      },
     });
 
     engineRef.current = engine;
+    // Mount already paused if the UI is (e.g. a modal is open over the stage).
+    engine.isPaused = isPausedRef.current;
     engine.start();
 
-    // Dev and testing hooks
-    if (typeof window !== 'undefined') {
+    // Dev and testing hooks: only in dev builds or with ?debug in the URL.
+    const exposeDebugHooks =
+      typeof window !== 'undefined' &&
+      (import.meta.env.DEV || new URLSearchParams(window.location.search).has('debug'));
+    if (exposeDebugHooks) {
       (window as any).__gameEngine = engine;
       (window as any).__playerManager = engine.playerMgr;
       (window as any).__setActiveBiome = (b: BiomeType | null) => {
@@ -127,7 +153,7 @@ export const GameCanvas: React.FC<GameCanvasProps> = ({
       engine.dispose();
       engineRef.current = null;
       // Drop the dev hooks so they don't keep the disposed engine alive.
-      if (typeof window !== 'undefined') {
+      if (exposeDebugHooks) {
         (window as any).__gameEngine = undefined;
         (window as any).__playerManager = undefined;
         (window as any).__setActiveBiome = undefined;
@@ -148,6 +174,10 @@ export const GameCanvas: React.FC<GameCanvasProps> = ({
       engineRef.current.isCinematicCam = isCinematicCam;
     }
   }, [isCinematicCam]);
+
+  useEffect(() => {
+    audioManagerRef.current?.setMuted(isMuted);
+  }, [isMuted]);
 
   useEffect(() => {
     if (engineRef.current) {

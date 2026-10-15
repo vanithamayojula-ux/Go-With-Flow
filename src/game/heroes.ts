@@ -29,7 +29,7 @@ export const HEROES: HeroDef[] = [
     cost: 0,
     blurb: 'Authentic Cyber-Surfer 3D model with aerodynamic board & thrusters!',
     modelUrl: 'model.glb',
-    previewUrl: 'hero-previews/custom.png',
+    previewUrl: 'hero-previews/custom.webp',
     yawOffset: 0, // Rides facing along its board; 0 puts her back to the chase camera.
     ult: { type: 'dash', duration: 2.5, speedMul: 2.0 },
   },
@@ -41,7 +41,7 @@ export const HEROES: HeroDef[] = [
     cost: 0,
     blurb: 'Teleport dash — phases forward through anything in the way.',
     modelUrl: 'model02.glb',
-    previewUrl: 'hero-previews/shadow.png',
+    previewUrl: 'hero-previews/shadow.webp',
     yawOffset: -Math.PI / 2, // Side-stance rider: turned so their back faces the chase camera.
     ult: { type: 'dash', duration: 2.2, speedMul: 2.0 },
   },
@@ -53,7 +53,7 @@ export const HEROES: HeroDef[] = [
     cost: 150,
     blurb: 'Immolation — burns a path clean and ignores explosions.',
     modelUrl: 'model03.glb',
-    previewUrl: 'hero-previews/flame.png',
+    previewUrl: 'hero-previews/flame.webp',
     yawOffset: -Math.PI / 2, // Side-stance rider: turned so their back faces the chase camera.
     ult: { type: 'burn', duration: 4.5, radius: 26 },
   },
@@ -65,7 +65,7 @@ export const HEROES: HeroDef[] = [
     cost: 320,
     blurb: 'Overcharge — massive speed burst and chain lightning.',
     modelUrl: 'model04.glb',
-    previewUrl: 'hero-previews/thunder.png',
+    previewUrl: 'hero-previews/thunder.webp',
     yawOffset: -Math.PI / 2, // Side-stance rider: turned so their back faces the chase camera.
     ult: { type: 'overcharge', duration: 5, speedMul: 1.7 },
   },
@@ -77,7 +77,7 @@ export const HEROES: HeroDef[] = [
     cost: 500,
     blurb: 'Glacial halt — freezes the void, slowing everything but you.',
     modelUrl: 'model05.glb',
-    previewUrl: 'hero-previews/frost.png',
+    previewUrl: 'hero-previews/frost.webp',
     yawOffset: -Math.PI / 2, // Side-stance rider: turned so their back faces the chase camera.
     ult: { type: 'freeze', duration: 5, timeMul: 0.5 },
   },
@@ -89,7 +89,7 @@ export const HEROES: HeroDef[] = [
     cost: 800,
     blurb: 'Phase shift — becomes untouchable and drinks the abyss.',
     modelUrl: 'model06.glb',
-    previewUrl: 'hero-previews/void.png',
+    previewUrl: 'hero-previews/void.webp',
     yawOffset: -Math.PI / 2, // Side-stance rider: turned so their back faces the chase camera.
     ult: { type: 'phase', duration: 6 },
   },

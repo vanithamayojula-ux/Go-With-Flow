@@ -3,16 +3,71 @@
   <head>
     <meta charset="UTF-8" />
     <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>🛹</text></svg>" />
-    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>Neon Drift: Cyberpunk 3D Endless Skater</title>
-    <meta name="description" content="High-octane 3D cyberpunk endless hoverboard skating game running at 60fps in WebGL with procedural Web Audio synthwave, multi-tap emissive neon bloom, grind rails, and boost gates." />
-    <meta property="og:title" content="Neon Drift: Cyberpunk 3D Endless Skater" />
-    <meta property="og:description" content="High-octane 3D cyberpunk endless hoverboard skating game running at 60fps in WebGL with procedural Web Audio synthwave, multi-tap emissive neon bloom, grind rails, and boost gates." />
+    <link rel="apple-touch-icon" href="/hero-previews/custom.png" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
+    <meta name="theme-color" content="#020617" />
+    <meta name="color-scheme" content="dark" />
+    <title>Go With Flow: 3D Hoverboard Runner</title>
+    <meta name="description" content="Ride a three-lane hoverboard run across five worlds (Sky Isles, Verdant Wilds, Crimson Dunes, Crystal Heights and Obsidian Core): dodge barriers, grind rails, hit boost gates and chain aerial tricks. Runs in the browser with WebGL 2." />
+    <meta property="og:title" content="Go With Flow: 3D Hoverboard Runner" />
+    <meta property="og:description" content="Ride a three-lane hoverboard run across five worlds: dodge barriers, grind rails, hit boost gates and chain aerial tricks, right in your browser." />
     <meta property="og:type" content="website" />
-    <meta name="twitter:card" content="summary_large_image" />
+    <meta property="og:url" content="https://flowrider.vercel.app/" />
+    <meta property="og:image" content="https://flowrider.vercel.app/hero-previews/custom.png" />
+    <meta property="og:image:width" content="512" />
+    <meta property="og:image:height" content="512" />
+    <meta name="twitter:card" content="summary" />
+    <meta name="twitter:image" content="https://flowrider.vercel.app/hero-previews/custom.png" />
+    <style>
+      html, body { background: #020617; }
+      .gwf-fallback {
+        position: fixed; inset: 0; display: flex; align-items: center; justify-content: center;
+        padding: max(16px, env(safe-area-inset-top)) max(16px, env(safe-area-inset-right))
+          max(16px, env(safe-area-inset-bottom)) max(16px, env(safe-area-inset-left));
+        background: #020617; color: #e2e8f0;
+        font: 15px/1.5 system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif; text-align: center;
+      }
+      .gwf-fallback > div { max-width: 28rem; padding: 24px; border-radius: 16px;
+        border: 1px solid rgba(148, 163, 184, 0.3); background: rgba(15, 23, 42, 0.9); }
+      .gwf-fallback h1 { margin: 0 0 8px; font-size: 20px; color: #fff; }
+      .gwf-fallback p { margin: 0 0 8px; color: #cbd5e1; }
+    </style>
   </head>
   <body>
+    <noscript>
+      <div class="gwf-fallback"><div>
+        <h1>JavaScript is required</h1>
+        <p>Go With Flow is a 3D browser game. Enable JavaScript and reload the page to play.</p>
+      </div></div>
+    </noscript>
     <div id="root"></div>
-    <script type="module" src="/src/main.tsx"></script>
+    <script type="module">
+      // The renderer needs WebGL 2. Check before loading the app so an
+      // unsupported browser gets a clear explanation instead of a crash screen.
+      function hasWebGL2() {
+        try {
+          const canvas = document.createElement('canvas');
+          const gl = canvas.getContext('webgl2');
+          if (!gl) return false;
+          const lose = gl.getExtension('WEBGL_lose_context');
+          if (lose) lose.loseContext();
+          return true;
+        } catch (e) {
+          return false;
+        }
+      }
+
+      if (hasWebGL2()) {
+        import('/src/main.tsx');
+      } else {
+        const root = document.getElementById('root');
+        root.innerHTML =
+          '<div class="gwf-fallback" role="alert"><div>' +
+          '<h1>This game needs WebGL 2</h1>' +
+          '<p>Your browser could not start WebGL 2, which Go With Flow uses to draw the 3D world.</p>' +
+          '<p>Enable hardware acceleration in your browser settings (and update your graphics drivers), or try a current version of Chrome, Edge, Firefox or Safari.</p>' +
+          '</div></div>';
+      }
+    </script>
   </body>
 </html>

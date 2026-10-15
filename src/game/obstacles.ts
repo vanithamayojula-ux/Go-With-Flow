@@ -1,5 +1,6 @@
 import * as THREE from 'three';
 import { GLTFLoader } from 'three/examples/jsm/loaders/GLTFLoader.js';
+import { MeshoptDecoder } from 'three/examples/jsm/libs/meshopt_decoder.module.js';
 import { BiomeType, LaneIndex, PowerUpType } from '../types';
 import { getTerrainHeight, getBiomeAt } from './terrain';
 import { WORLD_LENGTH_DISTANCE, getWorldForBiome } from './worlds';
@@ -8,6 +9,105 @@ import { createStripeTexture } from '../graphics/hazardTextures';
 
 // Minimum open road in front of a world portal before the previous obstacle row.
 const PORTAL_CLEARANCE = 12;
+
+// Player body extents above the feet, used for the vertical collision test.
+// The player position is the board (feet) height: terrain + a small hover.
+const PLAYER_STAND_HEIGHT = 1.75;
+const PLAYER_SLIDE_HEIGHT = 0.95;
+const PLAYER_HOVER_OFFSET = 0.12;
+// Effective top of solid blocks for collisions; above the ~2.8 m jump apex.
+const SOLID_UNJUMPABLE_TOP = 3.4;
+// Lateral distance between the player and the edge of an obstacle that still
+// counts as a near miss. Lanes are 2.6 m apart, so passing an obstacle in the
+// adjacent lane (about 1.6 m from its collision edge) qualifies.
+const NEAR_MISS_LATERAL_REACH = 2.0;
+// Riding speed (m/s) needed for a near miss to count.
+const NEAR_MISS_MIN_SPEED = 12;
+
+// Portal gateway dimensions (metres above the road surface).
+const PORTAL_ARCH_RADIUS = 4.0; // centre line of the frame
+const PORTAL_ARCH_TUBE = 0.3;
+const PORTAL_ARCH_CENTER_Y = 3.6; // centre of the semicircular top
+const PORTAL_MEMBRANE_RADIUS = PORTAL_ARCH_RADIUS - PORTAL_ARCH_TUBE;
+
+// Boost gate gantry: the bar sits well above the chase camera (y ~2.6-2.9).
+const BOOST_GATE_BAR_Y = 4.3;
+const BOOST_GATE_POST_HEIGHT = 4.5;
+
+let sharedObstacleLoader: GLTFLoader | null = null;
+
+/**
+ * GLTFLoader for the obstacle GLBs. They use EXT_meshopt_compression,
+ * KHR_mesh_quantization and EXT_texture_webp, so the meshopt decoder is
+ * required. Embedded textures go through the <img>-based TextureLoader (as in
+ * heroRig.ts) instead of ImageBitmapLoader, which fetch()es blob: URLs and is
+ * blocked by a Content-Security-Policy with connect-src 'self'.
+ */
+function getObstacleLoader(): GLTFLoader {
+  if (sharedObstacleLoader) return sharedObstacleLoader;
+  const loader = new GLTFLoader();
+  loader.setMeshoptDecoder(MeshoptDecoder);
+  if (typeof document !== 'undefined') {
+    loader.register((parser: any) => {
+      parser.textureLoader = new THREE.TextureLoader(parser.options.manager);
+      if (parser.options.crossOrigin) parser.textureLoader.setCrossOrigin(parser.options.crossOrigin);
+      return { name: 'GWF_obstacle_img_texture_loader' } as any;
+    });
+  }
+  sharedObstacleLoader = loader;
+  return loader;
+}
+
+/** A fresh seed for a run, so obstacle layouts differ between runs. */
+function randomRunSeed(): number {
+  if (typeof crypto !== 'undefined' && typeof crypto.getRandomValues === 'function') {
+    return crypto.getRandomValues(new Uint32Array(1))[0];
+  }
+  return Math.floor(Math.random() * 0xffffffff) >>> 0;
+}
+
+const PORTAL_MEMBRANE_VERTEX = /* glsl */ `
+  varying vec3 vLocal;
+  varying vec3 vWorldNormal;
+  varying vec3 vViewDir;
+  void main() {
+    vLocal = position;
+    vec4 worldPos = modelMatrix * vec4(position, 1.0);
+    vWorldNormal = normalize(mat3(modelMatrix) * normal);
+    vViewDir = normalize(cameraPosition - worldPos.xyz);
+    gl_Position = projectionMatrix * viewMatrix * worldPos;
+  }
+`;
+
+// Energy membrane filling the gateway: almost clear in the middle, glowing
+// softly toward the frame and at grazing view angles (fresnel), with a slow
+// shimmer so it reads as a field rather than a flat sheet of colour.
+const PORTAL_MEMBRANE_FRAGMENT = /* glsl */ `
+  uniform vec3 uColor;
+  uniform float uTime;
+  uniform float uRadius;
+  uniform float uSpringY;
+  varying vec3 vLocal;
+  varying vec3 vWorldNormal;
+  varying vec3 vViewDir;
+  void main() {
+    vec2 p = vLocal.xy;
+    float edgeDist = p.y <= uSpringY
+      ? uRadius - abs(p.x)
+      : uRadius - length(vec2(p.x, p.y - uSpringY));
+    float edge = 1.0 - smoothstep(0.0, 1.1, edgeDist);
+    float fresnel = pow(1.0 - abs(dot(normalize(vWorldNormal), normalize(vViewDir))), 2.0);
+    float swirl = sin(p.x * 2.3 + uTime * 1.7) * sin(p.y * 1.9 - uTime * 1.3)
+      + 0.5 * sin(length(p - vec2(0.0, uSpringY)) * 3.5 - uTime * 2.4);
+    float shimmer = 0.5 + 0.25 * swirl;
+    float groundFade = smoothstep(0.0, 0.6, p.y);
+    float alpha = (0.06 + 0.12 * shimmer + 0.6 * edge * edge + 0.35 * fresnel) * groundFade;
+    vec3 col = uColor * (0.7 + 0.6 * shimmer + 1.2 * edge);
+    gl_FragColor = vec4(col, clamp(alpha, 0.0, 0.85));
+    #include <tonemapping_fragment>
+    #include <colorspace_fragment>
+  }
+`;
 
 export interface Obstacle3DTemplate {
   id: string;
@@ -465,14 +565,35 @@ export class ObstacleManager {
   private lastSpawnZ = 35;
   private genState: ObstacleGeneratorState;
   private _nearMissPosScratch = new THREE.Vector3();
+  // Fixed seed (tests / replays) or null for a fresh layout every run.
+  private fixedSeed: number | null;
+  private lastPlayerSpeed = 22;
+  private disposed = false;
 
-  // Real-world road hardware: cast concrete, galvanised steel, retro-reflective
-  // red/white barrier bands and painted yellow/black hazard chevrons.
+  // Real-world road hardware: dark painted steel barriers, galvanised steel,
+  // retro-reflective red/white barrier bands and yellow/black hazard chevrons.
+  // The dark body keeps barriers readable against snow, sand and bright sky.
   private barrierMat = new THREE.MeshStandardMaterial({
-    color: 0x8e8a83, // weathered concrete
-    metalness: 0.0,
-    roughness: 0.9,
+    color: 0x2c3038, // dark charcoal paint
+    metalness: 0.35,
+    roughness: 0.6,
   });
+  // Retro-reflective red/white bands wrapped round every side of a barrier.
+  // A little emissive from the same stripe map stands in for the headlight
+  // bounce real reflective sheeting gives, so the bands pop in any light.
+  private barrierBandMat = (() => {
+    const map = createStripeTexture('#f4f4f0', '#c8161d', 2);
+    if (map) map.repeat.set(4, 0.5);
+    return new THREE.MeshStandardMaterial({
+      color: 0xffffff,
+      map,
+      emissive: new THREE.Color(0xffffff),
+      emissiveMap: map,
+      emissiveIntensity: 0.35,
+      metalness: 0.0,
+      roughness: 0.35,
+    });
+  })();
   private steelMat = new THREE.MeshStandardMaterial({
     color: 0xaeb4ba,
     metalness: 0.85,
@@ -513,18 +634,26 @@ export class ObstacleManager {
     polygonOffset: true,
     polygonOffsetFactor: -2,
   });
-  private portalDiscMat = new THREE.MeshBasicMaterial({
-    color: 0x00f0ff,
-    transparent: true,
-    opacity: 0.45,
-    side: THREE.DoubleSide,
+  // Portal gateway: a heavy dark-steel arch on stone plinths. Only the inner
+  // trim and the energy membrane carry the destination world's colour.
+  private portalFrameMat = new THREE.MeshStandardMaterial({
+    color: 0x6b727c, // brushed dark steel
+    metalness: 0.5,
+    roughness: 0.42,
   });
+  private portalPlinthMat = new THREE.MeshStandardMaterial({
+    color: 0x5d5a55, // dressed stone
+    metalness: 0.0,
+    roughness: 0.85,
+  });
+  // Shared clock for every portal membrane (advanced in update()).
+  private portalTimeUniform = { value: 0 };
   // Portals are tinted with their destination world's energy color, one pair per world.
-  private portalMats = new Map<BiomeType, { ring: THREE.MeshBasicMaterial; disc: THREE.MeshBasicMaterial }>();
+  private portalMats = new Map<BiomeType, { trim: THREE.MeshStandardMaterial; membrane: THREE.ShaderMaterial }>();
 
   // Reusable Shared Geometries (Zero allocation on hot spawn path)
   private solidMainGeom = new THREE.BoxGeometry(2.45, 2.2, 0.8);
-  private solidEdgeGeom = new THREE.BoxGeometry(2.52, 0.18, 0.85);
+  private solidEdgeGeom = new THREE.BoxGeometry(2.52, 0.28, 0.86);
   private solidTelegraphGeom: THREE.PlaneGeometry;
 
   private hurdleBeamGeom = new THREE.BoxGeometry(2.45, 0.32, 0.35);
@@ -535,8 +664,22 @@ export class ObstacleManager {
   private overheadBeamGeom = new THREE.BoxGeometry(2.45, 0.4, 0.2);
   private overheadTelegraphGeom: THREE.PlaneGeometry;
 
-  private portalRingGeom = new THREE.TorusGeometry(3.6, 0.24, 12, 32);
-  private portalDiscGeom = new THREE.CircleGeometry(3.4, 32);
+  // Upper half of a torus (0..PI) forms the arch; pillars carry it to the road.
+  private portalArchGeom = new THREE.TorusGeometry(PORTAL_ARCH_RADIUS, PORTAL_ARCH_TUBE, 14, 48, Math.PI);
+  private portalPillarGeom = new THREE.CylinderGeometry(PORTAL_ARCH_TUBE, PORTAL_ARCH_TUBE * 1.15, PORTAL_ARCH_CENTER_Y, 14);
+  private portalPlinthGeom = new THREE.BoxGeometry(0.9, 0.55, 1.1);
+  private portalTrimArchGeom = new THREE.TorusGeometry(PORTAL_MEMBRANE_RADIUS + 0.02, 0.09, 8, 48, Math.PI);
+  private portalTrimPillarGeom = new THREE.BoxGeometry(0.15, PORTAL_ARCH_CENTER_Y, 0.15);
+  private portalMembraneGeom = (() => {
+    const r = PORTAL_MEMBRANE_RADIUS;
+    const shape = new THREE.Shape();
+    shape.moveTo(-r, 0);
+    shape.lineTo(-r, PORTAL_ARCH_CENTER_Y);
+    shape.absarc(0, PORTAL_ARCH_CENTER_Y, r, Math.PI, 0, true);
+    shape.lineTo(r, 0);
+    shape.closePath();
+    return new THREE.ShapeGeometry(shape, 32);
+  })();
 
   // Grind Rail Geometries & Materials
   private railTubeGeom = new THREE.BoxGeometry(0.26, 0.22, 18.0);
@@ -554,8 +697,8 @@ export class ObstacleManager {
   });
 
   // Boost Gate Geometries & Materials
-  private boostPillarGeom = new THREE.BoxGeometry(0.24, 3.2, 0.35);
-  private boostTopGeom = new THREE.BoxGeometry(2.6, 0.35, 0.35);
+  private boostPillarGeom = new THREE.BoxGeometry(0.24, BOOST_GATE_POST_HEIGHT, 0.35);
+  private boostTopGeom = new THREE.BoxGeometry(2.74, 0.35, 0.35);
   // Boost gate: a lit LED gantry (genuinely emissive, so it blooms)
   private boostMat = new THREE.MeshStandardMaterial({
     color: 0x1a1d20,
@@ -568,145 +711,177 @@ export class ObstacleManager {
   private coinGeom = new THREE.OctahedronGeometry(0.24);
   private powerUpGeom = new THREE.DodecahedronGeometry(0.35);
 
-  // Cached 3D obstacle models (Preloaded once and cloned on spawn)
+  // Cached 3D obstacle models, loaded once per page and shared by every
+  // ObstacleManager (StrictMode double-mounts and Quit-to-Menu create new
+  // managers; the templates must survive them, so instances never clear them).
   static cachedTemplates: Obstacle3DTemplate[] = [];
+  // True from the moment a preload is scheduled until its batch settles, so
+  // obstacles spawned in the meantime queue an upgrade to the GLB model.
   static isPreloading = false;
-  // Templates are pushed one-per-GLB, so the set is only safe to index once
-  // the whole batch has resolved; otherwise a partially filled array collapses
-  // the deterministic cycle onto whichever models happened to load first.
+  // Templates are indexed by z, so only use them once a batch has settled;
+  // otherwise a partially filled array collapses the cycle onto whichever
+  // models happened to load first.
   static isPreloadComplete = false;
   static preloadPromise: Promise<void> | null = null;
-  static pendingSpawnCallbacks: (() => void)[] = [];
+  static pendingSpawnCallbacks: { owner: ObstacleManager; run: () => void }[] = [];
+  private static preloadScheduled = false;
+
+  // GLB obstacle models in public/. A model that fails to load is skipped and
+  // the procedural barrier covers for it; failed models are retried on the
+  // next preload call (next manager or run), successful ones are kept.
+  static readonly OBSTACLE_MODEL_DEFS: ReadonlyArray<{ id: string; name: string; url: string; targetHeight: number; yaw: number }> = [
+    { id: 'sentinel', name: 'Cyber Sentinel', url: 'obstacle01.glb', targetHeight: 2.2, yaw: -Math.PI / 2 },
+    { id: 'frost-drake', name: 'Frost Drake', url: 'obstacle02.glb', targetHeight: 2.2, yaw: -Math.PI / 2 },
+    { id: 'bio-predator', name: 'Bio Predator', url: 'obstacle03.glb', targetHeight: 2.2, yaw: -Math.PI / 2 },
+    { id: 'xenobeast', name: 'Cyber Beast', url: 'obstacle04.glb', targetHeight: 2.1, yaw: -Math.PI / 2 },
+  ];
+
+  private static buildTemplate(def: { id: string; name: string; url: string; targetHeight: number; yaw: number }, gltf: any): Obstacle3DTemplate {
+    const rawScene: THREE.Object3D = gltf.scene;
+    const rawBox = new THREE.Box3().setFromObject(rawScene);
+    const rawSize = rawBox.getSize(new THREE.Vector3());
+    const rawCenter = rawBox.getCenter(new THREE.Vector3());
+
+    const scale = def.targetHeight / Math.max(rawSize.y, 0.001);
+    rawScene.scale.set(scale, scale, scale);
+
+    rawScene.traverse(child => {
+      if ((child as THREE.Mesh).isMesh) {
+        const m = child as THREE.Mesh;
+        m.castShadow = true;
+        m.receiveShadow = true;
+        if (m.material) {
+          const mat = m.material as THREE.MeshStandardMaterial;
+          if (mat.roughness !== undefined) {
+            mat.roughness = Math.max(0.2, Math.min(0.85, mat.roughness));
+          }
+          if (mat.metalness !== undefined) {
+            mat.metalness = Math.max(0.1, Math.min(0.9, mat.metalness));
+          }
+        }
+      }
+    });
+
+    const pivot = new THREE.Group();
+    pivot.name = `Obstacle3D_${def.id}`;
+    rawScene.position.set(-rawCenter.x * scale, -rawBox.min.y * scale, -rawCenter.z * scale);
+    pivot.add(rawScene);
+    pivot.rotation.y = def.yaw;
+
+    return {
+      id: def.id,
+      name: def.name,
+      url: def.url,
+      targetHeight: def.targetHeight,
+      yaw: def.yaw,
+      pivot,
+      width: rawSize.x * scale,
+      height: def.targetHeight,
+      depth: rawSize.z * scale,
+    };
+  }
 
   static preloadObstacleModels(): Promise<void> {
     if (ObstacleManager.preloadPromise) {
       return ObstacleManager.preloadPromise;
     }
-    ObstacleManager.isPreloading = true;
-
-    // GLB obstacle models in public/. A model that fails to load is skipped and
-    // the procedural obstacles cover for it; with an empty list none are used.
-    const defs: { id: string; name: string; url: string; targetHeight: number; yaw: number; fallbackUrl?: string }[] = [
-      { id: 'sentinel', name: 'Cyber Sentinel', url: 'obstacle01.glb', targetHeight: 2.2, yaw: -Math.PI / 2 },
-      { id: 'frost-drake', name: 'Frost Drake', url: 'obstacle02.glb', targetHeight: 2.2, yaw: -Math.PI / 2 },
-      { id: 'bio-predator', name: 'Bio Predator', url: 'obstacle03.glb', targetHeight: 2.2, yaw: -Math.PI / 2 },
-      { id: 'xenobeast', name: 'Cyber Beast', url: 'obstacle04.glb', targetHeight: 2.1, yaw: -Math.PI / 2 },
-    ];
-    if (defs.length === 0) {
+    const defs = ObstacleManager.OBSTACLE_MODEL_DEFS;
+    // Only fetch models that are not cached yet (first load, or a retry of
+    // the ones that failed last time).
+    const missing = defs.filter(def => !ObstacleManager.cachedTemplates.some(t => t.id === def.id));
+    if (missing.length === 0) {
       ObstacleManager.isPreloading = false;
+      ObstacleManager.isPreloadComplete = ObstacleManager.cachedTemplates.length > 0;
+      ObstacleManager.drainPendingSpawnCallbacks();
       ObstacleManager.preloadPromise = Promise.resolve();
       return ObstacleManager.preloadPromise;
     }
 
-    const loader = new GLTFLoader();
-
-    const loadFailures: string[] = [];
+    ObstacleManager.isPreloading = true;
+    const loader = getObstacleLoader();
 
     ObstacleManager.preloadPromise = (async () => {
-      ObstacleManager.isPreloadComplete = false;
-      for (const def of defs) {
-        try {
-          let gltf;
-          try {
-            gltf = await loader.loadAsync(def.url);
-          } catch (loadErr) {
-            if (def.fallbackUrl) {
-              try {
-                gltf = await loader.loadAsync(def.fallbackUrl);
-              } catch {
-                continue;
-              }
-            } else {
-              continue;
-            }
-          }
-          if (!gltf || !gltf.scene) continue;
+      // All models download and decode in parallel.
+      const results = await Promise.allSettled(missing.map(def => loader.loadAsync(def.url)));
 
-          const rawScene = gltf.scene;
-          const rawBox = new THREE.Box3().setFromObject(rawScene);
-          const rawSize = rawBox.getSize(new THREE.Vector3());
-          const rawCenter = rawBox.getCenter(new THREE.Vector3());
-
-          const scale = def.targetHeight / Math.max(rawSize.y, 0.001);
-          rawScene.scale.set(scale, scale, scale);
-
-          rawScene.traverse(child => {
-            if ((child as THREE.Mesh).isMesh) {
-              const m = child as THREE.Mesh;
-              m.castShadow = true;
-              m.receiveShadow = true;
-              if (m.material) {
-                const mat = m.material as THREE.MeshStandardMaterial;
-                if (mat.roughness !== undefined) {
-                  mat.roughness = Math.max(0.2, Math.min(0.85, mat.roughness));
-                }
-                if (mat.metalness !== undefined) {
-                  mat.metalness = Math.max(0.1, Math.min(0.9, mat.metalness));
-                }
-              }
-            }
-          });
-
-          const pivot = new THREE.Group();
-          pivot.name = `Obstacle3D_${def.id}`;
-          rawScene.position.set(
-            -rawCenter.x * scale,
-            -rawBox.min.y * scale,
-            -rawCenter.z * scale
-          );
-          pivot.add(rawScene);
-          pivot.rotation.y = def.yaw;
-
-          const scaledW = rawSize.x * scale;
-          const scaledH = def.targetHeight;
-          const scaledD = rawSize.z * scale;
-
-          const existingIdx = ObstacleManager.cachedTemplates.findIndex((t) => t.id === def.id);
-          const template: Obstacle3DTemplate = {
-            id: def.id,
-            name: def.name,
-            url: def.url,
-            targetHeight: def.targetHeight,
-            yaw: def.yaw,
-            pivot,
-            width: scaledW,
-            height: scaledH,
-            depth: scaledD,
-          };
-          // Replace in place so a retried preload never duplicates entries.
-          if (existingIdx !== -1) {
-            ObstacleManager.cachedTemplates[existingIdx] = template;
-          } else {
-            ObstacleManager.cachedTemplates.push(template);
-          }
-        } catch (err) {
-          loadFailures.push(def.url);
-          console.warn(`[ObstacleManager] Failed to load 3D obstacle model ${def.url}:`, err);
+      let failures = 0;
+      results.forEach((res, i) => {
+        const def = missing[i];
+        if (res.status === 'rejected') {
+          failures++;
+          console.warn(`[ObstacleManager] Failed to load 3D obstacle model ${def.url}:`, res.reason);
+          return;
         }
-      }
+        if (!res.value || !res.value.scene) {
+          failures++;
+          console.warn(`[ObstacleManager] 3D obstacle model ${def.url} has no scene; using the procedural barrier.`);
+          return;
+        }
+        try {
+          const template = ObstacleManager.buildTemplate(def, res.value);
+          const existingIdx = ObstacleManager.cachedTemplates.findIndex(t => t.id === def.id);
+          if (existingIdx !== -1) ObstacleManager.cachedTemplates[existingIdx] = template;
+          else ObstacleManager.cachedTemplates.push(template);
+        } catch (err) {
+          failures++;
+          console.warn(`[ObstacleManager] Failed to prepare 3D obstacle model ${def.url}:`, err);
+        }
+      });
+
+      // Keep the template order stable (definition order) whatever finished first.
+      const order = (id: string) => defs.findIndex(d => d.id === id);
+      ObstacleManager.cachedTemplates.sort((a, b) => order(a.id) - order(b.id));
 
       ObstacleManager.isPreloading = false;
-      // Notify and upgrade any waiting obstacles
-      while (ObstacleManager.pendingSpawnCallbacks.length > 0) {
-        const cb = ObstacleManager.pendingSpawnCallbacks.shift();
-        if (cb) {
-          try { cb(); } catch {}
-        }
-      }
-
-      if (loadFailures.length > 0) {
-        // Let a later call retry the models that failed instead of latching
-        // a permanently degraded template set for the whole session.
-        ObstacleManager.preloadPromise = null;
-      } else {
-        ObstacleManager.isPreloadComplete = true;
-      }
+      ObstacleManager.isPreloadComplete = ObstacleManager.cachedTemplates.length > 0;
+      // A later call retries only the models that failed.
+      if (failures > 0) ObstacleManager.preloadPromise = null;
+      ObstacleManager.drainPendingSpawnCallbacks();
     })();
 
     return ObstacleManager.preloadPromise;
   }
 
-  constructor(scene: THREE.Scene, seed = 1337) {
+  private static drainPendingSpawnCallbacks(): void {
+    const queue = ObstacleManager.pendingSpawnCallbacks;
+    ObstacleManager.pendingSpawnCallbacks = [];
+    for (const entry of queue) {
+      if (entry.owner.disposed) continue;
+      try {
+        entry.run();
+      } catch (err) {
+        console.warn('[ObstacleManager] Failed to upgrade an obstacle to its 3D model:', err);
+      }
+    }
+  }
+
+  /**
+   * Start loading the obstacle GLBs once the browser is idle, so they don't
+   * compete with the first frame (and never under Node test runs).
+   */
+  private static schedulePreload(): void {
+    if (typeof window === 'undefined' || typeof document === 'undefined') return;
+    if (ObstacleManager.isPreloadComplete && ObstacleManager.preloadPromise) return;
+    if (ObstacleManager.preloadScheduled) return;
+    ObstacleManager.preloadScheduled = true;
+    // Obstacles spawned before the load starts still queue their GLB upgrade.
+    ObstacleManager.isPreloading = true;
+    const start = () => {
+      ObstacleManager.preloadScheduled = false;
+      ObstacleManager.preloadObstacleModels().catch(err => {
+        console.warn('[ObstacleManager] Obstacle model preload failed:', err);
+      });
+    };
+    const ric = (window as any).requestIdleCallback as ((cb: () => void, opts?: { timeout: number }) => number) | undefined;
+    if (typeof ric === 'function') ric(start, { timeout: 1500 });
+    else window.setTimeout(start, 200);
+  }
+
+  /**
+   * @param seed Fixed obstacle seed for deterministic layouts (tests, replays).
+   *             Omit it to get a fresh layout on every run.
+   */
+  constructor(scene: THREE.Scene, seed?: number) {
     this.scene = scene;
     this.group = new THREE.Group();
     this.group.name = 'ObstaclesRootGroup';
@@ -724,8 +899,9 @@ export class ObstacleManager {
     otGeom.rotateX(-Math.PI / 2);
     this.overheadTelegraphGeom = otGeom;
 
-    this.genState = new ObstacleGeneratorState(seed);
-    ObstacleManager.preloadObstacleModels();
+    this.fixedSeed = seed ?? null;
+    this.genState = new ObstacleGeneratorState(this.fixedSeed ?? randomRunSeed());
+    ObstacleManager.schedulePreload();
     this.spawnInitialObstacles();
   }
 
@@ -843,16 +1019,17 @@ export class ObstacleManager {
     const gateGroup = new THREE.Group();
     gateGroup.position.set(x, groundH, z);
 
-    // Left & Right Pillars
+    // Left & Right Pillars (tall enough to carry the bar above the camera)
     const postL = new THREE.Mesh(this.boostPillarGeom, this.boostMat);
-    postL.position.set(-1.25, 1.6, 0);
+    postL.position.set(-1.25, BOOST_GATE_POST_HEIGHT / 2, 0);
     const postR = new THREE.Mesh(this.boostPillarGeom, this.boostMat);
-    postR.position.set(1.25, 1.6, 0);
+    postR.position.set(1.25, BOOST_GATE_POST_HEIGHT / 2, 0);
     gateGroup.add(postL, postR);
 
-    // Arch Top
+    // Gantry bar at ~4.3 m: the chase camera rides at ~2.6-2.9 m, so a lower
+    // bar sweeps through the lens and fills the screen with flat green.
     const topBar = new THREE.Mesh(this.boostTopGeom, this.boostMat);
-    topBar.position.set(0, 3.1, 0);
+    topBar.position.set(0, BOOST_GATE_BAR_Y, 0);
     gateGroup.add(topBar);
 
     gateGroup.frustumCulled = false;
@@ -864,10 +1041,10 @@ export class ObstacleManager {
       category: 'boost-gate',
       lane,
       x,
-      y: groundH + 1.6,
+      y: groundH + BOOST_GATE_POST_HEIGHT / 2,
       z,
       width: 2.6,
-      height: 3.2,
+      height: BOOST_GATE_POST_HEIGHT,
       depth: 1.0,
       mesh: gateGroup,
       isBoostGate: true,
@@ -903,27 +1080,26 @@ export class ObstacleManager {
         clonedPivot.position.set(0, 0, 0);
         modelContainer.add(clonedPivot);
       } else {
-        // Fallback procedural barrier while GLBs are downloading
+        // Procedural barrier (while GLBs download, or if they fail): a dark
+        // body wrapped in red/white reflective bands on every side.
         const mainMesh = new THREE.Mesh(this.solidMainGeom, this.barrierMat);
         mainMesh.position.set(0, 1.1, 0);
         modelContainer.add(mainMesh);
 
-        const edgeMesh = new THREE.Mesh(this.solidEdgeGeom, this.laserHazardMat);
-        edgeMesh.position.set(0, 2.15, 0);
-        modelContainer.add(edgeMesh);
+        for (const bandY of [0.3, 1.15, 1.98]) {
+          const band = new THREE.Mesh(this.solidEdgeGeom, this.barrierBandMat);
+          band.position.set(0, bandY, 0);
+          modelContainer.add(band);
+        }
 
-        const edgeMesh2 = new THREE.Mesh(this.solidEdgeGeom, this.laserHazardMat);
-        edgeMesh2.position.set(0, 0.15, 0);
-        modelContainer.add(edgeMesh2);
-
-        // Queue callback to upgrade to 3D model once loaded. Only while a
-        // preload is actually in flight: once it has finished the queue is
-        // never drained again, so queuing would leak every spawned obstacle.
+        // Queue an upgrade to the 3D model once loaded. Only while a preload
+        // is scheduled or in flight: the queue is drained when it settles.
         if (ObstacleManager.isPreloading) {
-          ObstacleManager.pendingSpawnCallbacks.push(() => {
-            if (blockGroup.parent) {
-              applyModel();
-            }
+          ObstacleManager.pendingSpawnCallbacks.push({
+            owner: this,
+            run: () => {
+              if (blockGroup.parent) applyModel();
+            },
           });
         }
       }
@@ -1043,17 +1219,44 @@ export class ObstacleManager {
   private createPortalArch(z: number, targetBiome: BiomeType): void {
     const groundH = getTerrainHeight(0, z);
     const portalGroup = new THREE.Group();
-    portalGroup.position.set(0, groundH + 2.4, z);
+    // The group sits on the road; the arch's semicircular top is centred at
+    // PORTAL_ARCH_CENTER_Y and its pillars stand on the shoulders, so nothing
+    // cuts through the road or the outer lanes.
+    portalGroup.position.set(0, groundH, z);
 
     const mats = this.getPortalMats(targetBiome);
+    const r = PORTAL_ARCH_RADIUS;
 
-    // Dimensional rift ring
-    const ringMesh = new THREE.Mesh(this.portalRingGeom, mats.ring);
-    portalGroup.add(ringMesh);
+    // Steel arch and pillars
+    const arch = new THREE.Mesh(this.portalArchGeom, this.portalFrameMat);
+    arch.position.set(0, PORTAL_ARCH_CENTER_Y, 0);
+    arch.castShadow = true;
+    portalGroup.add(arch);
+    for (const side of [-1, 1]) {
+      const pillar = new THREE.Mesh(this.portalPillarGeom, this.portalFrameMat);
+      pillar.position.set(side * r, PORTAL_ARCH_CENTER_Y / 2, 0);
+      pillar.castShadow = true;
+      portalGroup.add(pillar);
 
-    // Translucent membrane
-    const discMesh = new THREE.Mesh(this.portalDiscGeom, mats.disc);
-    portalGroup.add(discMesh);
+      const plinth = new THREE.Mesh(this.portalPlinthGeom, this.portalPlinthMat);
+      plinth.position.set(side * r, 0.275, 0);
+      plinth.castShadow = true;
+      plinth.receiveShadow = true;
+      portalGroup.add(plinth);
+
+      // Glowing inner trim down each pillar, tinted to the destination world
+      const trimPillar = new THREE.Mesh(this.portalTrimPillarGeom, mats.trim);
+      trimPillar.position.set(side * (PORTAL_MEMBRANE_RADIUS + 0.02), PORTAL_ARCH_CENTER_Y / 2, 0);
+      portalGroup.add(trimPillar);
+    }
+    const trimArch = new THREE.Mesh(this.portalTrimArchGeom, mats.trim);
+    trimArch.position.set(0, PORTAL_ARCH_CENTER_Y, 0);
+    portalGroup.add(trimArch);
+
+    // Energy membrane filling the opening
+    const membrane = new THREE.Mesh(this.portalMembraneGeom, mats.membrane);
+    membrane.renderOrder = 2;
+    portalGroup.add(membrane);
 
     portalGroup.frustumCulled = false;
     this.group.add(portalGroup);
@@ -1064,10 +1267,10 @@ export class ObstacleManager {
       category: 'portal',
       lane: 0,
       x: 0,
-      y: groundH + 2.4,
+      y: groundH + PORTAL_ARCH_CENTER_Y,
       z,
-      width: 6.8,
-      height: 6.8,
+      width: 2 * (r + PORTAL_ARCH_TUBE),
+      height: PORTAL_ARCH_CENTER_Y + r + PORTAL_ARCH_TUBE,
       depth: 2.0,
       mesh: portalGroup,
       isPortal: true,
@@ -1078,12 +1281,29 @@ export class ObstacleManager {
   private getPortalMats(targetBiome: BiomeType) {
     let mats = this.portalMats.get(targetBiome);
     if (!mats) {
-      const color = getWorldForBiome(targetBiome).palette.energy;
+      const color = new THREE.Color(getWorldForBiome(targetBiome).palette.energy);
       mats = {
-        ring: new THREE.MeshBasicMaterial({ color }),
-        disc: this.portalDiscMat.clone(),
+        trim: new THREE.MeshStandardMaterial({
+          color: 0x111111,
+          emissive: color,
+          emissiveIntensity: 2.6,
+          metalness: 0.2,
+          roughness: 0.4,
+        }),
+        membrane: new THREE.ShaderMaterial({
+          uniforms: {
+            uColor: { value: color },
+            uTime: this.portalTimeUniform,
+            uRadius: { value: PORTAL_MEMBRANE_RADIUS },
+            uSpringY: { value: PORTAL_ARCH_CENTER_Y },
+          },
+          vertexShader: PORTAL_MEMBRANE_VERTEX,
+          fragmentShader: PORTAL_MEMBRANE_FRAGMENT,
+          transparent: true,
+          depthWrite: false,
+          side: THREE.DoubleSide,
+        }),
       };
-      mats.disc.color.set(color);
       this.portalMats.set(targetBiome, mats);
     }
     return mats;
@@ -1129,6 +1349,9 @@ export class ObstacleManager {
   }
 
   update(playerZ: number, timeSeconds: number, playerSpeed = 22): void {
+    this.lastPlayerSpeed = playerSpeed;
+    this.portalTimeUniform.value = timeSeconds;
+
     // 1. Animate coins & powerups rotation
     for (const c of this.coins) {
       if (!c.collected) {
@@ -1171,31 +1394,44 @@ export class ObstacleManager {
       this.spawnNextRow(playerSpeed);
     }
 
-    // 4. Object Pool & Distance Culling behind player
+    // 4. Distance culling behind the player. Arrays are compacted in place so
+    // the per-frame path allocates nothing (the arrays keep their identity).
     const cullZ = playerZ - 30;
-    this.obstacles = this.obstacles.filter(obs => {
+    const obstacles = this.obstacles;
+    let w = 0;
+    for (let r = 0; r < obstacles.length; r++) {
+      const obs = obstacles[r];
       if (obs.z < cullZ) {
         this.group.remove(obs.mesh);
-        return false;
+      } else {
+        obstacles[w++] = obs;
       }
-      return true;
-    });
+    }
+    obstacles.length = w;
 
-    this.coins = this.coins.filter(c => {
+    const coins = this.coins;
+    w = 0;
+    for (let r = 0; r < coins.length; r++) {
+      const c = coins[r];
       if (c.z < cullZ || c.collected) {
         this.group.remove(c.mesh);
-        return false;
+      } else {
+        coins[w++] = c;
       }
-      return true;
-    });
+    }
+    coins.length = w;
 
-    this.powerUps = this.powerUps.filter(p => {
+    const powerUps = this.powerUps;
+    w = 0;
+    for (let r = 0; r < powerUps.length; r++) {
+      const p = powerUps[r];
       if (p.z < cullZ || p.collected) {
         this.group.remove(p.mesh);
-        return false;
+      } else {
+        powerUps[w++] = p;
       }
-      return true;
-    });
+    }
+    powerUps.length = w;
   }
 
   attractCoinsToPlayer(playerPos: THREE.Vector3, magnetRadius: number, dt: number): void {
@@ -1285,16 +1521,45 @@ export class ObstacleManager {
 
       const obsHalfWidth = (obs.width ?? 2.0) * 0.40;
       const obsHalfDepth = Math.max(0.45, (obs.depth ?? 0.8) * 0.40);
+      const collideHalfWidth = obsHalfWidth + 0.25;
 
-      // Near-Miss detection (Grazing within 0.35m-1.25m of obstacle boundary)
-      if (!obs.nearMissed && Math.abs(dz) < 1.6 && dx >= (obsHalfWidth + 0.20) && dx <= (obsHalfWidth + 1.25)) {
+      // Vertical extents relative to the road: the player's body runs from
+      // the feet (board) up to head height, the obstacle from its base to top.
+      const obsGroundH = getTerrainHeight(obs.x, obs.z);
+      const obsCenterRel = obs.y - obsGroundH;
+      const obsBottomRel = obsCenterRel - obs.height * 0.5;
+      // Solid blocks force a lane change: treat them as taller than any jump
+      // apex (~2.8 m) so a well-timed jump can't skip over them.
+      const obsTopRel = obs.category === 'solid'
+        ? Math.max(obsCenterRel + obs.height * 0.5, SOLID_UNJUMPABLE_TOP)
+        : obsCenterRel + obs.height * 0.5;
+      const feetRel = playerRelY - PLAYER_HOVER_OFFSET;
+      const headRel = feetRel + (isSliding ? PLAYER_SLIDE_HEIGHT : PLAYER_STAND_HEIGHT);
+      // Small tolerance so skimming the very top of an obstacle doesn't count.
+      const overlapsVertically = feetRel < obsTopRel - 0.08 && headRel > obsBottomRel;
+
+      // Near miss: passing an obstacle in the adjacent lane at speed, just
+      // outside its collision box (lanes are 2.6 m apart).
+      if (
+        !obs.nearMissed &&
+        Math.abs(dz) < 1.6 &&
+        dx >= collideHalfWidth &&
+        dx <= collideHalfWidth + NEAR_MISS_LATERAL_REACH &&
+        overlapsVertically &&
+        this.lastPlayerSpeed >= NEAR_MISS_MIN_SPEED
+      ) {
         obs.nearMissed = true;
         result.nearMiss = true;
         result.nearMissPos = this._nearMissPosScratch.set(obs.x, obs.y, obs.z).clone();
       }
 
       // Physical Collision
-      if (Math.abs(dz) < (obsHalfDepth + 0.45) && dx < (obsHalfWidth + 0.25)) {
+      if (Math.abs(dz) < (obsHalfDepth + 0.45) && dx < collideHalfWidth) {
+        // Feet above the obstacle top (jumped over it) or body below its base
+        // (sliding under an overhead bar): no contact.
+        if (!overlapsVertically) {
+          continue;
+        }
         // High barrier duck clearance (slide crouches below beam)
         if (obs.canDuck && isSliding) {
           continue;
@@ -1350,9 +1615,11 @@ export class ObstacleManager {
     });
   }
 
-  reset(): void {
-    // Callbacks retain despawned groups; drop them before recycling.
-    ObstacleManager.pendingSpawnCallbacks.length = 0;
+  /** Remove every spawned item and this manager's queued GLB upgrades. */
+  private clearSpawned(): void {
+    // Queued upgrades retain despawned groups; drop this manager's entries
+    // (other managers' entries, e.g. during a StrictMode remount, are kept).
+    ObstacleManager.pendingSpawnCallbacks = ObstacleManager.pendingSpawnCallbacks.filter(e => e.owner !== this);
     while (this.obstacles.length > 0) {
       const obs = this.obstacles.pop();
       if (obs) this.group.remove(obs.mesh);
@@ -1365,37 +1632,33 @@ export class ObstacleManager {
       const p = this.powerUps.pop();
       if (p) this.group.remove(p.mesh);
     }
+  }
+
+  /**
+   * Start a new run. Uses a fresh layout seed unless one is given (or the
+   * manager was built with a fixed seed for deterministic tests).
+   */
+  reset(seed?: number): void {
+    this.clearSpawned();
     this.lastSpawnZ = 35;
-    this.genState = new ObstacleGeneratorState(1337);
+    this.lastPlayerSpeed = 22;
+    this.genState = new ObstacleGeneratorState(seed ?? this.fixedSeed ?? randomRunSeed());
+    // Retries any obstacle models that failed to load last time (no-op once
+    // they're all cached).
+    ObstacleManager.schedulePreload();
     this.spawnInitialObstacles();
   }
 
   dispose(): void {
-    this.reset();
+    this.disposed = true;
+    this.clearSpawned();
     this.scene.remove(this.group);
 
-    // Cached GLB templates are static and shared across managers; release their
-    // GPU buffers too, otherwise they live for the whole process lifetime.
-    for (const t of ObstacleManager.cachedTemplates) {
-      t.pivot.traverse((o) => {
-        const mesh = o as THREE.Mesh;
-        if (mesh.isMesh) {
-          mesh.geometry?.dispose();
-          const mat = mesh.material;
-          if (Array.isArray(mat)) mat.forEach((m) => m.dispose());
-          else if (mat) {
-            for (const value of Object.values(mat)) {
-              if (value instanceof THREE.Texture) value.dispose();
-            }
-            mat.dispose();
-          }
-        }
-      });
-    }
-    ObstacleManager.cachedTemplates.length = 0;
-    ObstacleManager.isPreloadComplete = false;
+    // The cached GLB templates are shared by every manager (and by the next
+    // run after Quit-to-Menu or a StrictMode remount), so they are not
+    // disposed here; they live for the page's lifetime.
 
-    // Dispose shared geometries
+    // Dispose this manager's geometries
     this.solidMainGeom.dispose();
     this.solidEdgeGeom.dispose();
     this.solidTelegraphGeom.dispose();
@@ -1405,8 +1668,12 @@ export class ObstacleManager {
     this.overheadPostGeom.dispose();
     this.overheadBeamGeom.dispose();
     this.overheadTelegraphGeom.dispose();
-    this.portalRingGeom.dispose();
-    this.portalDiscGeom.dispose();
+    this.portalArchGeom.dispose();
+    this.portalPillarGeom.dispose();
+    this.portalPlinthGeom.dispose();
+    this.portalTrimArchGeom.dispose();
+    this.portalTrimPillarGeom.dispose();
+    this.portalMembraneGeom.dispose();
     this.coinGeom.dispose();
     this.powerUpGeom.dispose();
     this.railTubeGeom.dispose();
@@ -1416,6 +1683,8 @@ export class ObstacleManager {
 
     // Dispose materials
     this.barrierMat.dispose();
+    this.barrierBandMat.map?.dispose();
+    this.barrierBandMat.dispose();
     this.laserHazardMat.map?.dispose();
     this.laserHazardMat.dispose();
     this.warningAmberMat.map?.dispose();
@@ -1424,10 +1693,11 @@ export class ObstacleManager {
     this.goldMat.dispose();
     this.telegraphMat.map?.dispose();
     this.telegraphMat.dispose();
-    this.portalDiscMat.dispose();
+    this.portalFrameMat.dispose();
+    this.portalPlinthMat.dispose();
     for (const mats of this.portalMats.values()) {
-      mats.ring.dispose();
-      mats.disc.dispose();
+      mats.trim.dispose();
+      mats.membrane.dispose();
     }
     this.portalMats.clear();
     this.railMat.dispose();
@@ -1436,8 +1706,3 @@ export class ObstacleManager {
     this.steelMat.dispose();
   }
 }
-
-// Background preload 3D obstacle models on module import
-ObstacleManager.preloadObstacleModels().catch(err => {
-  console.warn('[ObstacleManager] Background preload warning:', err);
-});

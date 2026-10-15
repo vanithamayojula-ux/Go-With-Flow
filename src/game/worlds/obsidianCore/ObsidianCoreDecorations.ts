@@ -53,12 +53,13 @@ export class ObsidianCoreDecorations {
       this.fallLavaTexture.needsUpdate = true;
     }
 
-    // Glassy obsidian (#121214)
+    // Glassy obsidian: dark body, glossy reflective facets
     this.obsidianDarkMaterial = new THREE.MeshStandardMaterial({
-      color: 0x121214,
-      roughness: 0.22,
+      color: 0x1a1a1f,
+      roughness: 0.15,
       metalness: 0.0,
       flatShading: true,
+      envMapIntensity: 1.8,
     });
 
     // Rough basalt masonry / cliff rock
@@ -75,7 +76,7 @@ export class ObsidianCoreDecorations {
     this.moltenCoreMaterial = new THREE.MeshStandardMaterial({
       color: 0x2a0a00,
       emissive: 0xff4a10,
-      emissiveIntensity: 3.5,
+      emissiveIntensity: 2.0,
       emissiveMap: this.coreLavaTexture,
       roughness: 0.6,
       metalness: 0.0,
@@ -85,7 +86,7 @@ export class ObsidianCoreDecorations {
     this.flameGlowMaterial = new THREE.MeshStandardMaterial({
       color: 0x2a0a00,
       emissive: 0xff7a20,
-      emissiveIntensity: 5.0,
+      emissiveIntensity: 2.5,
       emissiveMap: this.coreLavaTexture,
       roughness: 0.8,
       metalness: 0.0,
@@ -95,7 +96,7 @@ export class ObsidianCoreDecorations {
     this.waterfallMaterial = new THREE.MeshStandardMaterial({
       color: 0x2a0a00,
       emissive: 0xff5a14,
-      emissiveIntensity: this.fallLavaTexture ? 4.5 : 3.0,
+      emissiveIntensity: this.fallLavaTexture ? 2.2 : 1.6,
       emissiveMap: this.fallLavaTexture,
       roughness: 0.5,
       metalness: 0.0,

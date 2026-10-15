@@ -1,4 +1,5 @@
 import * as THREE from 'three';
+import { createRippleNormalMap } from '../shared/surfaceNormals';
 
 export interface DuneProfile {
   id: string;
@@ -407,6 +408,18 @@ export function createCrimsonDunesNoiseTexture(seed = 1337, ripple = 0.0): THREE
 export function createCrimsonDunesMaterials() {
   const noiseTexture = createCrimsonDunesNoiseTexture(1337, 0.25);
 
+  // Wind ripples (~0.5 m wavelength over the 8 m UV tile) with sand grain;
+  // they catch the low sun as fine parallel shadows across the dunes.
+  const duneRipples = createRippleNormalMap({
+    seed: 31,
+    rippleU: 14,
+    rippleV: 5,
+    rippleHeight: 0.7,
+    warp: 0.3,
+    grain: 0.3,
+    grainScale: 8,
+    strength: 1.2,
+  });
   const duneMaterial = new THREE.MeshStandardMaterial({
     vertexColors: true,
     roughness: 0.96,
@@ -414,7 +427,9 @@ export function createCrimsonDunesMaterials() {
     flatShading: false,
     map: noiseTexture,
     roughnessMap: noiseTexture,
-    bumpMap: noiseTexture,
+    normalMap: duneRipples,
+    normalScale: new THREE.Vector2(0.28, 0.28),
+    bumpMap: duneRipples ? null : noiseTexture,
     bumpScale: 0.6,
   });
 

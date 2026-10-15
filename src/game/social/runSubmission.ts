@@ -14,7 +14,7 @@ const MIN_DURATION_FOR_RANKING_MS = 3000; // Runs shorter than 3s are invalid/ab
 
 // In-memory rate limiting store (prevent client flooding)
 const clientSubmissionTimestamps: Map<string, number[]> = new Map();
-const MAX_SUBMISSIONS_PER_MINUTE = 10;
+const MAX_SUBMISSIONS_PER_MINUTE = 20; // matches securityConfig run_submission; quick deaths are legitimate
 
 export class RunSubmissionValidator {
   /**

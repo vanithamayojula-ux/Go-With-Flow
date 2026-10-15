@@ -201,7 +201,7 @@ export class VerdantWildsWorld {
       const zLocal = (rnd(t * 3 + 2) - 0.5) * 45.0;
       const scale = TREE_SCALE_MIN + rnd(t * 3 + 5) * (TREE_SCALE_MAX - TREE_SCALE_MIN);
 
-      const tree = new THREE.Mesh(geom, this.materials.treeMaterial);
+      const tree = new THREE.Mesh(geom, [this.materials.treeMaterial, this.materials.leafCardMaterial]);
       tree.position.set(posX, this.groundUnder(posX, zLocal, 2.5 * scale) - 0.2, centerZ + zLocal);
       tree.rotation.y = rnd(t * 3 + 4) * Math.PI * 2;
       tree.scale.set(scale, scale, scale);
@@ -293,6 +293,8 @@ export class VerdantWildsWorld {
     // Dispose materials & textures
     this.materials.forestFloorMaterial.dispose();
     this.materials.treeMaterial.dispose();
+    this.materials.leafCardMaterial.dispose();
+    this.materials.leafTexture?.dispose();
     this.materials.streamWaterMaterial.dispose();
     if (this.materials.noiseTexture) this.materials.noiseTexture.dispose();
 

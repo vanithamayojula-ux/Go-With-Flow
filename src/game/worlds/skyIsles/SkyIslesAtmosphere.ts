@@ -1,43 +1,23 @@
 import * as THREE from 'three';
 import { GraphicsConfig } from '../../../types';
+import { createBillboardClouds, BillboardCloudSet } from './billboardClouds';
 
-interface CloudPuff {
+interface CloudCard {
   cluster: number;
   ox: number;
   y: number;
   oz: number;
-  scale: number;
-  sy: number;
-  rot: number;
-  speed: number;
+  width: number;
+  height: number;
 }
 
-/**
- * Smooth, gently lumpy puff geometry. Vertices are pushed radially by a
- * position-based noise (identical for shared corners, so no cracks) while the
- * normals stay radial, which keeps the shading soft like scattered light.
- */
-function createPuffGeometry(radius: number, detail: number, lumpiness: number): THREE.BufferGeometry {
-  const geom = new THREE.IcosahedronGeometry(radius, detail);
-  const pos = geom.getAttribute('position') as THREE.BufferAttribute;
-  for (let i = 0; i < pos.count; i++) {
-    const x = pos.getX(i) / radius;
-    const y = pos.getY(i) / radius;
-    const z = pos.getZ(i) / radius;
-    const n =
-      Math.sin(x * 3.1 + 0.7) * Math.sin(y * 2.7 + 1.9) * Math.sin(z * 3.3 + 0.2) * 0.7 +
-      Math.sin(x * 7.3 + 2.1) * Math.sin(y * 6.9 + 0.5) * Math.sin(z * 7.7 + 1.3) * 0.3;
-    const k = 1 + n * lumpiness;
-    pos.setXYZ(i, pos.getX(i) * k, pos.getY(i) * k, pos.getZ(i) * k);
-  }
-  pos.needsUpdate = true;
-  geom.computeBoundingSphere();
-  return geom;
-}
+// Nearest any cloud card edge may come to the road centre line (m). Cards are
+// camera-facing, so their half-width is subtracted from the cluster offset.
+const CLOUD_ROAD_CLEARANCE = 14;
 
 /**
  * SkyIslesAtmosphere manages:
- * 1. Upper drifting cumulus clusters (instanced soft puffs)
+ * 1. Upper drifting cumulus (soft billboard clouds, one instanced draw)
  * 2. Lower sea-of-clouds bed far beneath the floating islands
  * 3. Faint sunlit dust motes
  */
@@ -45,11 +25,8 @@ export class SkyIslesAtmosphere {
   public group: THREE.Group;
   private scene: THREE.Scene;
 
-  // Cloud meshes (instanced puffs)
-  private cloudMesh: THREE.InstancedMesh | null = null;
-  private cloudSeaMesh: THREE.InstancedMesh | null = null;
-  private cloudMaterial: THREE.MeshStandardMaterial;
-  private cloudSeaMaterial: THREE.MeshStandardMaterial;
+  private clouds: BillboardCloudSet | null = null;
+  private cloudSea: BillboardCloudSet | null = null;
 
   // Dust motes
   private particles: THREE.Points | null = null;
@@ -57,12 +34,11 @@ export class SkyIslesAtmosphere {
   private particleGeom: THREE.BufferGeometry | null = null;
   private particlePositions: Float32Array | null = null;
 
-  private dummy = new THREE.Object3D();
-  private cloudPositions: CloudPuff[] = [];
+  private cards: CloudCard[] = [];
   private clusterX: Float32Array = new Float32Array(0);
   private clusterZ: Float32Array = new Float32Array(0);
   private clusterSpeed: Float32Array = new Float32Array(0);
-  private cloudSeaPositions: { x: number; y: number; z: number; scale: number; rot: number }[] = [];
+  private cloudSeaPositions: { x: number; y: number; z: number; w: number; h: number }[] = [];
 
   constructor(scene: THREE.Scene, graphicsConfig: GraphicsConfig) {
     this.scene = scene;
@@ -70,139 +46,85 @@ export class SkyIslesAtmosphere {
     this.group.name = 'SkyIslesAtmosphereGroup';
     this.scene.add(this.group);
 
-    // Cumulus: matte white, lit by sun + sky IBL, softly translucent
-    this.cloudMaterial = new THREE.MeshStandardMaterial({
-      color: 0xf6f7f8,
-      roughness: 1.0,
-      metalness: 0.0,
-      transparent: true,
-      opacity: 0.85,
-      depthWrite: false,
-    });
-
-    // Sea of clouds far below: slightly greyer (in the islands' shade / haze)
-    this.cloudSeaMaterial = new THREE.MeshStandardMaterial({
-      color: 0xe9edf1,
-      roughness: 1.0,
-      metalness: 0.0,
-      transparent: true,
-      opacity: 0.92,
-      depthWrite: false,
-    });
-
     this.initClouds(graphicsConfig);
     this.initParticles(graphicsConfig);
   }
 
   private initClouds(graphicsConfig: GraphicsConfig): void {
-    const desktop = graphicsConfig.preset === 'desktop-full';
-    const puffGeom = createPuffGeometry(6.0, desktop ? 3 : 2, 0.07);
-
-    let cloudCount = 40;
-    let puffsPerCluster = 7;
+    let cloudCount = 34;
+    let cardsPerCluster = 3;
     if (graphicsConfig.preset === 'mobile-opt') {
-      cloudCount = 26;
-      puffsPerCluster = 5;
+      cloudCount = 24;
+      cardsPerCluster = 2;
     }
     if (graphicsConfig.preset === 'webgl-min') {
       cloudCount = 14;
-      puffsPerCluster = 4;
+      cardsPerCluster = 1;
     }
-
-    this.cloudMesh = new THREE.InstancedMesh(puffGeom, this.cloudMaterial, cloudCount * puffsPerCluster);
-    this.cloudMesh.instanceMatrix.setUsage(THREE.DynamicDrawUsage);
-    this.cloudMesh.frustumCulled = false; // instances span the whole corridor
-    this.group.add(this.cloudMesh);
 
     this.clusterX = new Float32Array(cloudCount);
     this.clusterZ = new Float32Array(cloudCount);
     this.clusterSpeed = new Float32Array(cloudCount);
 
-    let idx = 0;
     for (let c = 0; c < cloudCount; c++) {
-      // Puffs reach ~26 m (6 m geometry x up to ~4.4 scale) plus 6 m cluster
-      // spread and 3.5 m drift, so centres stay >= 45 m off the road centre line.
-      // The old spread could put a cluster right across the lanes.
-      const cx = (Math.random() > 0.5 ? 1 : -1) * (45 + Math.random() * 110);
-      const cy = -8.0 + Math.random() * 32.0;
+      const width = 34 + Math.random() * 30;
+      // Whole cluster (card half-widths + 6 m spread + 3.5 m drift) stays
+      // CLOUD_ROAD_CLEARANCE metres clear of the road centre line.
+      const minX = CLOUD_ROAD_CLEARANCE + width * 0.6 + 6 + 3.5;
+      const cx = (Math.random() > 0.5 ? 1 : -1) * (minX + Math.random() * 100);
+      const cy = -6.0 + Math.random() * 30.0;
       const cz = (c / cloudCount) * 600 - 100;
-      const baseScale = 1.2 + Math.random() * 2.2;
-      const speed = 0.5 + Math.random() * 0.8;
       this.clusterX[c] = cx;
       this.clusterZ[c] = cz;
-      this.clusterSpeed[c] = speed;
+      this.clusterSpeed[c] = 0.5 + Math.random() * 0.8;
 
-      // Cumulus build-up: one big core, a ring of smaller flank puffs and a
-      // couple of rising turrets; flat-ish bases. Offsets stay within +/-6 m and
-      // scales within 1.3x baseScale to respect the clearance envelope above.
-      for (let p = 0; p < puffsPerCluster; p++) {
-        let ox = 0;
-        let oy = 0;
-        let oz = 0;
-        let scale = baseScale * (1.1 + Math.random() * 0.2);
-        let sy = 0.62;
-        if (p > 0) {
-          const ang = (p / (puffsPerCluster - 1)) * Math.PI * 2 + Math.random() * 0.6;
-          const rad = 3.0 + Math.random() * 3.0;
-          ox = Math.cos(ang) * rad;
-          oz = Math.sin(ang) * rad;
-          const turret = p % 3 === 0;
-          oy = turret ? 1.5 + Math.random() * 2.0 : -1.0 + Math.random() * 1.5;
-          scale = baseScale * (turret ? 0.5 + Math.random() * 0.25 : 0.6 + Math.random() * 0.35);
-          sy = turret ? 0.8 : 0.58;
-        }
-
-        const puff: CloudPuff = {
+      for (let p = 0; p < cardsPerCluster; p++) {
+        const w = p === 0 ? width : width * (0.5 + Math.random() * 0.3);
+        this.cards.push({
           cluster: c,
-          ox,
-          y: cy + oy,
-          oz,
-          scale,
-          sy,
-          rot: Math.random() * Math.PI,
-          speed,
-        };
-        this.cloudPositions.push(puff);
-
-        this.dummy.position.set(cx + ox, puff.y, cz + oz);
-        this.dummy.scale.set(scale, scale * sy, scale);
-        this.dummy.rotation.set(0, puff.rot, 0);
-        this.dummy.updateMatrix();
-        this.cloudMesh.setMatrixAt(idx++, this.dummy.matrix);
+          ox: p === 0 ? 0 : (Math.random() - 0.5) * 12,
+          y: cy + (p === 0 ? 0 : -2 + Math.random() * 3),
+          oz: p === 0 ? 0 : (Math.random() - 0.5) * 16,
+          width: w,
+          height: w * (0.85 + Math.random() * 0.25),
+        });
       }
     }
-    this.cloudMesh.count = idx;
-    this.cloudMesh.instanceMatrix.needsUpdate = true;
+
+    this.clouds = createBillboardClouds(this.cards.length, {
+      litColor: 0xfff5e8,
+      litIntensity: 4.2,
+      shadowColor: 0xa3b4c9,
+      shadowIntensity: 1.9,
+      opacity: 0.96,
+    });
+    this.group.add(this.clouds.mesh);
 
     // --- Lower Cloud Ocean Layer ---
     // Sits around Y = -52 so the islands read as floating very high up.
-    const seaPuffGeom = createPuffGeometry(22.0, desktop ? 3 : 2, 0.06);
-    let seaCount = 64;
-    if (graphicsConfig.preset === 'mobile-opt') seaCount = 32;
+    let seaCount = 56;
+    if (graphicsConfig.preset === 'mobile-opt') seaCount = 30;
     if (graphicsConfig.preset === 'webgl-min') seaCount = 14;
-
-    this.cloudSeaMesh = new THREE.InstancedMesh(seaPuffGeom, this.cloudSeaMaterial, seaCount);
-    this.cloudSeaMesh.instanceMatrix.setUsage(THREE.DynamicDrawUsage);
-    this.cloudSeaMesh.frustumCulled = false;
-    this.group.add(this.cloudSeaMesh);
-
     for (let i = 0; i < seaCount; i++) {
-      const sx = (Math.random() - 0.5) * 420;
-      const sy = -52.0 + (Math.random() - 0.5) * 8.0;
-      const sz = (i / seaCount) * 800 - 150;
-      const sScale = 1.5 + Math.random() * 1.5;
-      const rot = Math.random() * Math.PI;
-
-      this.cloudSeaPositions.push({ x: sx, y: sy, z: sz, scale: sScale, rot });
-
-      this.dummy.position.set(sx, sy, sz);
-      this.dummy.scale.set(sScale * 1.4, sScale * 0.45, sScale * 1.4);
-      this.dummy.rotation.set(0, rot, 0);
-      this.dummy.updateMatrix();
-      this.cloudSeaMesh.setMatrixAt(i, this.dummy.matrix);
+      const w = 90 + Math.random() * 70;
+      this.cloudSeaPositions.push({
+        x: (Math.random() - 0.5) * 460,
+        y: -58.0 + (Math.random() - 0.5) * 8.0,
+        z: (i / seaCount) * 800 - 150,
+        w,
+        h: w * 0.5,
+      });
     }
-    this.cloudSeaMesh.count = seaCount;
-    this.cloudSeaMesh.instanceMatrix.needsUpdate = true;
+    this.cloudSea = createBillboardClouds(seaCount, {
+      litColor: 0xf7f4ee,
+      litIntensity: 3.6,
+      shadowColor: 0xa9b6c6,
+      shadowIntensity: 1.9,
+      opacity: 0.97,
+    });
+    this.group.add(this.cloudSea.mesh);
+
+    this.update(0, 0, 0);
   }
 
   private initParticles(graphicsConfig: GraphicsConfig): void {
@@ -238,52 +160,36 @@ export class SkyIslesAtmosphere {
 
   public update(dt: number, playerZ: number, time: number): void {
     // 1. Stream upper cloud clusters along player traversal Z
-    if (this.cloudMesh) {
+    if (this.clouds) {
       const clusters = this.clusterZ.length;
       for (let c = 0; c < clusters; c++) {
-        // Wrap whole clusters so their puffs stay together
+        // Wrap whole clusters so their cards stay together
         const relZ = this.clusterZ[c] - playerZ;
         if (relZ < -120) this.clusterZ[c] += 600;
         else if (relZ > 480) this.clusterZ[c] -= 600;
       }
-
-      const total = this.cloudPositions.length;
-      for (let i = 0; i < total; i++) {
-        const cp = this.cloudPositions[i];
+      for (let i = 0; i < this.cards.length; i++) {
+        const cp = this.cards[i];
         const c = cp.cluster;
         const sp = this.clusterSpeed[c];
-
         // Gentle lateral drift of the whole cluster
-        const driftX = this.clusterX[c] + cp.ox + Math.sin(time * 0.25 * sp + c) * 3.5;
-        const driftY = cp.y + Math.cos(time * 0.35 * sp + c) * 1.5;
-
-        this.dummy.position.set(driftX, driftY, this.clusterZ[c] + cp.oz);
-        this.dummy.scale.set(cp.scale, cp.scale * cp.sy, cp.scale);
-        this.dummy.rotation.set(0, cp.rot + time * 0.02 * cp.speed, 0);
-        this.dummy.updateMatrix();
-
-        this.cloudMesh.setMatrixAt(i, this.dummy.matrix);
+        const x = this.clusterX[c] + cp.ox + Math.sin(time * 0.25 * sp + c) * 3.5;
+        const y = cp.y + Math.cos(time * 0.35 * sp + c) * 1.0;
+        this.clouds.setCloud(i, x, y, this.clusterZ[c] + cp.oz, cp.width, cp.height);
       }
-      this.cloudMesh.instanceMatrix.needsUpdate = true;
+      this.clouds.mesh.instanceMatrix.needsUpdate = true;
     }
 
     // 2. Stream lower cloud sea
-    if (this.cloudSeaMesh) {
-      const seaTotal = this.cloudSeaPositions.length;
-      for (let i = 0; i < seaTotal; i++) {
+    if (this.cloudSea) {
+      for (let i = 0; i < this.cloudSeaPositions.length; i++) {
         const sp = this.cloudSeaPositions[i];
         const relZ = sp.z - playerZ;
         if (relZ < -200) sp.z += 800;
         if (relZ > 600) sp.z -= 800;
-
-        const bobY = sp.y + Math.sin(time * 0.15 + i) * 1.5;
-        this.dummy.position.set(sp.x, bobY, sp.z);
-        this.dummy.scale.set(sp.scale * 1.4, sp.scale * 0.45, sp.scale * 1.4);
-        this.dummy.rotation.set(0, sp.rot, 0);
-        this.dummy.updateMatrix();
-        this.cloudSeaMesh.setMatrixAt(i, this.dummy.matrix);
+        this.cloudSea.setCloud(i, sp.x, sp.y + Math.sin(time * 0.15 + i) * 1.5, sp.z, sp.w, sp.h);
       }
-      this.cloudSeaMesh.instanceMatrix.needsUpdate = true;
+      this.cloudSea.mesh.instanceMatrix.needsUpdate = true;
     }
 
     // 3. Dust motes drifting gently in the breeze
@@ -305,16 +211,8 @@ export class SkyIslesAtmosphere {
 
   public dispose(): void {
     this.scene.remove(this.group);
-    if (this.cloudMesh) {
-      this.cloudMesh.geometry.dispose();
-      this.cloudMesh.dispose();
-    }
-    this.cloudMaterial.dispose();
-    if (this.cloudSeaMesh) {
-      this.cloudSeaMesh.geometry.dispose();
-      this.cloudSeaMesh.dispose();
-    }
-    this.cloudSeaMaterial.dispose();
+    this.clouds?.dispose();
+    this.cloudSea?.dispose();
     if (this.particles) {
       this.particleGeom?.dispose();
       this.particleMaterial?.dispose();

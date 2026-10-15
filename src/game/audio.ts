@@ -4,6 +4,9 @@
  * lush cyberpunk pad arpeggios, and high-tech digital SFX (laser pings, sonic boost booms, rail grinds).
  */
 
+// Lowest frequency (Hz) ever written to a speed-driven filter.
+const MIN_FILTER_FREQ = 20;
+
 export class AudioManager {
   private ctx: AudioContext | null = null;
   private isMuted = false;
@@ -104,10 +107,13 @@ export class AudioManager {
   // --- Real-Time Reactive Dynamics ---
   updateSpeed(speed: number, maxSpeed: number, isBoosting: boolean) {
     if (!this.ctx || !this.bassFilter || this.isMuted) return;
-    const norm = Math.min(speed / maxSpeed, 1.5);
+    // Guard against a negative/NaN speed (e.g. a bad first frame delta) so the
+    // BiquadFilter never receives a negative or non-finite frequency.
+    const rawNorm = maxSpeed > 0 ? speed / maxSpeed : 0;
+    const norm = Number.isFinite(rawNorm) ? Math.min(Math.max(rawNorm, 0), 1.5) : 0;
 
     // As speed and Overdrive build, the bass filter opens up aggressively!
-    const targetFreq = 400 + norm * 1400 + (isBoosting ? 600 : 0);
+    const targetFreq = Math.max(MIN_FILTER_FREQ, 400 + norm * 1400 + (isBoosting ? 600 : 0));
     this.bassFilter.frequency.setTargetAtTime(targetFreq, this.ctx.currentTime, 0.12);
   }
 
@@ -449,7 +455,7 @@ export class AudioManager {
 
     // Escalating digital arpeggiation
     const chordPitches = [587.33, 739.99, 880.0, 1174.66, 1479.98];
-    const pitch = chordPitches[Math.min(combo - 1, chordPitches.length - 1)];
+    const pitch = chordPitches[Math.max(0, Math.min(combo - 1, chordPitches.length - 1))] ?? chordPitches[0];
 
     const t = this.ctx.currentTime;
     const osc = this.ctx.createOscillator();

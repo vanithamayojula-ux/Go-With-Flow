@@ -1,4 +1,5 @@
 import * as THREE from 'three';
+import { createRippleNormalMap } from '../shared/surfaceNormals';
 import { mergeVertices } from 'three/examples/jsm/utils/BufferGeometryUtils.js';
 
 export interface CrystalClusterArchetype {
@@ -574,7 +575,18 @@ export function createCrystalHeightsMaterials() {
     flatShading: true,
   });
 
-  // Snowfield, outcrops and mountains: vertex-coloured snow / granite
+  // Wind-packed snow: soft sastrugi and fine crust grain (normal detail only,
+  // no glitter), so the snowfield shows form and soft blue sky-lit shading.
+  const snowDetail = createRippleNormalMap({
+    seed: 57,
+    rippleU: 5,
+    rippleV: 9,
+    rippleHeight: 0.45,
+    warp: 0.3,
+    grain: 0.55,
+    grainScale: 6,
+    strength: 0.9,
+  });
   const celestialGroundMaterial = new THREE.MeshStandardMaterial({
     vertexColors: true,
     roughness: noiseTexture ? 1.0 : 0.9,
@@ -582,6 +594,8 @@ export function createCrystalHeightsMaterials() {
     flatShading: false,
     map: noiseTexture,
     roughnessMap: noiseTexture,
+    normalMap: snowDetail,
+    normalScale: new THREE.Vector2(0.55, 0.55),
   });
 
   // Bare granite

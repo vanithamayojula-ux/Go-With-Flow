@@ -224,6 +224,8 @@ export function createProceduralTreeGeometry(
 
   const isDead = archetype.tier === 'dead';
   const tmpColor = new THREE.Color();
+  // Alpha-tested leaf cards (geometry group 1) break up the crown silhouette
+  const leafCards: THREE.BufferGeometry[] = [];
 
   // 1. Trunk with buttress roots
   const trunkHeight = archetype.height * (isDead ? 0.85 : 0.7);
@@ -313,7 +315,7 @@ export function createProceduralTreeGeometry(
     const nrm = new THREE.Vector3();
 
     for (let c = 0; c < clumpCount; c++) {
-      const radius = archetype.crownRadius * (0.32 + rnd() * 0.22);
+      const radius = archetype.crownRadius * (0.3 + rnd() * 0.2);
       const angle = c * golden + rnd() * 0.5;
       const distF = Math.sqrt(rnd());
       const cx = Math.cos(angle) * hAxis * distF;
@@ -323,7 +325,7 @@ export function createProceduralTreeGeometry(
       const tint = 0.88 + rnd() * 0.2;
       const phase = rnd() * 10;
 
-      const clump = new THREE.IcosahedronGeometry(1, 2);
+      const clump = new THREE.IcosahedronGeometry(1, 3);
       const cPos = clump.attributes.position;
       const cNorm = clump.attributes.normal;
       const cUv = clump.attributes.uv;
@@ -334,7 +336,8 @@ export function createProceduralTreeGeometry(
         const bump =
           1 +
           0.14 * Math.sin(dir.x * 5.1 + phase) * Math.sin(dir.y * 4.3 + seed) +
-          0.08 * Math.sin(dir.z * 9.7 + phase * 2);
+          0.08 * Math.sin(dir.z * 9.7 + phase * 2) +
+          0.05 * Math.sin(dir.x * 15.3 + dir.y * 7.1 + phase * 3) * Math.sin(dir.z * 13.9 - dir.y * 5.3 + seed);
         const yScale = dir.y < 0 ? 0.6 : 0.85; // flatter underside
         const px = cx + dir.x * radius * bump;
         const py = cy + dir.y * radius * bump * yScale;
@@ -358,11 +361,68 @@ export function createProceduralTreeGeometry(
       }
       clump.setAttribute('color', new THREE.Float32BufferAttribute(cColors, 3));
       geometries.push(clump);
+
+      // Leaf cards scattered over the clump surface (upper-biased), each a
+      // two-sided quad whose normals point out of the crown so both faces
+      // shade like the foliage mass around them.
+      const cardCount = 9;
+      const cardPos: number[] = [];
+      const cardNrm: number[] = [];
+      const cardCol: number[] = [];
+      const cardUv: number[] = [];
+      const cardIdx: number[] = [];
+      const u = new THREE.Vector3();
+      const w = new THREE.Vector3();
+      const rv = new THREE.Vector3();
+      for (let k = 0; k < cardCount; k++) {
+        dir.set(rnd() * 2 - 1, rnd() * 1.4 - 0.3, rnd() * 2 - 1).normalize();
+        const centre = new THREE.Vector3(cx, cy, cz).addScaledVector(dir, radius * (0.75 + rnd() * 0.2));
+        const half = radius * (0.42 + rnd() * 0.2);
+        rv.set(rnd() * 2 - 1, rnd() * 2 - 1, rnd() * 2 - 1).normalize();
+        u.crossVectors(dir, rv).normalize();
+        if (u.lengthSq() < 1e-6) u.set(1, 0, 0);
+        w.crossVectors(u, dir).normalize();
+        // Tilt the card partly toward the outward direction for variety
+        w.lerp(dir, rnd() * 0.5).normalize();
+        nrm.set(dir.x, dir.y * 1.2 + 0.25, dir.z).normalize();
+        const hf = Math.min(1, Math.max(0, (dir.y + 1) * 0.5));
+        const shade = (0.62 + hf * 0.45) * tint;
+        const base = cardPos.length / 3;
+        const corners: Array<[number, number]> = [[-1, -1], [1, -1], [1, 1], [-1, 1]];
+        for (const [a, b] of corners) {
+          cardPos.push(
+            centre.x + (u.x * a + w.x * b) * half,
+            centre.y + (u.y * a + w.y * b) * half,
+            centre.z + (u.z * a + w.z * b) * half
+          );
+          cardNrm.push(nrm.x, nrm.y, nrm.z);
+          cardCol.push(shade, shade, shade);
+          cardUv.push((a + 1) / 2, (b + 1) / 2);
+        }
+        // Front and back faces (reverse winding) share the outward normal
+        cardIdx.push(base, base + 1, base + 2, base, base + 2, base + 3);
+        cardIdx.push(base, base + 2, base + 1, base, base + 3, base + 2);
+      }
+      const cards = new THREE.BufferGeometry();
+      cards.setAttribute('position', new THREE.Float32BufferAttribute(cardPos, 3));
+      cards.setAttribute('normal', new THREE.Float32BufferAttribute(cardNrm, 3));
+      cards.setAttribute('color', new THREE.Float32BufferAttribute(cardCol, 3));
+      cards.setAttribute('uv', new THREE.Float32BufferAttribute(cardUv, 2));
+      cards.setIndex(cardIdx);
+      leafCards.push(cards);
     }
   }
 
-  const merged = mergeBufferGeometriesCustom(geometries);
+  let solidIndexCount = 0;
+  for (const g of geometries) solidIndexCount += g.index ? g.index.count : g.attributes.position.count;
+  const merged = mergeBufferGeometriesCustom([...geometries, ...leafCards]);
   for (const g of geometries) g.dispose();
+  for (const g of leafCards) g.dispose();
+  merged.clearGroups();
+  merged.addGroup(0, solidIndexCount, 0);
+  if (merged.index && merged.index.count > solidIndexCount) {
+    merged.addGroup(solidIndexCount, merged.index.count - solidIndexCount, 1);
+  }
   merged.computeBoundingSphere();
   merged.computeBoundingBox();
   return merged;
@@ -600,6 +660,19 @@ export function createVerdantWildsMaterials() {
     map: noiseTexture,
   });
 
+  // Leaf cards: clusters of small leaves on transparent canvas, alpha-tested
+  const leafTexture = createLeafClusterTexture();
+  const leafCardMaterial = new THREE.MeshStandardMaterial({
+    color: 0xffffff,
+    vertexColors: true,
+    map: leafTexture,
+    alphaTest: 0.45,
+    roughness: 0.78,
+    metalness: 0.0,
+    side: THREE.FrontSide,
+    visible: !!leafTexture,
+  });
+
   // Shallow forest water over a dark silty bed
   const streamWaterMaterial = new THREE.MeshPhysicalMaterial({
     color: 0x26332a,
@@ -613,7 +686,66 @@ export function createVerdantWildsMaterials() {
   return {
     forestFloorMaterial,
     treeMaterial,
+    leafCardMaterial,
+    leafTexture,
     streamWaterMaterial,
     noiseTexture,
   };
+}
+
+/**
+ * 256x256 RGBA sprite of overlapping broadleaf leaves (sRGB albedo, alpha
+ * coverage) inside a ragged disc. Returns null without a DOM.
+ */
+function createLeafClusterTexture(): THREE.CanvasTexture | null {
+  if (typeof document === 'undefined') return null;
+  const size = 256;
+  const canvas = document.createElement('canvas');
+  canvas.width = size;
+  canvas.height = size;
+  const ctx = canvas.getContext('2d');
+  if (!ctx) return null;
+  let s = 24601;
+  const rnd = () => {
+    s = (s * 16807) % 2147483647;
+    return s / 2147483647;
+  };
+  ctx.clearRect(0, 0, size, size);
+  const leaves = 950;
+  for (let i = 0; i < leaves; i++) {
+    // Denser toward the centre, ragged toward the rim
+    const ang = rnd() * Math.PI * 2;
+    const rad = Math.pow(rnd(), 0.55) * size * 0.44;
+    const x = size / 2 + Math.cos(ang) * rad;
+    const y = size / 2 + Math.sin(ang) * rad;
+    const len = 14 + rnd() * 12;
+    const wid = len * (0.42 + rnd() * 0.15);
+    const rot = rnd() * Math.PI * 2;
+    // Mid-green leaves with yellow-green sunlit and dark olive variants
+    const t = rnd();
+    const r = Math.round(46 + t * 50 + (rnd() - 0.5) * 12);
+    const g = Math.round(70 + t * 52 + (rnd() - 0.5) * 14);
+    const b = Math.round(26 + t * 18 + (rnd() - 0.5) * 8);
+    ctx.save();
+    ctx.translate(x, y);
+    ctx.rotate(rot);
+    ctx.fillStyle = 'rgb(' + r + ',' + g + ',' + b + ')';
+    ctx.beginPath();
+    ctx.moveTo(-len / 2, 0);
+    ctx.quadraticCurveTo(0, -wid, len / 2, 0);
+    ctx.quadraticCurveTo(0, wid, -len / 2, 0);
+    ctx.fill();
+    // Midrib
+    ctx.strokeStyle = 'rgba(' + Math.round(r * 0.75) + ',' + Math.round(g * 0.8) + ',' + Math.round(b * 0.7) + ',0.9)';
+    ctx.lineWidth = 0.8;
+    ctx.beginPath();
+    ctx.moveTo(-len / 2, 0);
+    ctx.lineTo(len / 2, 0);
+    ctx.stroke();
+    ctx.restore();
+  }
+  const tex = new THREE.CanvasTexture(canvas);
+  tex.colorSpace = THREE.SRGBColorSpace;
+  tex.anisotropy = 4;
+  return tex;
 }
