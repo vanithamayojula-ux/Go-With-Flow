@@ -36,7 +36,7 @@ const SMOKE_BASE_Y = 14.0;
  */
 export class ObsidianCoreAtmosphere {
   public group: THREE.Group;
-  private scene: THREE.Scene;
+  private scene: THREE.Object3D;
 
   private spriteTexture: THREE.CanvasTexture | null = null;
 
@@ -62,7 +62,7 @@ export class ObsidianCoreAtmosphere {
   private magmaHalo: THREE.Mesh | null = null;
   private haloMaterial: THREE.MeshBasicMaterial | null = null;
 
-  constructor(scene: THREE.Scene, graphicsConfig: GraphicsConfig) {
+  constructor(scene: THREE.Object3D, graphicsConfig: GraphicsConfig) {
     this.scene = scene;
     this.group = new THREE.Group();
     this.group.name = 'ObsidianCoreAtmosphereGroup';

@@ -1,6 +1,17 @@
 import * as THREE from 'three';
 import { mergeGeometries } from 'three/examples/jsm/utils/BufferGeometryUtils.js';
 
+/**
+ * Sky Isles set dressing: template geometry builders (cached for the whole
+ * session by SkyIslesWorld's kit) for
+ * 1. Landmarks: a weathered stone colonnade (formerly the "portal arch": now a
+ *    row of free-standing columns, nothing that reads as a gateway) and a sky
+ *    temple / wind shrine with a small quartz crystal
+ * 2. Waterfalls plunging off island rims
+ * 3. Vegetation: broadleaf and conifer trees (one merged geometry each with
+ *    [bark, foliage] groups, instanced by the world)
+ */
+
 /** Cheap deterministic 3D noise (sum of sines) used to roughen foliage clumps. */
 function foliageNoise(x: number, y: number, z: number): number {
   return (
@@ -9,18 +20,18 @@ function foliageNoise(x: number, y: number, z: number): number {
   );
 }
 
-/** Displaces a geometry radially from `center` by noise, then recomputes normals. */
+/** Displaces a geometry radially from `center` by noise. */
 function roughenClump(geom: THREE.BufferGeometry, center: THREE.Vector3, amount: number): void {
   const pos = geom.getAttribute('position') as THREE.BufferAttribute;
   const v = new THREE.Vector3();
+  const dir = new THREE.Vector3();
   for (let i = 0; i < pos.count; i++) {
     v.fromBufferAttribute(pos, i);
-    const dir = v.clone().sub(center);
+    dir.copy(v).sub(center);
     const len = dir.length();
     if (len < 1e-5) continue;
     dir.multiplyScalar(1 / len);
-    const d = foliageNoise(v.x, v.y, v.z) * amount;
-    v.addScaledVector(dir, d);
+    v.addScaledVector(dir, foliageNoise(v.x, v.y, v.z) * amount);
     pos.setXYZ(i, v.x, v.y, v.z);
   }
   pos.needsUpdate = true;
@@ -56,11 +67,181 @@ function smoothNormals(geom: THREE.BufferGeometry): void {
   nor.needsUpdate = true;
 }
 
+/** Scales a cylinder's UVs so the bark texture tiles at ~`tile` metres. */
+function barkUVs(g: THREE.BufferGeometry, circumference: number, height: number, tile = 1.4): void {
+  const uv = g.getAttribute('uv') as THREE.BufferAttribute;
+  const su = Math.max(1, Math.round(circumference / tile));
+  for (let i = 0; i < uv.count; i++) uv.setXY(i, uv.getX(i) * su, uv.getY(i) * (height / tile));
+}
+
+/** Broadleaf tree: leaning trunk with two limbs + lumpy crown. Groups: [bark, foliage]. */
+export function buildBroadleafGeometry(): THREE.BufferGeometry {
+  const trunk = new THREE.CylinderGeometry(0.18, 0.38, 3.8, 12, 4);
+  barkUVs(trunk, 2.0, 3.8);
+  trunk.translate(0, 1.9, 0);
+  const tp = trunk.getAttribute('position') as THREE.BufferAttribute;
+  for (let i = 0; i < tp.count; i++) {
+    const y = tp.getY(i);
+    tp.setX(i, tp.getX(i) + 0.18 * (y / 3.8) * (y / 3.8));
+  }
+  const limbA = new THREE.CylinderGeometry(0.07, 0.14, 1.8, 8);
+  barkUVs(limbA, 0.7, 1.8);
+  limbA.rotateZ(0.85);
+  limbA.translate(-0.55, 3.0, 0.1);
+  const limbB = new THREE.CylinderGeometry(0.06, 0.12, 1.6, 8);
+  barkUVs(limbB, 0.6, 1.6);
+  limbB.rotateX(-0.8);
+  limbB.translate(0.15, 3.1, 0.55);
+  const bark = mergeGeometries([trunk, limbA, limbB])!;
+  bark.computeVertexNormals();
+  trunk.dispose();
+  limbA.dispose();
+  limbB.dispose();
+
+  const clumps: Array<[number, number, number, number]> = [
+    [0.2, 4.7, 0.0, 1.75],
+    [1.2, 4.1, 0.3, 1.3],
+    [-1.1, 4.2, -0.3, 1.35],
+    [0.3, 4.0, 1.2, 1.2],
+    [-0.2, 4.0, -1.2, 1.15],
+    [0.3, 5.8, 0.1, 1.15],
+    [-0.9, 5.2, 0.7, 1.0],
+  ];
+  const parts: THREE.BufferGeometry[] = [];
+  const c = new THREE.Vector3();
+  for (const [x, y, z, r] of clumps) {
+    const g = new THREE.SphereGeometry(r, 16, 12);
+    g.scale(1, 0.82, 1);
+    g.translate(x, y, z);
+    c.set(x, y, z);
+    roughenClump(g, c, r * 0.22);
+    parts.push(g);
+  }
+  const foliage = mergeGeometries(parts)!;
+  for (const p of parts) p.dispose();
+  smoothNormals(foliage);
+
+  const merged = mergeGeometries([bark, foliage], true)!;
+  bark.dispose();
+  foliage.dispose();
+  merged.computeBoundingSphere();
+  return merged;
+}
+
+/** Conifer: straight trunk + five roughened tiers. Groups: [bark, foliage]. */
+export function buildConiferGeometry(): THREE.BufferGeometry {
+  const trunk = new THREE.CylinderGeometry(0.12, 0.3, 6.6, 10, 2);
+  barkUVs(trunk, 1.6, 6.6);
+  trunk.translate(0, 3.3, 0);
+
+  const tiers: Array<[number, number, number]> = [
+    // radius, height, base y
+    [2.0, 2.6, 1.6],
+    [1.65, 2.4, 2.8],
+    [1.3, 2.2, 3.9],
+    [0.95, 2.0, 4.9],
+    [0.6, 1.7, 5.9],
+  ];
+  const parts: THREE.BufferGeometry[] = [];
+  const c = new THREE.Vector3();
+  for (const [r, h, y] of tiers) {
+    const g = new THREE.ConeGeometry(r, h, 16, 3);
+    g.translate(0, y + h / 2, 0);
+    c.set(0, y + h * 0.3, 0);
+    roughenClump(g, c, r * 0.12);
+    parts.push(g);
+  }
+  const foliage = mergeGeometries(parts)!;
+  for (const p of parts) p.dispose();
+  smoothNormals(foliage);
+
+  const merged = mergeGeometries([trunk, foliage], true)!;
+  trunk.dispose();
+  foliage.dispose();
+  merged.computeBoundingSphere();
+  return merged;
+}
+
+function bake(g: THREE.BufferGeometry, x: number, y: number, z: number, rx = 0, ry = 0, rz = 0, s = 1): THREE.BufferGeometry {
+  const m = new THREE.Matrix4().compose(
+    new THREE.Vector3(x, y, z),
+    new THREE.Quaternion().setFromEuler(new THREE.Euler(rx, ry, rz)),
+    new THREE.Vector3(s, s, s)
+  );
+  return g.clone().applyMatrix4(m);
+}
+
 /**
- * Vertical streak texture for falling water (linear data, used as map + alphaMap
- * and scrolled downwards). Returns null without a DOM.
+ * Weathered stone colonnade: three free-standing columns of differing heights
+ * on a low plinth with a fallen drum and one surviving architrave block.
+ * Deliberately has no arch or ring so it never reads as a portal.
  */
-function createWaterStreakTexture(): THREE.CanvasTexture | null {
+export function buildColonnadeGeometry(): THREE.BufferGeometry {
+  const parts: THREE.BufferGeometry[] = [];
+  const plinth = new THREE.BoxGeometry(10.5, 0.9, 3.4);
+  parts.push(bake(plinth, 0, 0.35, 0));
+  const shaft = new THREE.CylinderGeometry(0.62, 0.72, 1, 20, 1);
+  const base = new THREE.CylinderGeometry(0.95, 1.0, 0.5, 20, 1);
+  const capital = new THREE.BoxGeometry(1.7, 0.45, 1.7);
+  const heights = [6.8, 4.1, 6.4];
+  for (let i = 0; i < 3; i++) {
+    const x = (i - 1) * 3.6;
+    const h = heights[i];
+    parts.push(bake(base, x, 1.05, 0));
+    const s = shaft.clone();
+    s.scale(1, h, 1);
+    parts.push(bake(s, x, 1.3 + h / 2, 0, 0, 0, i === 1 ? 0.04 : 0));
+    s.dispose();
+    if (i !== 1) parts.push(bake(capital, x, 1.3 + h + 0.22, 0));
+  }
+  // Architrave block still resting on the first column
+  parts.push(bake(new THREE.BoxGeometry(2.6, 0.7, 1.5), -3.9, 1.3 + heights[0] + 0.8, 0, 0, 0.12, 0));
+  // Fallen drum
+  const drum = new THREE.CylinderGeometry(0.66, 0.66, 1.3, 18, 1);
+  parts.push(bake(drum, 1.7, 0.95, 1.9, Math.PI / 2, 0.5, 0));
+  const merged = mergeGeometries(parts.map((g) => (g.index ? g.toNonIndexed() : g)))!;
+  for (const g of parts) g.dispose();
+  plinth.dispose();
+  shaft.dispose();
+  base.dispose();
+  capital.dispose();
+  drum.dispose();
+  merged.computeVertexNormals();
+  merged.computeBoundingSphere();
+  return merged;
+}
+
+/** Sky temple / wind shrine split by material: stone, verdigris roof, quartz. */
+export function buildTempleGeometries(): { stone: THREE.BufferGeometry; roof: THREE.BufferGeometry; crystal: THREE.BufferGeometry } {
+  const stoneParts: THREE.BufferGeometry[] = [];
+  stoneParts.push(bake(new THREE.CylinderGeometry(4.2, 4.8, 2.0, 32), 0, 1.0, 0));
+  const pillar = new THREE.CylinderGeometry(0.35, 0.45, 5.0, 14);
+  for (let i = 0; i < 4; i++) {
+    const a = (i / 4) * Math.PI * 2;
+    stoneParts.push(bake(pillar, Math.cos(a) * 3.0, 4.5, Math.sin(a) * 3.0));
+  }
+  stoneParts.push(bake(new THREE.CylinderGeometry(3.7, 3.7, 0.6, 32), 0, 7.2, 0));
+  const stone = mergeGeometries(stoneParts.map((g) => (g.index ? g.toNonIndexed() : g)))!;
+  stone.computeVertexNormals();
+  for (const g of stoneParts) g.dispose();
+  pillar.dispose();
+
+  const roof = new THREE.ConeGeometry(3.9, 3.0, 32, 2);
+  roof.translate(0, 9.0, 0);
+
+  const crystal = new THREE.OctahedronGeometry(0.7, 0);
+  crystal.scale(1.0, 1.8, 1.0);
+  return { stone, roof, crystal };
+}
+
+let waterTex: THREE.CanvasTexture | null | undefined;
+
+/**
+ * Vertical streak texture for falling water (linear data, used as map +
+ * alphaMap and scrolled downwards). Session-cached; null without a DOM.
+ */
+export function getWaterStreakTexture(): THREE.CanvasTexture | null {
+  if (waterTex !== undefined) return waterTex;
   if (typeof document === 'undefined') return null;
   const w = 64;
   const h = 256;
@@ -78,7 +259,6 @@ function createWaterStreakTexture(): THREE.CanvasTexture | null {
 
   const colBase = new Float32Array(w);
   for (let x = 0; x < w; x++) colBase[x] = 0.55 + rnd() * 0.45;
-  // Soften neighbouring columns (wrapping) so streaks are a few px wide
   const col = new Float32Array(w);
   for (let x = 0; x < w; x++) {
     col[x] = (colBase[(x + w - 1) % w] + colBase[x] * 2 + colBase[(x + 1) % w]) / 4;
@@ -89,7 +269,6 @@ function createWaterStreakTexture(): THREE.CanvasTexture | null {
   for (let x = 0; x < w; x++) phase[x] = rnd() * Math.PI * 2;
   for (let y = 0; y < h; y++) {
     for (let x = 0; x < w; x++) {
-      // Periodic in y (integer frequencies) so the texture tiles vertically
       const t = (y / h) * Math.PI * 2;
       const pulse = 0.75 + 0.25 * Math.sin(t * 3 + phase[x]) * Math.sin(t * 7 + phase[(x * 7) % w]);
       const v = Math.min(1, Math.max(0, col[x] * pulse));
@@ -110,444 +289,20 @@ function createWaterStreakTexture(): THREE.CanvasTexture | null {
   tex.colorSpace = THREE.NoColorSpace;
   tex.repeat.set(1, 4);
   tex.needsUpdate = true;
+  waterTex = tex;
   return tex;
 }
 
-/**
- * SkyIslesDecorations manages:
- * 1. Environmental landmarks: weathered stone portal arch & sky temple shrines
- * 2. Waterfalls plunging off island rims
- * 3. Vegetation: broadleaf and conifer trees (single merged mesh each)
- */
-export class SkyIslesDecorations {
-  public group: THREE.Group;
-  private scene: THREE.Scene;
-
-  private stoneMaterial: THREE.MeshStandardMaterial;
-  private goldAccentMaterial: THREE.MeshStandardMaterial;
-  private roofMaterial: THREE.MeshStandardMaterial;
-  private crystalMaterial: THREE.MeshPhysicalMaterial;
-  private foliageGreenMaterial: THREE.MeshStandardMaterial;
-  private coniferMaterial: THREE.MeshStandardMaterial;
-  private woodBarkMaterial: THREE.MeshStandardMaterial;
-  private waterfallMaterial: THREE.MeshPhysicalMaterial;
-
-  private stoneTexture: THREE.Texture | null = null;
-  private barkTexture: THREE.Texture | null = null;
-  private waterTexture: THREE.CanvasTexture | null = null;
-
-  // Reusable templates / shared geometries
-  private portalArchTemplate: THREE.Group | null = null;
-  private skyTempleTemplate: THREE.Group | null = null;
-  private treeTemplate: THREE.Group | null = null;
-  private broadleafGeom: THREE.BufferGeometry | null = null;
-  private coniferGeom: THREE.BufferGeometry | null = null;
-  private broadleafMats: THREE.Material[] = [];
-  private coniferMats: THREE.Material[] = [];
-  private ownedGeometries: THREE.BufferGeometry[] = [];
-
-  private activeLandmarks: THREE.Object3D[] = [];
-  // Floating crystals (slow spin) and the landmark each belongs to
-  private activeCrystals: THREE.Object3D[] = [];
-  private crystalOwners: THREE.Object3D[] = [];
-
-  constructor(scene: THREE.Scene, detailTexture: THREE.Texture | null = null) {
-    this.scene = scene;
-    this.group = new THREE.Group();
-    this.group.name = 'SkyIslesDecorationsGroup';
-    this.scene.add(this.group);
-
-    if (detailTexture) {
-      // Clones share the image source (one GPU upload) but tile independently
-      this.stoneTexture = detailTexture.clone();
-      this.stoneTexture.repeat.set(2, 2);
-      this.barkTexture = detailTexture.clone();
-      this.barkTexture.repeat.set(1, 4);
-    }
-    this.waterTexture = createWaterStreakTexture();
-
-    // Weathered limestone
-    this.stoneMaterial = new THREE.MeshStandardMaterial({
-      color: 0xa39b8e,
-      roughness: 0.9,
-      metalness: 0.0,
-      map: this.stoneTexture,
-      bumpMap: this.stoneTexture,
-      bumpScale: 0.8,
-    });
-
-    // Aged bronze trim (real metal, reflects the sky environment)
-    this.goldAccentMaterial = new THREE.MeshStandardMaterial({
-      color: 0x9c7a4a,
-      roughness: 0.5,
-      metalness: 0.85,
-    });
-
-    // Verdigris copper roof patina (non-metallic oxide layer)
-    this.roofMaterial = new THREE.MeshStandardMaterial({
-      color: 0x5f8574,
-      roughness: 0.75,
-      metalness: 0.1,
-      map: this.stoneTexture,
-    });
-
-    // Clear quartz crystal, no emissive glow
-    this.crystalMaterial = new THREE.MeshPhysicalMaterial({
-      color: 0xeef5f7,
-      roughness: 0.06,
-      metalness: 0.0,
-      ior: 1.54,
-      clearcoat: 1.0,
-      clearcoatRoughness: 0.05,
-      transparent: true,
-      opacity: 0.55,
-    });
-
-    // Broadleaf canopy
-    this.foliageGreenMaterial = new THREE.MeshStandardMaterial({
-      color: 0x3f5a28,
-      roughness: 0.9,
-      metalness: 0.0,
-      map: this.stoneTexture,
-    });
-
-    // Conifer needles
-    this.coniferMaterial = new THREE.MeshStandardMaterial({
-      color: 0x2b4024,
-      roughness: 0.92,
-      metalness: 0.0,
-      map: this.stoneTexture,
-    });
-
-    // Bark
-    this.woodBarkMaterial = new THREE.MeshStandardMaterial({
-      color: 0x4a3a2a,
-      roughness: 0.95,
-      metalness: 0.0,
-      map: this.barkTexture,
-      bumpMap: this.barkTexture,
-      bumpScale: 1.2,
-    });
-
-    // Falling aerated water
-    this.waterfallMaterial = new THREE.MeshPhysicalMaterial({
-      color: 0xe4eef0,
-      roughness: 0.18,
-      metalness: 0.0,
-      ior: 1.333,
-      map: this.waterTexture,
-      alphaMap: this.waterTexture,
-      transparent: true,
-      opacity: this.waterTexture ? 0.85 : 0.65,
-      depthWrite: false,
-      side: THREE.DoubleSide,
-    });
-
-    this.broadleafMats = [this.woodBarkMaterial, this.foliageGreenMaterial];
-    this.coniferMats = [this.woodBarkMaterial, this.coniferMaterial];
-
-    this.buildTemplates();
+/** Waterfall sheet hanging from its top edge, arcing out along local +Z. */
+export function buildWaterfallGeometry(height = 34.0, width = 3.2): THREE.BufferGeometry {
+  const geom = new THREE.PlaneGeometry(width, height, 4, 16);
+  geom.translate(0, -height / 2, 0);
+  const p = geom.getAttribute('position') as THREE.BufferAttribute;
+  for (let i = 0; i < p.count; i++) {
+    const t = Math.min(1, Math.max(0, -p.getY(i) / height));
+    p.setX(i, p.getX(i) * (1.0 + 0.7 * t));
+    p.setZ(i, 2.2 * Math.sqrt(t));
   }
-
-  private own<T extends THREE.BufferGeometry>(g: T): T {
-    this.ownedGeometries.push(g);
-    return g;
-  }
-
-  private shadowed(mesh: THREE.Mesh): THREE.Mesh {
-    mesh.castShadow = true;
-    mesh.receiveShadow = true;
-    return mesh;
-  }
-
-  private buildTemplates(): void {
-    // 1. Landmark: weathered stone portal arch
-    this.portalArchTemplate = new THREE.Group();
-
-    const pedGeom = this.own(new THREE.BoxGeometry(2.2, 4.0, 2.2));
-    const pedL = this.shadowed(new THREE.Mesh(pedGeom, this.stoneMaterial));
-    pedL.position.set(-3.5, 2.0, 0);
-    const pedR = this.shadowed(new THREE.Mesh(pedGeom, this.stoneMaterial));
-    pedR.position.set(3.5, 2.0, 0);
-
-    const colGeom = this.own(new THREE.CylinderGeometry(0.8, 1.0, 7.0, 20));
-    const colL = this.shadowed(new THREE.Mesh(colGeom, this.stoneMaterial));
-    colL.position.set(-3.5, 7.5, 0);
-    const colR = this.shadowed(new THREE.Mesh(colGeom, this.stoneMaterial));
-    colR.position.set(3.5, 7.5, 0);
-
-    const archTop = this.shadowed(
-      new THREE.Mesh(this.own(new THREE.TorusGeometry(3.5, 0.9, 14, 40, Math.PI)), this.stoneMaterial)
-    );
-    archTop.position.set(0, 11.0, 0);
-
-    const crystalGeom = this.own(new THREE.OctahedronGeometry(1.2, 0));
-    const crystal = this.shadowed(new THREE.Mesh(crystalGeom, this.crystalMaterial));
-    crystal.position.set(0, 9.5, 0);
-    crystal.scale.set(1.0, 1.8, 1.0);
-    crystal.name = 'skyIslesCrystal';
-
-    const goldHalo = this.shadowed(
-      new THREE.Mesh(this.own(new THREE.TorusGeometry(2.6, 0.12, 10, 48)), this.goldAccentMaterial)
-    );
-    goldHalo.position.set(0, 9.5, 0);
-
-    this.portalArchTemplate.add(pedL, pedR, colL, colR, archTop, crystal, goldHalo);
-
-    // 2. Landmark: sky temple / wind shrine
-    this.skyTempleTemplate = new THREE.Group();
-    const templeBase = this.shadowed(
-      new THREE.Mesh(this.own(new THREE.CylinderGeometry(4.2, 4.8, 2.0, 32)), this.stoneMaterial)
-    );
-    templeBase.position.set(0, 1.0, 0);
-
-    const pillarGeom = this.own(new THREE.CylinderGeometry(0.35, 0.45, 5.0, 14));
-    for (let i = 0; i < 4; i++) {
-      const angle = (i / 4) * Math.PI * 2;
-      const p = this.shadowed(new THREE.Mesh(pillarGeom, this.stoneMaterial));
-      p.position.set(Math.cos(angle) * 3.0, 4.5, Math.sin(angle) * 3.0);
-      this.skyTempleTemplate.add(p);
-    }
-
-    const lintel = this.shadowed(
-      new THREE.Mesh(this.own(new THREE.CylinderGeometry(3.7, 3.7, 0.6, 32)), this.stoneMaterial)
-    );
-    lintel.position.set(0, 7.2, 0);
-
-    const dome = this.shadowed(
-      new THREE.Mesh(this.own(new THREE.ConeGeometry(3.9, 3.0, 32, 2)), this.roofMaterial)
-    );
-    dome.position.set(0, 9.0, 0);
-
-    const shrineBeacon = this.shadowed(
-      new THREE.Mesh(this.own(new THREE.OctahedronGeometry(0.7)), this.crystalMaterial)
-    );
-    shrineBeacon.position.set(0, 4.5, 0);
-    shrineBeacon.scale.set(1.0, 1.8, 1.0);
-    shrineBeacon.name = 'skyIslesCrystal';
-
-    this.skyTempleTemplate.add(templeBase, lintel, dome, shrineBeacon);
-
-    // 3. Trees: each variant is one merged geometry with [bark, foliage] groups
-    this.broadleafGeom = this.own(this.buildBroadleafGeometry());
-    this.coniferGeom = this.own(this.buildConiferGeometry());
-
-    // Kept for compatibility: a broadleaf tree template group
-    this.treeTemplate = new THREE.Group();
-    this.treeTemplate.add(this.shadowed(new THREE.Mesh(this.broadleafGeom, this.broadleafMats)));
-  }
-
-  private buildBroadleafGeometry(): THREE.BufferGeometry {
-    // Slightly leaning trunk with two limbs
-    const trunk = new THREE.CylinderGeometry(0.18, 0.38, 3.8, 12, 4);
-    trunk.translate(0, 1.9, 0);
-    const tp = trunk.getAttribute('position') as THREE.BufferAttribute;
-    for (let i = 0; i < tp.count; i++) {
-      const y = tp.getY(i);
-      tp.setX(i, tp.getX(i) + 0.18 * (y / 3.8) * (y / 3.8));
-    }
-    const limbA = new THREE.CylinderGeometry(0.07, 0.14, 1.8, 8);
-    limbA.rotateZ(0.85);
-    limbA.translate(-0.55, 3.0, 0.1);
-    const limbB = new THREE.CylinderGeometry(0.06, 0.12, 1.6, 8);
-    limbB.rotateX(-0.8);
-    limbB.translate(0.15, 3.1, 0.55);
-    const bark = mergeGeometries([trunk, limbA, limbB])!;
-    bark.computeVertexNormals();
-    trunk.dispose();
-    limbA.dispose();
-    limbB.dispose();
-
-    const clumps: Array<[number, number, number, number]> = [
-      [0.2, 4.7, 0.0, 1.75],
-      [1.2, 4.1, 0.3, 1.3],
-      [-1.1, 4.2, -0.3, 1.35],
-      [0.3, 4.0, 1.2, 1.2],
-      [-0.2, 4.0, -1.2, 1.15],
-      [0.3, 5.8, 0.1, 1.15],
-      [-0.9, 5.2, 0.7, 1.0],
-    ];
-    const parts: THREE.BufferGeometry[] = [];
-    const c = new THREE.Vector3();
-    for (const [x, y, z, r] of clumps) {
-      const g = new THREE.SphereGeometry(r, 16, 12);
-      g.scale(1, 0.82, 1);
-      g.translate(x, y, z);
-      c.set(x, y, z);
-      roughenClump(g, c, r * 0.22);
-      parts.push(g);
-    }
-    const foliage = mergeGeometries(parts)!;
-    for (const p of parts) p.dispose();
-    smoothNormals(foliage);
-
-    const merged = mergeGeometries([bark, foliage], true)!;
-    bark.dispose();
-    foliage.dispose();
-    merged.computeBoundingSphere();
-    return merged;
-  }
-
-  private buildConiferGeometry(): THREE.BufferGeometry {
-    const trunk = new THREE.CylinderGeometry(0.12, 0.3, 6.6, 10, 2);
-    trunk.translate(0, 3.3, 0);
-
-    const tiers: Array<[number, number, number]> = [
-      // radius, height, base y
-      [2.0, 2.6, 1.6],
-      [1.65, 2.4, 2.8],
-      [1.3, 2.2, 3.9],
-      [0.95, 2.0, 4.9],
-      [0.6, 1.7, 5.9],
-    ];
-    const parts: THREE.BufferGeometry[] = [];
-    const c = new THREE.Vector3();
-    for (const [r, h, y] of tiers) {
-      const g = new THREE.ConeGeometry(r, h, 16, 3);
-      g.translate(0, y + h / 2, 0);
-      c.set(0, y + h * 0.3, 0);
-      roughenClump(g, c, r * 0.12);
-      parts.push(g);
-    }
-    const foliage = mergeGeometries(parts)!;
-    for (const p of parts) p.dispose();
-    smoothNormals(foliage);
-
-    const merged = mergeGeometries([trunk, foliage], true)!;
-    trunk.dispose();
-    foliage.dispose();
-    merged.computeBoundingSphere();
-    return merged;
-  }
-
-  private registerCrystals(landmark: THREE.Object3D): void {
-    for (const child of landmark.children) {
-      if (child.name === 'skyIslesCrystal') {
-        this.activeCrystals.push(child);
-        this.crystalOwners.push(landmark);
-      }
-    }
-  }
-
-  /**
-   * Spawns an environmental landmark on a given island
-   */
-  public spawnLandmark(type: 'arch' | 'temple', pos: THREE.Vector3, scale = 1.0): THREE.Group {
-    const template = type === 'arch' ? this.portalArchTemplate : this.skyTempleTemplate;
-    if (!template) return new THREE.Group();
-
-    const landmark = template.clone();
-    landmark.position.copy(pos);
-    landmark.scale.set(scale, scale, scale);
-    landmark.rotation.y = (Math.random() - 0.5) * 0.4;
-
-    this.group.add(landmark);
-    this.activeLandmarks.push(landmark);
-    this.registerCrystals(landmark);
-    return landmark;
-  }
-
-  /**
-   * Spawns a tree (broadleaf or conifer) as a single shadow-casting mesh
-   */
-  public spawnTree(pos: THREE.Vector3, scale = 1.0): THREE.Group {
-    if (!this.broadleafGeom || !this.coniferGeom) return new THREE.Group();
-    const conifer = Math.random() < 0.45;
-    const mesh = this.shadowed(
-      new THREE.Mesh(conifer ? this.coniferGeom : this.broadleafGeom, conifer ? this.coniferMats : this.broadleafMats)
-    );
-    const tree = new THREE.Group();
-    tree.add(mesh);
-    tree.position.copy(pos);
-    const sy = scale * (0.9 + Math.random() * 0.25);
-    tree.scale.set(scale, sy, scale);
-    tree.rotation.y = Math.random() * Math.PI * 2;
-    this.group.add(tree);
-    this.activeLandmarks.push(tree);
-    return tree;
-  }
-
-  /**
-   * Creates a waterfall sheet plunging from `startPos` (its top edge).
-   * The sheet arcs out along its local +Z; `facingAngle` rotates it about Y.
-   */
-  public createWaterfall(startPos: THREE.Vector3, height = 24.0, width = 2.4, facingAngle = 0): THREE.Mesh {
-    const geom = new THREE.PlaneGeometry(width, height, 4, 16);
-    geom.translate(0, -height / 2, 0);
-    const p = geom.getAttribute('position') as THREE.BufferAttribute;
-    for (let i = 0; i < p.count; i++) {
-      const t = Math.min(1, Math.max(0, -p.getY(i) / height));
-      // Arc outward off the lip, spreading wider as it falls
-      p.setX(i, p.getX(i) * (1.0 + 0.7 * t));
-      p.setZ(i, 2.2 * Math.sqrt(t));
-    }
-    geom.computeVertexNormals();
-    const fall = new THREE.Mesh(geom, this.waterfallMaterial);
-    fall.position.copy(startPos);
-    fall.rotation.y = facingAngle;
-    this.group.add(fall);
-    return fall;
-  }
-
-  public removeObject(obj: THREE.Object3D): void {
-    this.group.remove(obj);
-    const idx = this.activeLandmarks.indexOf(obj);
-    if (idx !== -1) this.activeLandmarks.splice(idx, 1);
-    for (let i = this.crystalOwners.length - 1; i >= 0; i--) {
-      if (this.crystalOwners[i] === obj) {
-        this.crystalOwners.splice(i, 1);
-        this.activeCrystals.splice(i, 1);
-      }
-    }
-    // Waterfall meshes own their (unique) geometry
-    const mesh = obj as THREE.Mesh;
-    if (mesh.isMesh && mesh.material === this.waterfallMaterial) {
-      mesh.geometry.dispose();
-    }
-  }
-
-  public update(time: number): void {
-    // Slow spin of the floating crystals
-    const spin = time * 0.3;
-    for (let i = 0; i < this.activeCrystals.length; i++) {
-      this.activeCrystals[i].rotation.y = spin + i;
-    }
-    // Water streaks flow downward
-    if (this.waterTexture) {
-      this.waterTexture.offset.y = (time * 0.9) % 1;
-    }
-  }
-
-  public dispose(): void {
-    this.scene.remove(this.group);
-    for (const child of this.group.children) {
-      const mesh = child as THREE.Mesh;
-      if (mesh.isMesh && mesh.material === this.waterfallMaterial) {
-        mesh.geometry.dispose();
-      }
-    }
-    for (const lm of this.activeLandmarks) {
-      this.group.remove(lm);
-    }
-    this.group.clear();
-    this.activeLandmarks = [];
-    this.activeCrystals = [];
-    this.crystalOwners = [];
-
-    for (const g of this.ownedGeometries) g.dispose();
-    this.ownedGeometries = [];
-
-    this.stoneMaterial.dispose();
-    this.goldAccentMaterial.dispose();
-    this.roofMaterial.dispose();
-    this.crystalMaterial.dispose();
-    this.foliageGreenMaterial.dispose();
-    this.coniferMaterial.dispose();
-    this.woodBarkMaterial.dispose();
-    this.waterfallMaterial.dispose();
-
-    this.stoneTexture?.dispose();
-    this.barkTexture?.dispose();
-    this.waterTexture?.dispose();
-  }
+  geom.computeVertexNormals();
+  return geom;
 }

@@ -67,6 +67,22 @@ function makeCanvas(w: number, h: number) {
   return { canvas, ctx, img: ctx.createImageData(w, h) };
 }
 
+const roadTextureCache = new Map<string, RoadTextures>();
+
+/**
+ * Session-cached road maps: generating the 1024-wide canvases is expensive, so
+ * they are built once per spec and shared (callers must not dispose them).
+ */
+export function getRoadTextures(spec: RoadTextureSpec): RoadTextures {
+  const key = JSON.stringify(spec);
+  let t = roadTextureCache.get(key);
+  if (!t) {
+    t = createRoadTextures(spec);
+    roadTextureCache.set(key, t);
+  }
+  return t;
+}
+
 export function createRoadTextures(spec: RoadTextureSpec): RoadTextures {
   const W = SIZE_U;
   const H = Math.round(spec.tileLength * PX_PER_METRE_V);
@@ -320,7 +336,14 @@ export function applyRoadMacroVariation(material: THREE.MeshStandardMaterial) {
       .replace('#include <common>', '#include <common>\nvarying vec3 vRoadWorldPos;')
       .replace(
         '#include <project_vertex>',
-        '#include <project_vertex>\nvRoadWorldPos = (modelMatrix * vec4(transformed, 1.0)).xyz;'
+        `#include <project_vertex>
+{
+  vec4 roadP = vec4(transformed, 1.0);
+  #ifdef USE_INSTANCING
+  roadP = instanceMatrix * roadP;
+  #endif
+  vRoadWorldPos = (modelMatrix * roadP).xyz;
+}`
       );
     shader.fragmentShader = shader.fragmentShader
       .replace(
@@ -355,5 +378,5 @@ diffuseColor.rgb *= mix(0.84, 1.12, roadM);`
 roughnessFactor = clamp(roughnessFactor * mix(0.92, 1.04, roadM), 0.0, 1.0);`
       );
   };
-  material.customProgramCacheKey = () => 'road-macro-v1';
+  material.customProgramCacheKey = () => 'road-macro-v2';
 }

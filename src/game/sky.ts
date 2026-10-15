@@ -1,8 +1,7 @@
 import * as THREE from 'three';
 import { Sky } from 'three/examples/jsm/objects/Sky.js';
 import { LightingMode } from '../types';
-import { WorldId } from './WorldConfig';
-import { atmosphereBlendWeight } from './systems/worldTransition/WorldTransitionManager';
+import { WorldId, WORLD_ORDER } from './WorldConfig';
 
 export interface LightingPresetConfig {
   skyTop: string;
@@ -450,9 +449,66 @@ const WORLD_ATMOSPHERES: Record<WorldId, WorldAtmosphere> = {
   },
 };
 
-// Re-bake the reflection environment after the blend moves this far.
-const ENV_REBAKE_STEP = 0.1;
-const SKY_UNIFORMS_TO_BAKE = ['turbidity', 'rayleigh', 'mieCoefficient', 'mieDirectionalG', 'cloudCoverage', 'cloudDensity'];
+/** A world's atmosphere with every colour parsed once (no per-frame string parsing). */
+interface ParsedAtmosphere {
+  src: WorldAtmosphere;
+  sunColor: THREE.Color;
+  hemiSky: THREE.Color;
+  hemiGround: THREE.Color;
+  fogColor: THREE.Color;
+}
+
+const PARSED_ATMOSPHERES = {} as Record<WorldId, ParsedAtmosphere>;
+for (const id of Object.keys(WORLD_ATMOSPHERES) as WorldId[]) {
+  const a = WORLD_ATMOSPHERES[id];
+  PARSED_ATMOSPHERES[id] = {
+    src: a,
+    sunColor: new THREE.Color(a.sunColor),
+    hemiSky: new THREE.Color(a.hemiSky),
+    hemiGround: new THREE.Color(a.hemiGround),
+    fogColor: new THREE.Color(a.fogColor),
+  };
+}
+
+function parsedAtmosphere(id: WorldId): ParsedAtmosphere {
+  return PARSED_ATMOSPHERES[id] ?? PARSED_ATMOSPHERES['sky-isles'];
+}
+
+/**
+ * Read-only look of a world's atmosphere: camera exposure plus its horizon
+ * haze and sky-light colours (shared objects: never mutate them). Used by the
+ * portal gateway (exposure match, static window tint on low tiers).
+ */
+export function getAtmosphereInfo(worldId: WorldId): { exposure: number; fogColor: THREE.Color; skyColor: THREE.Color } {
+  const a = parsedAtmosphere(worldId);
+  return { exposure: a.src.exposure, fogColor: a.fogColor, skyColor: a.hemiSky };
+}
+
+function nextWorldOf(id: WorldId): WorldId | null {
+  const i = WORLD_ORDER.indexOf(id);
+  return i >= 0 && i < WORLD_ORDER.length - 1 ? WORLD_ORDER[i + 1] : null;
+}
+
+const SKY_UNIFORMS_TO_BAKE = ['turbidity', 'rayleigh', 'mieCoefficient', 'mieDirectionalG', 'cloudCoverage', 'cloudDensity'] as const;
+
+/** Everything applyAtmosphere() touches, so withAtmosphere() can restore it exactly. */
+interface AtmosphereSnapshot {
+  sunDir: THREE.Vector3;
+  sunPosition: THREE.Vector3;
+  sky: number[];
+  dirColor: THREE.Color;
+  dirIntensity: number;
+  dirPosition: THREE.Vector3;
+  hemiColor: THREE.Color;
+  hemiGround: THREE.Color;
+  hemiIntensity: number;
+  fogColor: THREE.Color;
+  fogDensity: number;
+  environment: THREE.Texture | null;
+  environmentIntensity: number;
+  exposure: number;
+  envWorld: WorldId | null;
+}
 
 export class SkyManager {
   scene: THREE.Scene;
@@ -467,13 +523,37 @@ export class SkyManager {
   private envSky = new Sky();
   private envGroundMat = new THREE.MeshBasicMaterial({ color: 0x6f7a5c, side: THREE.DoubleSide });
   private envGround = new THREE.Mesh(new THREE.CircleGeometry(60, 48), this.envGroundMat);
-  private envTarget: THREE.WebGLRenderTarget | null = null;
-  private envKey = '';
-  private envWeight = -1;
+  // One baked PMREM environment per world, baked once and reused. Only the
+  // current world's and the next world's are kept (see pruneEnvironments).
+  private envCache = new Map<WorldId, THREE.WebGLRenderTarget>();
+  private envWorld: WorldId | null = null;
+
+  // Last applied blend, so an unchanged frame is skipped entirely.
+  private lastCurrent: WorldId | null = null;
+  private lastNext: WorldId | null = null;
+  private lastWeight = -1;
 
   private sunDir = new THREE.Vector3(0, 1, 0);
-  private tmpColA = new THREE.Color();
-  private tmpColB = new THREE.Color();
+  private shadowTarget = new THREE.Vector3();
+  private fog: THREE.FogExp2;
+  private snapshot: AtmosphereSnapshot = {
+    sunDir: new THREE.Vector3(),
+    sunPosition: new THREE.Vector3(),
+    sky: [0, 0, 0, 0, 0, 0],
+    dirColor: new THREE.Color(),
+    dirIntensity: 0,
+    dirPosition: new THREE.Vector3(),
+    hemiColor: new THREE.Color(),
+    hemiGround: new THREE.Color(),
+    hemiIntensity: 0,
+    fogColor: new THREE.Color(),
+    fogDensity: 0,
+    environment: null,
+    environmentIntensity: 1,
+    exposure: 1,
+    envWorld: null,
+  };
+  private snapshotDepth = 0;
 
   constructor(scene: THREE.Scene, renderer?: THREE.WebGLRenderer) {
     this.scene = scene;
@@ -486,7 +566,9 @@ export class SkyManager {
     this.skyMaterial = this.skyMesh.material as THREE.ShaderMaterial;
     this.scene.add(this.skyMesh);
 
-    // 2. Sky light (hemisphere) and the sun
+    // 2. Sky light (hemisphere) and the sun. These two are the only lights in
+    // the scene for the whole session: a constant light count means lit
+    // materials never have to recompile mid-run.
     this.hemiLight = new THREE.HemisphereLight(0xbcd6ff, 0x6f7a5c, 0.12);
     this.scene.add(this.hemiLight);
 
@@ -504,6 +586,9 @@ export class SkyManager {
     this.scene.add(this.dirLight);
     this.scene.add(this.dirLight.target);
 
+    this.fog = new THREE.FogExp2(0xa9c1db, 0.0008);
+    this.scene.fog = this.fog;
+
     // 3. Image-based lighting baked from the same sky (no sun disc, to avoid hot spots)
     this.envSky.scale.setScalar(10);
     (this.envSky.material as THREE.ShaderMaterial).uniforms.showSunDisc.value = 0;
@@ -515,7 +600,7 @@ export class SkyManager {
     this.envScene.add(this.envGround);
     if (this.renderer) this.pmrem = new THREE.PMREMGenerator(this.renderer);
 
-    this.applyWorldAtmosphere('sky-isles', 'sky-isles', 0);
+    this.applyAtmosphere('sky-isles');
   }
 
   /**
@@ -524,17 +609,83 @@ export class SkyManager {
    */
   applyLightingPreset(_mode: LightingMode) {}
 
+  /** Snap the sky, sun, sky light, fog, exposure and environment to one world. */
+  applyAtmosphere(worldId: WorldId) {
+    this.applyWorldAtmosphere(worldId, worldId, 0);
+  }
+
   /**
-   * Blend the atmosphere of `current` toward `next` and apply it to the sky,
-   * sun, sky light, fog, exposure and reflection environment. `t` is the
-   * transition corridor's weight (0..1 over the last 300 m); the atmosphere
-   * itself only moves over the final ATMOSPHERE_BLEND_LENGTH metres, under the
-   * portal's warp flash.
+   * Temporarily apply another world's sky/fog/environment/lights, run `fn`
+   * (e.g. render the next world's look inside the portal), then restore the
+   * current state exactly. Nested calls are allowed. The world's environment
+   * is baked on first use; call prebakeEnvironment() earlier to avoid that.
+   */
+  withAtmosphere<T>(worldId: WorldId, fn: () => T): T {
+    const s = this.snapshot;
+    const outer = this.snapshotDepth === 0;
+    // Only the outermost call snapshots (nested calls restore to it at the end).
+    if (outer) this.captureSnapshot(s);
+    this.snapshotDepth++;
+    const lc = this.lastCurrent;
+    const ln = this.lastNext;
+    const lw = this.lastWeight;
+    try {
+      this.applyBlend(parsedAtmosphere(worldId), parsedAtmosphere(worldId), 0);
+      this.useEnvironment(worldId, false);
+      return fn();
+    } finally {
+      this.snapshotDepth--;
+      if (outer) this.restoreSnapshot(s);
+      this.lastCurrent = lc;
+      this.lastNext = ln;
+      this.lastWeight = lw;
+    }
+  }
+
+  /**
+   * Bake (once) the reflection environment for a world without applying it,
+   * so switching to it later is just a texture swap. Call while preloading.
+   */
+  prebakeEnvironment(worldId: WorldId) {
+    if (this.envCache.has(worldId) || !this.pmrem) return;
+    const a = parsedAtmosphere(worldId);
+    const src = a.src;
+    const dst = (this.envSky.material as THREE.ShaderMaterial).uniforms;
+    for (const k of SKY_UNIFORMS_TO_BAKE) dst[k].value = src[k];
+    const elev = THREE.MathUtils.degToRad(src.sunElevation);
+    const azim = THREE.MathUtils.degToRad(src.sunAzimuth);
+    dst.sunPosition.value.set(Math.sin(azim) * Math.cos(elev), Math.sin(elev), Math.cos(azim) * Math.cos(elev));
+    // Ground radiance ~ sky-lit albedo: hemisphere ground colour at a fixed
+    // scale (Preetham radiance is roughly 0.5-2 in these units).
+    this.envGroundMat.color.copy(a.hemiGround).multiplyScalar(0.9);
+    this.envCache.set(worldId, this.pmrem.fromScene(this.envScene, 0, 0.1, 100));
+  }
+
+  hasEnvironment(worldId: WorldId): boolean {
+    return this.envCache.has(worldId) || !this.pmrem;
+  }
+
+  /**
+   * Blend the atmosphere of `current` toward `next` by `t` (0..1) and apply it
+   * to the sky, sun, sky light, fog and exposure. The engine itself only snaps
+   * (applyAtmosphere): the next world is seen through the portal gateway's
+   * window (withAtmosphere) and the switch happens as the rider crosses the
+   * gateway. The reflection environment is never re-baked here: it is the
+   * current world's cached bake, swapped in one go.
    */
   applyWorldAtmosphere(current: WorldId, next: WorldId, t: number) {
-    const a = WORLD_ATMOSPHERES[current] ?? WORLD_ATMOSPHERES['sky-isles'];
-    const b = WORLD_ATMOSPHERES[next] ?? a;
-    const w = atmosphereBlendWeight(THREE.MathUtils.clamp(t, 0, 1));
+    const w = THREE.MathUtils.clamp(t, 0, 1);
+    if (current === this.lastCurrent && next === this.lastNext && w === this.lastWeight) return;
+    this.lastCurrent = current;
+    this.lastNext = next;
+    this.lastWeight = w;
+    this.applyBlend(parsedAtmosphere(current), parsedAtmosphere(next), w);
+    this.useEnvironment(current, true);
+  }
+
+  private applyBlend(pa: ParsedAtmosphere, pb: ParsedAtmosphere, w: number) {
+    const a = pa.src;
+    const b = pb.src;
     const mix = (x: number, y: number) => x + (y - x) * w;
 
     const elev = THREE.MathUtils.degToRad(mix(a.sunElevation, b.sunElevation));
@@ -550,51 +701,97 @@ export class SkyManager {
     u.cloudCoverage.value = mix(a.cloudCoverage, b.cloudCoverage);
     u.cloudDensity.value = mix(a.cloudDensity, b.cloudDensity);
 
-    this.dirLight.color.copy(this.tmpColA.set(a.sunColor).lerp(this.tmpColB.set(b.sunColor), w));
+    this.dirLight.color.copy(pa.sunColor).lerp(pb.sunColor, w);
     this.dirLight.intensity = mix(a.sunIntensity, b.sunIntensity);
-    this.hemiLight.color.copy(this.tmpColA.set(a.hemiSky).lerp(this.tmpColB.set(b.hemiSky), w));
-    this.hemiLight.groundColor.copy(this.tmpColA.set(a.hemiGround).lerp(this.tmpColB.set(b.hemiGround), w));
+    this.dirLight.position.copy(this.shadowTarget).addScaledVector(this.sunDir, 150);
+    this.hemiLight.color.copy(pa.hemiSky).lerp(pb.hemiSky, w);
+    this.hemiLight.groundColor.copy(pa.hemiGround).lerp(pb.hemiGround, w);
     this.hemiLight.intensity = mix(a.hemiIntensity, b.hemiIntensity);
 
-    const fogColor = this.tmpColA.set(a.fogColor).lerp(this.tmpColB.set(b.fogColor), w);
-    const fogDensity = mix(a.fogDensity, b.fogDensity);
-    if (this.scene.fog instanceof THREE.FogExp2) {
-      this.scene.fog.color.copy(fogColor);
-      this.scene.fog.density = fogDensity;
-    } else {
-      this.scene.fog = new THREE.FogExp2(fogColor.clone(), fogDensity);
-    }
+    // The scene keeps one FogExp2 for its whole life (swapping the fog object
+    // would flag every material for a program change).
+    if (this.scene.fog !== this.fog) this.scene.fog = this.fog;
+    this.fog.color.copy(pa.fogColor).lerp(pb.fogColor, w);
+    this.fog.density = mix(a.fogDensity, b.fogDensity);
 
     this.scene.environmentIntensity = mix(a.envIntensity, b.envIntensity);
     if (this.renderer) this.renderer.toneMappingExposure = mix(a.exposure, b.exposure);
+  }
 
-    const key = `${current}>${next}`;
-    if (key !== this.envKey || Math.abs(w - this.envWeight) >= ENV_REBAKE_STEP) {
-      this.envKey = key;
-      this.envWeight = w;
-      this.bakeEnvironment();
+  /** Point scene.environment at a world's cached bake (baking it if needed). */
+  private useEnvironment(worldId: WorldId, prune: boolean) {
+    if (!this.pmrem) return;
+    if (this.envWorld === worldId && this.scene.environment) return;
+    this.prebakeEnvironment(worldId);
+    const target = this.envCache.get(worldId);
+    if (!target) return;
+    this.scene.environment = target.texture;
+    this.envWorld = worldId;
+    if (prune) this.pruneEnvironments(worldId);
+  }
+
+  /** Keep only the current world's and the next world's environment bakes. */
+  private pruneEnvironments(current: WorldId) {
+    const next = nextWorldOf(current);
+    for (const [id, target] of this.envCache) {
+      if (id === current || id === next) continue;
+      if (this.scene.environment === target.texture) continue;
+      target.dispose();
+      this.envCache.delete(id);
     }
   }
 
-  private bakeEnvironment() {
-    if (!this.pmrem) return;
-    const src = this.skyMaterial.uniforms;
-    const dst = (this.envSky.material as THREE.ShaderMaterial).uniforms;
-    for (const k of SKY_UNIFORMS_TO_BAKE) dst[k].value = src[k].value;
-    dst.sunPosition.value.copy(src.sunPosition.value);
-    // Ground radiance ~ sky-lit albedo: hemisphere ground colour at a fixed
-    // scale (Preetham radiance is roughly 0.5-2 in these units). Independent of
-    // the (now faint) hemisphere light so the IBL keeps a realistic bounce.
-    this.envGroundMat.color.copy(this.hemiLight.groundColor).multiplyScalar(0.9);
+  private captureSnapshot(s: AtmosphereSnapshot) {
+    const u = this.skyMaterial.uniforms;
+    s.sunDir.copy(this.sunDir);
+    s.sunPosition.copy(u.sunPosition.value);
+    for (let i = 0; i < SKY_UNIFORMS_TO_BAKE.length; i++) s.sky[i] = u[SKY_UNIFORMS_TO_BAKE[i]].value;
+    s.dirColor.copy(this.dirLight.color);
+    s.dirIntensity = this.dirLight.intensity;
+    s.dirPosition.copy(this.dirLight.position);
+    s.hemiColor.copy(this.hemiLight.color);
+    s.hemiGround.copy(this.hemiLight.groundColor);
+    s.hemiIntensity = this.hemiLight.intensity;
+    s.fogColor.copy(this.fog.color);
+    s.fogDensity = this.fog.density;
+    s.environment = this.scene.environment;
+    s.environmentIntensity = this.scene.environmentIntensity;
+    s.exposure = this.renderer ? this.renderer.toneMappingExposure : 1;
+    s.envWorld = this.envWorld;
+  }
 
-    const target = this.pmrem.fromScene(this.envScene, 0, 0.1, 100);
-    this.envTarget?.dispose();
-    this.envTarget = target;
-    this.scene.environment = target.texture;
+  private restoreSnapshot(s: AtmosphereSnapshot) {
+    const u = this.skyMaterial.uniforms;
+    this.sunDir.copy(s.sunDir);
+    u.sunPosition.value.copy(s.sunPosition);
+    for (let i = 0; i < SKY_UNIFORMS_TO_BAKE.length; i++) u[SKY_UNIFORMS_TO_BAKE[i]].value = s.sky[i];
+    this.dirLight.color.copy(s.dirColor);
+    this.dirLight.intensity = s.dirIntensity;
+    this.dirLight.position.copy(s.dirPosition);
+    this.hemiLight.color.copy(s.hemiColor);
+    this.hemiLight.groundColor.copy(s.hemiGround);
+    this.hemiLight.intensity = s.hemiIntensity;
+    this.fog.color.copy(s.fogColor);
+    this.fog.density = s.fogDensity;
+    this.scene.environment = s.environment;
+    this.scene.environmentIntensity = s.environmentIntensity;
+    if (this.renderer) this.renderer.toneMappingExposure = s.exposure;
+    this.envWorld = s.envWorld;
   }
 
   setShadowsEnabled(enabled: boolean) {
     this.dirLight.castShadow = enabled;
+  }
+
+  /** Shadow map resolution (2048 on the top tier, 1024 below). */
+  setShadowMapSize(size: number) {
+    const shadow = this.dirLight.shadow;
+    if (shadow.mapSize.x === size && shadow.mapSize.y === size) return;
+    shadow.mapSize.set(size, size);
+    if (shadow.map) {
+      shadow.map.dispose();
+      (shadow as any).map = null;
+    }
   }
 
   update(playerPos: THREE.Vector3, _playerVelocityZ: number, time: number, _playerSpeed = 20) {
@@ -603,8 +800,9 @@ export class SkyManager {
     this.skyMaterial.uniforms.time.value = time;
 
     // Sun shadow frustum follows the rider, cast along the sun direction
-    this.dirLight.target.position.set(playerPos.x, playerPos.y, playerPos.z + 12);
-    this.dirLight.position.copy(this.dirLight.target.position).addScaledVector(this.sunDir, 150);
+    this.shadowTarget.set(playerPos.x, playerPos.y, playerPos.z + 12);
+    this.dirLight.target.position.copy(this.shadowTarget);
+    this.dirLight.position.copy(this.shadowTarget).addScaledVector(this.sunDir, 150);
     this.dirLight.target.updateMatrixWorld();
   }
 
@@ -613,14 +811,18 @@ export class SkyManager {
     this.scene.remove(this.dirLight);
     this.scene.remove(this.dirLight.target);
     this.scene.remove(this.hemiLight);
-    if (this.envTarget && this.scene.environment === this.envTarget.texture) this.scene.environment = null;
+    if (this.scene.fog === this.fog) this.scene.fog = null;
+    for (const target of this.envCache.values()) {
+      if (this.scene.environment === target.texture) this.scene.environment = null;
+      target.dispose();
+    }
+    this.envCache.clear();
     this.skyMesh.geometry.dispose();
     this.skyMaterial.dispose();
     this.envSky.geometry.dispose();
     (this.envSky.material as THREE.Material).dispose();
     this.envGround.geometry.dispose();
     this.envGroundMat.dispose();
-    this.envTarget?.dispose();
     this.pmrem?.dispose();
   }
 }

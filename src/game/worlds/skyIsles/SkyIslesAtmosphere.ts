@@ -23,7 +23,7 @@ const CLOUD_ROAD_CLEARANCE = 14;
  */
 export class SkyIslesAtmosphere {
   public group: THREE.Group;
-  private scene: THREE.Scene;
+  private scene: THREE.Object3D;
 
   private clouds: BillboardCloudSet | null = null;
   private cloudSea: BillboardCloudSet | null = null;
@@ -40,7 +40,7 @@ export class SkyIslesAtmosphere {
   private clusterSpeed: Float32Array = new Float32Array(0);
   private cloudSeaPositions: { x: number; y: number; z: number; w: number; h: number }[] = [];
 
-  constructor(scene: THREE.Scene, graphicsConfig: GraphicsConfig) {
+  constructor(scene: THREE.Object3D, graphicsConfig: GraphicsConfig) {
     this.scene = scene;
     this.group = new THREE.Group();
     this.group.name = 'SkyIslesAtmosphereGroup';

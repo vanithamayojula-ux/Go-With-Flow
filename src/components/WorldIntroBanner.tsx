@@ -112,7 +112,7 @@ export const WorldIntroBanner: React.FC<WorldIntroBannerProps> = ({ worldId = 's
       aria-live="polite"
     >
       <div
-        className={`flex items-center gap-3 px-4 py-2 rounded-xl bg-black/80 backdrop-blur-xl border ${meta.borderColor} ${meta.glowColor}`}
+        className={`flex items-center gap-3 px-4 py-2 rounded-xl bg-black/80 border ${meta.borderColor} ${meta.glowColor}`}
       >
         <span className="text-2xl leading-none" aria-hidden="true">{meta.icon}</span>
         <div className="text-left min-w-0">

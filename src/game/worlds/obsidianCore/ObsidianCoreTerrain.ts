@@ -1,5 +1,4 @@
 import * as THREE from 'three';
-import { GraphicsConfig } from '../../../types';
 
 export interface VolcanicArchetype {
   id: string;
@@ -182,15 +181,26 @@ export function getVolcanicNoiseTexture(): THREE.CanvasTexture | null {
  * glowing cracks (toroidal Voronoi F2-F1). Returns null when no DOM is available.
  */
 export function getVolcanicLavaTexture(): THREE.CanvasTexture | null {
-  if (sharedLavaTexture) return sharedLavaTexture;
-  if (typeof document === 'undefined') return null;
+  if (!sharedLavaTexture) {
+    const it = buildVolcanicLavaTextureGen();
+    while (!it.next().done) {
+      /* run to completion */
+    }
+  }
+  return sharedLavaTexture;
+}
+
+/** Builds the shared lava texture, yielding every 32 rows (for sliced warmup). */
+export function* buildVolcanicLavaTextureGen(): Generator<void, void> {
+  if (sharedLavaTexture) return;
+  if (typeof document === 'undefined') return;
 
   const size = 256;
   const canvas = document.createElement('canvas');
   canvas.width = size;
   canvas.height = size;
   const ctx = canvas.getContext('2d');
-  if (!ctx) return null;
+  if (!ctx) return;
   const img = ctx.createImageData(size, size);
 
   const pointCount = 22;
@@ -227,6 +237,7 @@ export function getVolcanicLavaTexture(): THREE.CanvasTexture | null {
       img.data[i + 2] = Math.round(255 * Math.pow(heat, 3.0) * 0.55);
       img.data[i + 3] = 255;
     }
+    if ((py & 31) === 31) yield;
   }
   ctx.putImageData(img, 0, 0);
 
@@ -237,7 +248,6 @@ export function getVolcanicLavaTexture(): THREE.CanvasTexture | null {
   tex.anisotropy = 4;
   tex.needsUpdate = true;
   sharedLavaTexture = tex;
-  return tex;
 }
 
 // ---------------------------------------------------------------------------
@@ -599,81 +609,3 @@ function mergeBufferGeometriesCustom(geometries: THREE.BufferGeometry[]): THREE.
 
 /** Lava glow (HDR). Bright enough to bloom, not to blow the frame out. */
 export const OBSIDIAN_LAVA_EMISSIVE = 2.0;
-
-/**
- * Shared Obsidian Core materials (physically based; lava is the only emitter)
- */
-export function createObsidianCoreMaterials() {
-  const noiseTexture = getVolcanicNoiseTexture();
-  const lavaTexture = getVolcanicLavaTexture();
-
-  // Smooth-shaded ash / basalt ground
-  const obsidianGroundMaterial = new THREE.MeshStandardMaterial({
-    vertexColors: true,
-    roughness: 0.95,
-    metalness: 0.0,
-    flatShading: false,
-    map: noiseTexture,
-    roughnessMap: noiseTexture,
-  });
-
-  // Faceted basalt columns and crags
-  const volcanicRockMaterial = new THREE.MeshStandardMaterial({
-    vertexColors: true,
-    roughness: 0.9,
-    metalness: 0.0,
-    flatShading: true,
-    map: noiseTexture,
-    roughnessMap: noiseTexture,
-  });
-
-  // Volcanic glass: near-black body that reads through its glossy reflections
-  // (sky, lava glow) on conchoidal facets, never as a flat black hole.
-  const obsidianGlassMaterial = new THREE.MeshPhysicalMaterial({
-    vertexColors: true,
-    roughness: 0.14,
-    metalness: 0.0,
-    flatShading: true,
-    clearcoat: 1.0,
-    clearcoatRoughness: 0.05,
-    ior: 1.49,
-    envMapIntensity: 1.8,
-  });
-
-  // Smooth ash slopes for distant volcanoes
-  const ashSlopeMaterial = new THREE.MeshStandardMaterial({
-    vertexColors: true,
-    roughness: 0.97,
-    metalness: 0.0,
-    flatShading: false,
-    map: noiseTexture,
-  });
-
-  // Molten lava: black crust, HDR orange glow in the cracks (blooms)
-  const moltenLavaMaterial = new THREE.MeshStandardMaterial({
-    color: 0x2a0a00,
-    emissive: 0xff4a10,
-    emissiveIntensity: lavaTexture ? OBSIDIAN_LAVA_EMISSIVE : 1.6,
-    emissiveMap: lavaTexture,
-    roughness: 0.6,
-    metalness: 0.0,
-  });
-
-  // Weathered black iron
-  const citadelIronMaterial = new THREE.MeshStandardMaterial({
-    color: 0x1e1c1b,
-    roughness: 0.7,
-    metalness: 0.6,
-  });
-
-  return {
-    obsidianGroundMaterial,
-    volcanicRockMaterial,
-    obsidianGlassMaterial,
-    ashSlopeMaterial,
-    moltenLavaMaterial,
-    citadelIronMaterial,
-    noiseTexture,
-    lavaTexture,
-  };
-}

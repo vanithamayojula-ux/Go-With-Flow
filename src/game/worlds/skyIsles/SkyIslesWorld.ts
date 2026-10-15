@@ -1,218 +1,279 @@
 import * as THREE from 'three';
 import { GraphicsConfig } from '../../../types';
-import {
-  ISLAND_ARCHETYPES,
-  FloatingIslandArchetype,
-  createProceduralIslandGeometry,
-  createSkyIslesIslandMaterials,
-  skyIslesCapHeight,
-} from './SkyIslesTerrain';
+import { ISLAND_ARCHETYPES, createProceduralIslandGeometry, skyIslesCapHeight } from './SkyIslesTerrain';
 import { SkyIslesAtmosphere } from './SkyIslesAtmosphere';
-import { SkyIslesDecorations } from './SkyIslesDecorations';
+import {
+  buildBroadleafGeometry,
+  buildConiferGeometry,
+  buildColonnadeGeometry,
+  buildTempleGeometries,
+  buildWaterfallGeometry,
+  getWaterStreakTexture,
+} from './SkyIslesDecorations';
 import { skyIslesConfig } from './skyIslesConfig';
 import { RAIL_X } from '../../trackConfig';
+import { StreamedWorld, StreamChunk, WarmTask } from '../shared/streamedWorld';
+import { InstancePool, trs } from '../shared/instancePool';
+import { createTerrainMaterial, TerrainMaterialHandle } from '../shared/terrainMaterial';
+import { createScanStandardMaterial, ScanStandardHandle } from '../shared/scanMaterial';
+import { applyStreamFade, getWorldFade } from '../shared/distanceFade';
+import { getGreyNoiseTexture } from '../shared/noiseTextures';
+import { ENV_MODEL_HEIGHT, RockPools, applyEnvModels, createRockMaterials, createRockPools, rockTint } from '../shared/envRocks';
+import { EnvModelId, getLoadedTextureSet } from '../../../graphics/assetLibrary';
 
 // Nearest X any scenery may reach: the guard rail plus a shoulder.
 const ROAD_CLEARANCE_X = RAIL_X + 3.0;
+const CHUNK = 60;
+const ROCK_IDS: readonly EnvModelId[] = ['boulder', 'slab'];
 
-export interface ActiveIslandItem {
-  id: string;
-  mesh: THREE.Mesh;
-  decorations: THREE.Object3D[];
-  z: number;
-  lodTier: 'high' | 'medium' | 'low';
+/** Session-wide Sky Isles resources (built once in warmup slices, never disposed). */
+interface SkyKit {
+  islandGeoms: Map<string, THREE.BufferGeometry>;
+  island: TerrainMaterialHandle;
+  islandFar: TerrainMaterialHandle;
+  stone: TerrainMaterialHandle;
+  rockMats: Map<EnvModelId, TerrainMaterialHandle>;
+  bark: ScanStandardHandle;
+  foliage: THREE.MeshStandardMaterial;
+  needles: THREE.MeshStandardMaterial;
+  broadleaf: THREE.BufferGeometry;
+  conifer: THREE.BufferGeometry;
+  colonnade: THREE.BufferGeometry;
+  temple: { stone: THREE.BufferGeometry; roof: THREE.BufferGeometry; crystal: THREE.BufferGeometry };
+  roof: THREE.MeshStandardMaterial;
+  quartz: THREE.MeshPhysicalMaterial;
+  water: THREE.MeshPhysicalMaterial;
+  waterTex: THREE.CanvasTexture | null;
+  waterfall: THREE.BufferGeometry;
+}
+const K: Partial<SkyKit> = {};
+
+const KIT_STEPS: WarmTask[] = [
+  () => void getGreyNoiseTexture(1234, 0.72, 4),
+  () => {
+    if (K.islandGeoms) return;
+    const m = new Map<string, THREE.BufferGeometry>();
+    for (const arch of ISLAND_ARCHETYPES) {
+      if (arch.id === 'traversal-highway') continue;
+      const segs = arch.tier === 'distant' ? 12 : 20;
+      const g = createProceduralIslandGeometry(arch.radiusTop, arch.depthRock, arch.heightGrass, segs, 0.35);
+      g.clearGroups(); // one material (slope-blended turf / cliff) -> one draw
+      m.set(arch.id, g);
+    }
+    K.islandGeoms = m;
+  },
+  () => {
+    if (K.island) return;
+    const fade = getWorldFade('sky-isles');
+    const base = {
+      ground: { tile: 5.5, tint: 0xd2dcb8, normalScale: 0.9, roughness: [0.7, 1.0] as [number, number], fallback: 0x5d7a38 },
+      rock: { tile: 11, tint: 0xd8d0c4, normalScale: 1.1, roughness: [0.6, 0.98] as [number, number], fallback: 0x786e61 },
+      slope: [0.42, 0.72] as [number, number],
+      vertexColors: true,
+      vcLuma: true,
+      vcRef: 0x5d7a38,
+      vcRefRock: 0x766c60,
+      vcKeep: 0.55,
+      fade,
+    };
+    K.island = createTerrainMaterial({ ...base, name: 'sky-island', band: 'near' });
+    K.islandFar = createTerrainMaterial({ ...base, name: 'sky-island-far', band: 'far' });
+    K.stone = createTerrainMaterial({
+      name: 'sky-stone',
+      rock: { tile: 6, tint: 0xe8e2d6, normalScale: 0.7, roughness: [0.65, 0.95], fallback: 0xa39b8e },
+      macro: 0.1,
+      fade,
+    });
+    K.rockMats = createRockMaterials('sky', ROCK_IDS, {
+      ground: { tile: 5.5, tint: 0xd2dcb8, normalScale: 0.8, fallback: 0x5d7a38 },
+      rock: { tile: 4, tint: 0xd8d0c4, normalScale: 0.6, fallback: 0x7d7468 },
+      slope: [0.78, 0.95],
+      fade,
+    });
+  },
+  () => {
+    if (K.broadleaf) return;
+    K.broadleaf = buildBroadleafGeometry();
+    K.conifer = buildConiferGeometry();
+  },
+  () => {
+    if (K.bark) return;
+    const fade = getWorldFade('sky-isles');
+    const noise = getGreyNoiseTexture(1234, 0.72, 4);
+    K.bark = createScanStandardMaterial({ fallbackColor: 0x4a3a2a, fallbackMap: noise, scanTint: 0xb8a898, fade });
+    K.foliage = applyStreamFade(new THREE.MeshStandardMaterial({ color: 0x3f5a28, roughness: 0.9, metalness: 0, map: noise }), fade);
+    K.needles = applyStreamFade(new THREE.MeshStandardMaterial({ color: 0x2b4024, roughness: 0.92, metalness: 0, map: noise }), fade);
+    K.roof = applyStreamFade(new THREE.MeshStandardMaterial({ color: 0x5f8574, roughness: 0.75, metalness: 0.1, map: noise }), fade);
+    // Clear quartz: opaque glossy dielectric, reflections do the work (no transmission pass)
+    K.quartz = applyStreamFade(
+      new THREE.MeshPhysicalMaterial({
+        color: 0xdfeaf0,
+        roughness: 0.08,
+        metalness: 0,
+        ior: 1.54,
+        clearcoat: 1,
+        clearcoatRoughness: 0.04,
+        envMapIntensity: 1.4,
+        flatShading: true,
+      }),
+      fade
+    );
+  },
+  () => {
+    if (K.colonnade) return;
+    K.colonnade = buildColonnadeGeometry();
+    K.temple = buildTempleGeometries();
+    K.waterfall = buildWaterfallGeometry(34, 3.2);
+    K.waterTex = getWaterStreakTexture();
+    K.water = applyStreamFade(
+      new THREE.MeshPhysicalMaterial({
+        color: 0xe4eef0,
+        roughness: 0.18,
+        metalness: 0,
+        ior: 1.333,
+        map: K.waterTex,
+        alphaMap: K.waterTex,
+        transparent: true,
+        opacity: K.waterTex ? 0.85 : 0.65,
+        depthWrite: false,
+        side: THREE.DoubleSide,
+      }),
+      getWorldFade('sky-isles')
+    );
+  },
+];
+
+interface Landmark {
+  group: THREE.Group;
+  crystal: THREE.Mesh | null;
 }
 
 /**
- * SkyIslesWorld integrates:
- * - Traversal and decorative floating island procedural generation
- * - Atmospheric cloud layers and sea-of-clouds
- * - Ancient portal arches, temples, waterfalls, and vegetation
- * - Graphics preset scaling & distance-based streaming
+ * SkyIslesWorld: floating turf-and-cliff islands (scanned turf / cliff
+ * textures), trees, scanned boulders, a colonnade or temple on the largest
+ * isles, waterfalls, and the cloud atmosphere. Islands, trees and rocks are
+ * instanced pools recycled as 60 m chunks stream.
  */
-export class SkyIslesWorld {
-  public scene: THREE.Scene;
-  public group: THREE.Group;
+export class SkyIslesWorld extends StreamedWorld {
   public config = skyIslesConfig;
+  public atmosphere: SkyIslesAtmosphere | null = null;
+  protected readonly chunkLength = CHUNK;
 
-  // Sub-systems
-  public atmosphere: SkyIslesAtmosphere;
-  public decorations: SkyIslesDecorations;
-
-  // Island Geometries & Materials Cache
-  private islandGeoms: Map<string, THREE.BufferGeometry> = new Map();
-  private materials: ReturnType<typeof createSkyIslesIslandMaterials>;
-  // [turf cap, rock underside] matching the island geometry groups
-  private islandMaterials: THREE.Material[];
-
-  // Active spawned islands
-  private activeIslands: ActiveIslandItem[] = [];
-  private lastChunkZ = -999;
+  private islandPools = new Map<string, InstancePool>();
+  private treePools: { broadleaf: InstancePool | null; conifer: InstancePool | null } = { broadleaf: null, conifer: null };
+  private rockPools: RockPools | null = null;
+  private landmarks = new Map<THREE.Object3D, Landmark>();
 
   constructor(scene: THREE.Scene, graphicsConfig: GraphicsConfig) {
-    this.scene = scene;
-    this.group = new THREE.Group();
-    this.group.name = 'SkyIslesWorldRootGroup';
-    this.scene.add(this.group);
-
-    this.materials = createSkyIslesIslandMaterials();
-    this.islandMaterials = [this.materials.islandMaterial, this.materials.islandRockMaterial];
-    this.initGeometries();
-
-    this.atmosphere = new SkyIslesAtmosphere(this.scene, graphicsConfig);
-    this.decorations = new SkyIslesDecorations(this.scene, this.materials.detailTexture);
+    super(scene, graphicsConfig, 'sky-isles', 'SkyIslesWorldRootGroup');
   }
 
-  private initGeometries(): void {
-    // Generate archetypal island geometries for reuse across the world
-    for (const arch of ISLAND_ARCHETYPES) {
-      const segs = arch.tier === 'distant' ? 12 : 20;
-      const geom = createProceduralIslandGeometry(
-        arch.radiusTop,
-        arch.depthRock,
-        arch.heightGrass,
-        segs,
-        0.35
-      );
-      this.islandGeoms.set(arch.id, geom);
-    }
-  }
-
-  /**
-   * Procedural streaming along player traversal Z
-   */
-  public update(playerZ: number, dt: number, time: number, graphicsConfig: GraphicsConfig): void {
-    const chunkZ = Math.floor(playerZ / 80);
-
-    // Stream islands if player entered a new chunk band
-    if (chunkZ !== this.lastChunkZ) {
-      this.lastChunkZ = chunkZ;
-      this.streamIslands(playerZ, graphicsConfig);
-    }
-
-    // Update animated systems
-    this.atmosphere.update(dt, playerZ, time);
-    this.decorations.update(time);
-  }
-
-  private streamIslands(playerZ: number, graphicsConfig: GraphicsConfig): void {
-    // 1. Cull islands far behind or too far ahead
-    const cullBehindZ = playerZ - 120;
-    const cullAheadZ = playerZ + 480;
-
-    for (let i = this.activeIslands.length - 1; i >= 0; i--) {
-      const item = this.activeIslands[i];
-      if (item.z < cullBehindZ || item.z > cullAheadZ) {
-        this.group.remove(item.mesh);
-        for (const dec of item.decorations) {
-          this.decorations.removeObject(dec);
-        }
-        this.activeIslands.splice(i, 1);
-      }
-    }
-
-    // 2. Generate islands in forward bands (120m to 420m ahead)
-    const activeZCoords = new Set(this.activeIslands.map(isl => Math.round(isl.z / 60)));
-    const targetBands = [
-      Math.floor(playerZ / 60) + 1,
-      Math.floor(playerZ / 60) + 2,
-      Math.floor(playerZ / 60) + 3,
-      Math.floor(playerZ / 60) + 4,
-      Math.floor(playerZ / 60) + 5,
-      Math.floor(playerZ / 60) + 6,
+  protected warmTasks(): WarmTask[] {
+    return [
+      ...KIT_STEPS,
+      () => {
+        this.atmosphere = new SkyIslesAtmosphere(this.group, this.graphicsConfig);
+      },
     ];
-
-    for (const band of targetBands) {
-      if (!activeZCoords.has(band)) {
-        this.spawnIslandBand(band * 60, graphicsConfig);
-      }
-    }
   }
 
-  private spawnIslandBand(centerZ: number, graphicsConfig: GraphicsConfig): void {
-    // Deterministic pseudo-random seed based on band coordinate
+  protected onKitReady(): void {
+    const k = K as SkyKit;
+    const islandCaps: Record<string, number> = {
+      'large-sanctuary': 24,
+      'medium-plateau': 24,
+      'small-satellite': 24,
+      'distant-monolith': 12,
+    };
+    for (const [id, cap] of Object.entries(islandCaps)) {
+      const geo = k.islandGeoms.get(id);
+      if (!geo) continue;
+      const far = id === 'distant-monolith';
+      const pool = new InstancePool(`sky-island-${id}`, geo, far ? k.islandFar.material : k.island.material, cap, {
+        castShadow: id === 'large-sanctuary' || id === 'medium-plateau',
+      });
+      this.islandPools.set(id, this.addPool(pool));
+    }
+    this.treePools.broadleaf = this.addPool(
+      new InstancePool('sky-broadleaf', k.broadleaf, [k.bark.material, k.foliage], 128, { castShadow: true })
+    );
+    this.treePools.conifer = this.addPool(
+      new InstancePool('sky-conifer', k.conifer, [k.bark.material, k.needles], 128, { castShadow: true })
+    );
+    this.rockPools = createRockPools('sky', ROCK_IDS, k.rockMats, 48, 0);
+    for (const p of this.rockPools.near.values()) this.addPool(p);
+  }
+
+  protected applyScannedAssets(): void {
+    const k = K as SkyKit;
+    const turf = getLoadedTextureSet('sky-isles/turf');
+    const cliff = getLoadedTextureSet('sky-isles/cliff');
+    const bark = getLoadedTextureSet('shared/bark');
+    for (const h of [k.island, k.islandFar]) {
+      h.setGround(turf);
+      h.setRock(cliff);
+    }
+    k.stone.setRock(cliff);
+    for (const h of k.rockMats.values()) {
+      h.setGround(turf);
+      h.setRock(cliff);
+    }
+    if (bark) k.bark.apply(bark);
+    if (this.rockPools) applyEnvModels(this.rockPools, k.rockMats);
+  }
+
+  protected spawnChunk(chunk: StreamChunk): void {
+    const k = K as SkyKit;
+    const centerZ = chunk.centerZ;
     const seed = Math.abs(centerZ) * 17 + 23;
     const rnd = (offset = 0) => {
       const x = Math.sin(seed + offset) * 10000;
       return x - Math.floor(x);
     };
+    const preset = this.preset;
 
-    // Determine counts scaled by GraphicsConfig preset
-    let islandCount = 3;
-    if (graphicsConfig.preset === 'mobile-opt') islandCount = 2;
-    if (graphicsConfig.preset === 'webgl-min') islandCount = 1;
-
-    // Spawn 1 Flank Island on Left and/or Right flank of the highway
-    const sides: Array<'left' | 'right'> = rnd(1) > 0.5 ? ['left', 'right'] : (rnd(2) > 0.5 ? ['left'] : ['right']);
-
+    const sides: Array<'left' | 'right'> = rnd(1) > 0.5 ? ['left', 'right'] : rnd(2) > 0.5 ? ['left'] : ['right'];
     for (const side of sides) {
-      // Salt the right flank so both sides of a band don't mirror each other
       const salt = side === 'left' ? 0 : 50;
       const srnd = (offset: number) => rnd(offset + salt);
-      const archId = srnd(3) > 0.6 ? 'large-sanctuary' : (srnd(4) > 0.3 ? 'medium-plateau' : 'small-satellite');
-      const geom = this.islandGeoms.get(archId);
-      if (!geom) continue;
-
-      const mesh = new THREE.Mesh(geom, this.islandMaterials);
-      mesh.receiveShadow = graphicsConfig.enableShadows;
-      mesh.castShadow = graphicsConfig.enableShadows && archId !== 'small-satellite';
-
+      const archId = srnd(3) > 0.6 ? 'large-sanctuary' : srnd(4) > 0.3 ? 'medium-plateau' : 'small-satellite';
+      if (preset === 'webgl-min' && archId !== 'large-sanctuary' && side === 'right') continue;
+      const arch = ISLAND_ARCHETYPES.find((a) => a.id === archId)!;
+      const radius = arch.radiusTop;
+      const heightGrass = arch.heightGrass;
       const sign = side === 'left' ? -1 : 1;
-      // Keep the whole island (rim noise reaches ~1.2x radiusTop) clear of the
-      // road: the large isles used to overhang the lanes at the old 22 m offset.
-      const arch = ISLAND_ARCHETYPES.find(a => a.id === archId);
-      const radius = arch?.radiusTop ?? 18.0;
-      const heightGrass = arch?.heightGrass ?? 3.0;
+      // Keep the whole island (rim reaches ~1.12x radiusTop) clear of the road
       const posX = sign * (ROAD_CLEARANCE_X + radius * 1.25 + srnd(5) * 28.0);
       const posY = -4.0 + (srnd(6) - 0.5) * 14.0;
       const posZ = centerZ + (srnd(7) - 0.5) * 24.0;
+      if (!this.inRange(posZ, radius * 1.15)) continue;
+      const rotY = srnd(8) * Math.PI * 2;
+      this.place(chunk, this.islandPools.get(archId) ?? null, trs(posX, posY, posZ, rotY, 1));
 
-      mesh.position.set(posX, posY, posZ);
-      mesh.rotation.y = srnd(8) * Math.PI * 2;
-      this.group.add(mesh);
-
-      const attachedDecs: THREE.Object3D[] = [];
-
-      // Waterfall plunging off the road-facing rim of large islands. The sheet
-      // hangs tangent to the rim and arcs outward ~2 m (towards the road, which
-      // is still >= 11 m away at the lip).
-      if (archId === 'large-sanctuary' && graphicsConfig.preset !== 'webgl-min') {
-        const fallEdgePos = new THREE.Vector3(
-          posX - sign * radius * 0.98,
-          posY + heightGrass - 0.55,
-          posZ + 2.0
-        );
-        const fall = this.decorations.createWaterfall(
-          fallEdgePos,
-          34.0,
-          3.2,
-          sign > 0 ? -Math.PI / 2 : Math.PI / 2
-        );
-        attachedDecs.push(fall);
+      // Waterfall off the road-facing rim of large islands
+      if (archId === 'large-sanctuary' && preset !== 'webgl-min') {
+        const fall = new THREE.Mesh(k.waterfall, k.water);
+        fall.position.set(posX - sign * radius * 0.98, posY + heightGrass - 0.55, posZ + 2.0);
+        fall.rotation.y = sign > 0 ? -Math.PI / 2 : Math.PI / 2;
+        this.addObject(chunk, fall);
       }
 
-      // Add Landmark: Ancient Portal Arch or Sky Temple
+      // Landmark: stone colonnade or sky temple on the largest isles
       let hasLandmark = false;
       if (archId === 'large-sanctuary' && srnd(9) > 0.4) {
-        const isArch = srnd(10) > 0.5;
-        const lm = this.decorations.spawnLandmark(
-          isArch ? 'arch' : 'temple',
-          new THREE.Vector3(posX, posY + heightGrass - 0.4, posZ),
-          isArch ? 1.0 : 0.85
-        );
-        attachedDecs.push(lm);
+        const lm = this.spawnLandmark(srnd(10) > 0.5 ? 'colonnade' : 'temple', posX, posY + heightGrass - 0.4, posZ, (srnd(13) - 0.5) * 0.6);
+        this.addObject(chunk, lm);
         hasLandmark = true;
       }
 
-      // Trees scattered over the turf (halved on mobile, none on webgl-min)
-      if (graphicsConfig.preset !== 'webgl-min') {
+      // Trees scattered over the turf
+      if (preset !== 'webgl-min') {
         let treeCount =
           archId === 'large-sanctuary' ? 3 + Math.floor(srnd(11) * 3) :
           archId === 'medium-plateau' ? 1 + Math.floor(srnd(11) * 3) :
-          (srnd(11) > 0.5 ? 1 : 0);
-        if (graphicsConfig.preset === 'mobile-opt') treeCount = Math.ceil(treeCount / 2);
-
-        const minDist = hasLandmark ? radius * 0.5 : (treeCount === 1 ? 0 : radius * 0.15);
+          srnd(11) > 0.5 ? 1 : 0;
+        if (preset === 'mobile-opt') treeCount = Math.ceil(treeCount / 2);
+        const minDist = hasLandmark ? radius * 0.5 : treeCount === 1 ? 0 : radius * 0.15;
         const maxDist = radius * 0.72;
         for (let t = 0; t < treeCount; t++) {
           const ang = srnd(20 + t * 3) * Math.PI * 2;
@@ -221,66 +282,92 @@ export class SkyIslesWorld {
           const tz = posZ + Math.sin(ang) * dist;
           const ty = posY + skyIslesCapHeight(heightGrass, radius, dist) - 0.15;
           const scale = 0.85 + srnd(22 + t * 3) * 0.5;
-          const tree = this.decorations.spawnTree(new THREE.Vector3(tx, ty, tz), scale);
-          attachedDecs.push(tree);
+          const conifer = srnd(23 + t * 3) < 0.45;
+          const sy = scale * (0.9 + srnd(24 + t * 3) * 0.25);
+          this.place(chunk, conifer ? this.treePools.conifer : this.treePools.broadleaf, trs(tx, ty, tz, srnd(25 + t * 3) * Math.PI * 2, scale, sy, scale));
         }
       }
 
-      this.activeIslands.push({
-        id: `island-${centerZ}-${side}`,
-        mesh,
-        decorations: attachedDecs,
-        z: posZ,
-        lodTier: 'high',
-      });
+      // Scanned boulders bedded into the turf
+      if (archId !== 'small-satellite' && this.rockPools) {
+        const n = archId === 'large-sanctuary' ? 2 : 1;
+        for (let b = 0; b < n; b++) {
+          const id: EnvModelId = srnd(40 + b) > 0.55 ? 'slab' : 'boulder';
+          const ang = srnd(41 + b * 2) * Math.PI * 2;
+          const dist = radius * (0.35 + srnd(42 + b * 2) * 0.3);
+          const bx = posX + Math.cos(ang) * dist;
+          const bz = posZ + Math.sin(ang) * dist;
+          const s = 0.9 + srnd(43 + b) * 1.1;
+          const by = posY + skyIslesCapHeight(heightGrass, radius, dist) - ENV_MODEL_HEIGHT[id] * s * 0.25;
+          this.place(chunk, this.rockPools.near.get(id) ?? null, trs(bx, by, bz, srnd(44 + b) * 6.28, s), rockTint(srnd(45 + b)));
+        }
+      }
     }
 
-    // Spawn 1 Distant Horizon Monolith for atmospheric depth (if desktop)
-    if (graphicsConfig.preset === 'desktop-full' && rnd(12) > 0.4) {
-      const dGeom = this.islandGeoms.get('distant-monolith');
-      if (dGeom) {
-        const dMesh = new THREE.Mesh(dGeom, this.islandMaterials);
-        // Always well to one side; the old spread could land it over the road.
-        const dX = (rnd(14) > 0.5 ? 1 : -1) * (80 + rnd(13) * 120);
-        const dY = 10.0 + rnd(15) * 45.0;
-        const dZ = centerZ + 180.0 + rnd(16) * 120.0;
-        dMesh.position.set(dX, dY, dZ);
-        dMesh.scale.set(1.5, 1.5, 1.5);
-        this.group.add(dMesh);
-
-        this.activeIslands.push({
-          id: `island-dist-${centerZ}`,
-          mesh: dMesh,
-          decorations: [],
-          z: dZ,
-          lodTier: 'low',
-        });
+    // Distant horizon crag for atmospheric depth (far fade band)
+    if (preset === 'desktop-full' && rnd(12) > 0.4) {
+      const dX = (rnd(14) > 0.5 ? 1 : -1) * (80 + rnd(13) * 120);
+      const dY = 10.0 + rnd(15) * 45.0;
+      const dZ = centerZ + 180.0 + rnd(16) * 120.0;
+      if (this.inRange(dZ, 16 * 1.5 * 1.15)) {
+        this.place(chunk, this.islandPools.get('distant-monolith') ?? null, trs(dX, dY, dZ, rnd(17) * 6.28, 1.5));
       }
     }
   }
 
-  public dispose(): void {
-    this.scene.remove(this.group);
-    for (const item of this.activeIslands) {
-      this.group.remove(item.mesh);
+  private spawnLandmark(type: 'colonnade' | 'temple', x: number, y: number, z: number, rotY: number): THREE.Group {
+    const k = K as SkyKit;
+    const g = new THREE.Group();
+    g.position.set(x, y, z);
+    g.rotation.y = rotY;
+    let crystal: THREE.Mesh | null = null;
+    const add = (geo: THREE.BufferGeometry, mat: THREE.Material, shadow = true) => {
+      const m = new THREE.Mesh(geo, mat);
+      m.castShadow = shadow;
+      m.receiveShadow = true;
+      g.add(m);
+      return m;
+    };
+    if (type === 'colonnade') {
+      add(k.colonnade, k.stone.material);
+    } else {
+      g.scale.setScalar(0.85);
+      add(k.temple.stone, k.stone.material);
+      add(k.temple.roof, k.roof);
+      crystal = add(k.temple.crystal, k.quartz, false);
+      crystal.position.set(0, 4.5, 0);
     }
-    this.activeIslands = [];
+    this.landmarks.set(g, { group: g, crystal });
+    return g;
+  }
 
-    // Dispose cached geometries
-    for (const geom of this.islandGeoms.values()) {
-      geom.dispose();
+  protected releaseChunk(chunk: StreamChunk): void {
+    for (const o of chunk.objects) this.landmarks.delete(o);
+    super.releaseChunk(chunk);
+  }
+
+  protected animate(playerZ: number, dt: number, time: number): void {
+    const k = K as SkyKit;
+    for (const h of [k.island, k.islandFar, k.stone, ...k.rockMats.values()]) h.tick(dt);
+    if (this.atmosphere) {
+      this.atmosphere.group.visible = this.playerInRange(playerZ);
+      if (this.atmosphere.group.visible) this.atmosphere.update(dt, playerZ, time);
     }
-    this.islandGeoms.clear();
+    const spin = time * 0.3;
+    let i = 0;
+    for (const lm of this.landmarks.values()) {
+      if (lm.crystal) lm.crystal.rotation.y = spin + i;
+      i++;
+    }
+    if (k.waterTex) k.waterTex.offset.y = (time * 0.9) % 1;
+  }
 
-    // Dispose materials
-    this.materials.islandMaterial.dispose();
-    this.materials.islandRockMaterial.dispose();
-    this.materials.waterfallMaterial.dispose();
-    this.materials.ancientStoneMaterial.dispose();
-    this.materials.crystalBeaconMaterial.dispose();
-    this.materials.detailTexture?.dispose();
-
-    this.atmosphere.dispose();
-    this.decorations.dispose();
+  protected disposeWorld(): void {
+    this.landmarks.clear();
+    this.atmosphere?.dispose();
+    this.atmosphere = null;
+    this.islandPools.clear();
+    this.treePools = { broadleaf: null, conifer: null };
+    this.rockPools = null;
   }
 }

@@ -35,7 +35,7 @@ function createSoftDustSprite(): THREE.CanvasTexture | null {
  */
 export class CrimsonDunesAtmosphere {
   public group: THREE.Group;
-  private scene: THREE.Scene;
+  private scene: THREE.Object3D;
 
   // Drifting Sand Dust Particles
   private dustPoints: THREE.Points | null = null;
@@ -45,7 +45,7 @@ export class CrimsonDunesAtmosphere {
   private dustPositions: Float32Array | null = null;
   private dustVelocities: Float32Array | null = null;
 
-  constructor(scene: THREE.Scene, graphicsConfig: GraphicsConfig) {
+  constructor(scene: THREE.Object3D, graphicsConfig: GraphicsConfig) {
     this.scene = scene;
     this.group = new THREE.Group();
     this.group.name = 'CrimsonDunesAtmosphereGroup';

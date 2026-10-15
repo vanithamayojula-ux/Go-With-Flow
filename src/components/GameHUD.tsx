@@ -3,6 +3,10 @@ import { Volume2, VolumeX, Sliders, Eye, Palette, Smartphone, Monitor, Shield, T
 import { BiomeType, LightingMode, PlayerStats } from '../types';
 import { WorldIntroBanner } from './WorldIntroBanner';
 import { WORLDS, WORLD_ORDER, WorldId } from '../game/worlds';
+import { useLiveStats } from '../state/liveStats';
+
+// The banner only depends on the world id; skip it on the HUD's stats ticks.
+const MemoWorldIntroBanner = React.memo(WorldIntroBanner);
 
 const WORLD_SECTOR_INFO: Record<string, { sector: number; name: string; icon: string; border: string; text: string; bg: string; swatch: string }> = {
   'sky-isles': {
@@ -53,11 +57,16 @@ const WORLD_SECTOR_INFO: Record<string, { sector: number; name: string; icon: st
 };
 
 interface GameHUDProps {
-  stats: PlayerStats;
+  /**
+   * Live values come from the liveStats store (the HUD subscribes itself, so
+   * the App shell doesn't re-render on every stats tick). Passing them still
+   * works and overrides the store.
+   */
+  stats?: PlayerStats;
   bankedShards?: number;
-  fps: number;
-  drawCalls: number;
-  instanceCount: number;
+  fps?: number;
+  drawCalls?: number;
+  instanceCount?: number;
   lightingMode: LightingMode;
   onSelectLighting: (mode: LightingMode) => void;
   isMuted: boolean;
@@ -77,12 +86,12 @@ interface GameHUDProps {
   notification: string | null;
 }
 
-export const GameHUD: React.FC<GameHUDProps> = ({
-  stats,
+const GameHUDView: React.FC<GameHUDProps> = ({
+  stats: statsProp,
   bankedShards = 0,
-  fps,
-  drawCalls,
-  instanceCount,
+  fps: fpsProp,
+  drawCalls: drawCallsProp,
+  instanceCount: instanceCountProp,
   lightingMode,
   onSelectLighting,
   isMuted,
@@ -101,6 +110,11 @@ export const GameHUD: React.FC<GameHUDProps> = ({
   gameModeMgr,
   notification,
 }) => {
+  const live = useLiveStats();
+  const stats = statsProp ?? live.stats;
+  const fps = fpsProp ?? live.fps;
+  const drawCalls = drawCallsProp ?? live.drawCalls;
+  const instanceCount = instanceCountProp ?? live.instances;
   const [showDevInspector, setShowDevInspector] = useState(false);
   const [isMenuOpen, setIsMenuOpen] = useState(false);
 
@@ -179,7 +193,7 @@ export const GameHUD: React.FC<GameHUDProps> = ({
     action?.();
   };
 
-  const toolButton = 'min-h-[40px] min-w-[40px] p-2 flex items-center justify-center rounded-lg border backdrop-blur-md transition-all active:scale-95 shadow-md';
+  const toolButton = 'min-h-[40px] min-w-[40px] p-2 flex items-center justify-center rounded-lg border transition-all active:scale-95 shadow-md';
   const menuItem = 'w-full min-h-[40px] px-2.5 py-2 flex items-center gap-2 rounded-lg text-left text-xs font-bold transition-all active:scale-[0.98]';
 
   return (
@@ -188,7 +202,7 @@ export const GameHUD: React.FC<GameHUDProps> = ({
       className="pointer-events-none absolute inset-0 z-20 flex flex-col justify-between pt-[max(0.75rem,env(safe-area-inset-top))] pl-[max(0.75rem,env(safe-area-inset-left))] pr-[max(0.75rem,env(safe-area-inset-right))] pb-3 sm:pt-[max(1.25rem,env(safe-area-inset-top))] sm:pl-[max(1.25rem,env(safe-area-inset-left))] sm:pr-[max(1.25rem,env(safe-area-inset-right))] select-none font-mono"
     >
       {/* Subtle Cinematic World Introduction Banner */}
-      <WorldIntroBanner worldId={stats.currentWorldId || 'sky-isles'} />
+      <MemoWorldIntroBanner worldId={stats.currentWorldId || 'sky-isles'} />
 
       {/*
         Top bar. Phones/tablets: the overdrive meter spans the first row, then
@@ -200,7 +214,7 @@ export const GameHUD: React.FC<GameHUDProps> = ({
         <div className="order-2 lg:order-1 flex flex-col gap-2 min-w-0 flex-1">
           {/* Logo & Zone Indicator */}
           <div className="flex items-center gap-2 pointer-events-auto flex-wrap">
-            <div className="hidden sm:flex items-center gap-2 px-3 py-1.5 rounded-lg bg-black/80 backdrop-blur-md border border-cyan-500/50 shadow-lg shadow-cyan-950/40">
+            <div className="hidden sm:flex items-center gap-2 px-3 py-1.5 rounded-lg bg-black/80 border border-cyan-500/50 shadow-lg shadow-cyan-950/40">
               <div className="w-2.5 h-2.5 rounded-sm bg-cyan-400 animate-pulse shadow-md shadow-cyan-400" />
               <span className="font-black text-sm tracking-widest text-cyan-300 whitespace-nowrap">GO WITH FLOW</span>
             </div>
@@ -208,7 +222,7 @@ export const GameHUD: React.FC<GameHUDProps> = ({
             {/* World Sector Indicator */}
             {stats.currentWorldId && WORLD_SECTOR_INFO[stats.currentWorldId] ? (
               <div
-                className={`px-2.5 py-1.5 rounded-lg bg-black/80 backdrop-blur-md border text-xs font-bold flex items-center gap-1.5 shadow-md whitespace-nowrap ${WORLD_SECTOR_INFO[stats.currentWorldId].border} ${WORLD_SECTOR_INFO[stats.currentWorldId].text}`}
+                className={`px-2.5 py-1.5 rounded-lg bg-black/80 border text-xs font-bold flex items-center gap-1.5 shadow-md whitespace-nowrap ${WORLD_SECTOR_INFO[stats.currentWorldId].border} ${WORLD_SECTOR_INFO[stats.currentWorldId].text}`}
               >
                 <span className="text-[10px] bg-white/10 px-1 py-0.5 rounded font-black">
                   {WORLD_SECTOR_INFO[stats.currentWorldId].icon} {WORLD_SECTOR_INFO[stats.currentWorldId].sector}/5
@@ -216,7 +230,7 @@ export const GameHUD: React.FC<GameHUDProps> = ({
                 <span>{WORLD_SECTOR_INFO[stats.currentWorldId].name}</span>
               </div>
             ) : (
-              <div className={`px-2.5 py-1.5 rounded-lg bg-black/75 backdrop-blur-md border text-xs font-bold flex items-center gap-1.5 shadow-md ${biomeBadge.color}`}>
+              <div className={`px-2.5 py-1.5 rounded-lg bg-black/75 border text-xs font-bold flex items-center gap-1.5 shadow-md ${biomeBadge.color}`}>
                 <span className="text-[10px] bg-white/10 px-1 py-0.5 rounded font-black">{biomeBadge.tag}</span>
                 <span>{biomeBadge.name}</span>
               </div>
@@ -224,7 +238,7 @@ export const GameHUD: React.FC<GameHUDProps> = ({
 
             {/* Next World Preview Swatch */}
             {nextThemeInfo && (
-              <div className="hidden sm:flex px-2.5 py-1.5 rounded-lg bg-black/75 backdrop-blur-md border border-slate-700 text-xs font-bold items-center gap-1.5 shadow-md whitespace-nowrap">
+              <div className="hidden sm:flex px-2.5 py-1.5 rounded-lg bg-black/75 border border-slate-700 text-xs font-bold items-center gap-1.5 shadow-md whitespace-nowrap">
                 <span className="text-[9px] text-slate-400 font-bold uppercase">NEXT:</span>
                 <div className={`w-2.5 h-2.5 rounded-full ${nextThemeInfo.swatch} animate-pulse`} />
                 <span className="text-slate-200">{nextThemeInfo.name}</span>
@@ -233,7 +247,7 @@ export const GameHUD: React.FC<GameHUDProps> = ({
 
             {/* Active Game Mode Badge */}
             {gameModeMgr && gameModeMgr.activeModeId !== 'standard-run' && (
-              <div className="px-2.5 py-1.5 rounded-lg bg-amber-950/70 backdrop-blur-md border border-amber-400 text-amber-300 text-xs font-bold flex items-center gap-1.5 shadow-md shadow-amber-950/40">
+              <div className="px-2.5 py-1.5 rounded-lg bg-amber-950/70 border border-amber-400 text-amber-300 text-xs font-bold flex items-center gap-1.5 shadow-md shadow-amber-950/40">
                 <span className="text-[10px] bg-amber-400/20 px-1 py-0.5 rounded font-black text-amber-200 uppercase">
                   {gameModeMgr.activeMode.name}
                 </span>
@@ -258,16 +272,16 @@ export const GameHUD: React.FC<GameHUDProps> = ({
             const m = gameModeMgr.activeMode.getHudMetrics();
             return (
               <div className="flex items-center gap-2 pointer-events-auto flex-wrap">
-                <div className="px-3 py-1.5 rounded-lg bg-slate-950/90 backdrop-blur-md border border-amber-500/40 text-amber-300 flex items-center gap-2 shadow-sm">
+                <div className="px-3 py-1.5 rounded-lg bg-slate-950/90 border border-amber-500/40 text-amber-300 flex items-center gap-2 shadow-sm">
                   <span className="text-[9px] text-amber-400 font-bold uppercase tracking-wider">{m.primaryLabel}</span>
                   <span className="text-base font-black font-mono tracking-tight text-white">{m.primaryValue}</span>
                 </div>
-                <div className="px-3 py-1.5 rounded-lg bg-slate-950/90 backdrop-blur-md border border-cyan-500/40 text-cyan-300 flex items-center gap-2 shadow-sm">
+                <div className="px-3 py-1.5 rounded-lg bg-slate-950/90 border border-cyan-500/40 text-cyan-300 flex items-center gap-2 shadow-sm">
                   <span className="text-[9px] text-cyan-400 font-bold uppercase tracking-wider">{m.secondaryLabel}</span>
                   <span className="text-sm font-bold font-mono tracking-tight text-white">{m.secondaryValue}</span>
                 </div>
                 {m.tertiaryLabel && m.tertiaryValue && (
-                  <div className="px-2.5 py-1.5 rounded-lg bg-slate-950/90 backdrop-blur-md border border-slate-700 text-slate-300 flex items-center gap-1 shadow-sm">
+                  <div className="px-2.5 py-1.5 rounded-lg bg-slate-950/90 border border-slate-700 text-slate-300 flex items-center gap-1 shadow-sm">
                     <span className="text-[10px] text-slate-400 font-bold uppercase">{m.tertiaryLabel}:</span>
                     <span className="text-xs font-bold font-mono text-white">{m.tertiaryValue}</span>
                   </div>
@@ -279,7 +293,7 @@ export const GameHUD: React.FC<GameHUDProps> = ({
           {/* Core Metrics: Speed, Score, Shards, Distance */}
           <div className="flex items-center gap-1.5 sm:gap-2 pointer-events-auto flex-wrap">
             {/* Speedometer */}
-            <div className="px-2.5 sm:px-3 py-1.5 rounded-lg bg-slate-950/90 backdrop-blur-md border border-cyan-500/30 text-cyan-300 flex items-center gap-1.5 sm:gap-2 shadow-sm whitespace-nowrap">
+            <div className="px-2.5 sm:px-3 py-1.5 rounded-lg bg-slate-950/90 border border-cyan-500/30 text-cyan-300 flex items-center gap-1.5 sm:gap-2 shadow-sm whitespace-nowrap">
               <span className="text-[9px] text-cyan-300 font-bold uppercase tracking-wider">SPEED</span>
               <span className="text-sm sm:text-base font-black font-mono tracking-tight text-white">
                 {stats.speed} <span className="text-[10px] text-cyan-300 font-normal">KM/H</span>
@@ -287,7 +301,7 @@ export const GameHUD: React.FC<GameHUDProps> = ({
             </div>
 
             {/* Score & Multiplier */}
-            <div className="px-2.5 sm:px-3 py-1.5 rounded-lg bg-slate-950/90 backdrop-blur-md border border-fuchsia-500/30 text-fuchsia-300 flex items-center gap-1.5 sm:gap-2 shadow-sm whitespace-nowrap">
+            <div className="px-2.5 sm:px-3 py-1.5 rounded-lg bg-slate-950/90 border border-fuchsia-500/30 text-fuchsia-300 flex items-center gap-1.5 sm:gap-2 shadow-sm whitespace-nowrap">
               <span className="text-[9px] text-fuchsia-300 font-bold uppercase tracking-wider">SCORE</span>
               <span className="text-sm sm:text-base font-black font-mono tracking-tight text-white">
                 {Math.floor(stats.score).toLocaleString()}
@@ -300,7 +314,7 @@ export const GameHUD: React.FC<GameHUDProps> = ({
             </div>
 
             {/* High Score Trophy */}
-            <div className="hidden sm:flex px-2.5 py-1.5 rounded-lg bg-slate-950/90 backdrop-blur-md border border-amber-500/30 text-amber-300 items-center gap-1.5 shadow-sm" title="Best score">
+            <div className="hidden sm:flex px-2.5 py-1.5 rounded-lg bg-slate-950/90 border border-amber-500/30 text-amber-300 items-center gap-1.5 shadow-sm" title="Best score">
               <Trophy className="w-3.5 h-3.5 text-amber-400" />
               <span className="text-xs font-bold text-amber-200">
                 {stats.highScore > 0 ? Math.floor(stats.highScore).toLocaleString() : '0'}
@@ -308,7 +322,7 @@ export const GameHUD: React.FC<GameHUDProps> = ({
             </div>
 
             {/* Data Shards Harvested this run */}
-            <div className="px-2.5 py-1.5 rounded-lg bg-slate-950/90 backdrop-blur-md border border-cyan-500/30 text-cyan-300 flex items-center gap-1.5 shadow-sm" title="Shards collected this run">
+            <div className="px-2.5 py-1.5 rounded-lg bg-slate-950/90 border border-cyan-500/30 text-cyan-300 flex items-center gap-1.5 shadow-sm" title="Shards collected this run">
               <span className="text-xs">💎</span>
               <span className="text-xs font-bold text-cyan-100">
                 +{stats.dataShardsCollected || stats.windOrbsCollected || 0}
@@ -316,7 +330,7 @@ export const GameHUD: React.FC<GameHUDProps> = ({
             </div>
 
             {/* Total Banked Shards Wallet (dark chip so the label stays readable over a bright sky) */}
-            <div className="hidden sm:flex px-2.5 py-1.5 rounded-lg bg-slate-950/90 backdrop-blur-md border border-cyan-500/40 items-center gap-1.5 shadow-sm" title="Banked Shards (spend in the Upgrades Bay)">
+            <div className="hidden sm:flex px-2.5 py-1.5 rounded-lg bg-slate-950/90 border border-cyan-500/40 items-center gap-1.5 shadow-sm" title="Banked Shards (spend in the Upgrades Bay)">
               <span className="text-[10px] text-cyan-200 font-bold uppercase tracking-wider">BANK</span>
               <span className="text-xs font-black font-mono text-white">
                 {bankedShards.toLocaleString()}
@@ -324,7 +338,7 @@ export const GameHUD: React.FC<GameHUDProps> = ({
             </div>
 
             {/* Distance */}
-            <div className="px-2.5 py-1.5 rounded-lg bg-slate-950/90 backdrop-blur-md border border-slate-700 text-slate-300 flex items-center gap-1 shadow-sm whitespace-nowrap">
+            <div className="px-2.5 py-1.5 rounded-lg bg-slate-950/90 border border-slate-700 text-slate-300 flex items-center gap-1 shadow-sm whitespace-nowrap">
               <span className="text-[10px] text-slate-400 font-bold">DST</span>
               <span className="text-xs font-bold font-mono text-slate-100">{Math.floor(stats.distance)}M</span>
             </div>
@@ -396,7 +410,7 @@ export const GameHUD: React.FC<GameHUDProps> = ({
         <div className="order-1 lg:order-2 basis-full lg:basis-auto shrink-0 flex flex-col items-center">
           {/* Active Trick / Combo Banner */}
           {stats.activeTrickName && (
-            <div className={`mb-2 px-3.5 py-1 rounded-full border text-xs font-black backdrop-blur-md flex items-center gap-2 transition-all ${getComboBadgeColor(stats.combo)}`}>
+            <div className={`mb-2 px-3.5 py-1 rounded-full border text-xs font-black flex items-center gap-2 transition-all ${getComboBadgeColor(stats.combo)}`}>
               <Zap className="w-3.5 h-3.5 animate-spin" />
               <span>{stats.activeTrickName}</span>
               {stats.combo > 1 && (
@@ -409,13 +423,13 @@ export const GameHUD: React.FC<GameHUDProps> = ({
 
           {/* Notification Toast */}
           {notification && !stats.activeTrickName && (
-            <div className="mb-2 px-3.5 py-1 rounded-md bg-black/90 border border-cyan-500/60 text-cyan-300 text-xs font-bold backdrop-blur-md shadow-lg shadow-cyan-950/40 animate-pulse">
+            <div className="mb-2 px-3.5 py-1 rounded-md bg-black/90 border border-cyan-500/60 text-cyan-300 text-xs font-bold shadow-lg shadow-cyan-950/40 animate-pulse">
               {notification}
             </div>
           )}
 
           {/* OVERDRIVE Segmented Meter */}
-          <div className="w-full pointer-events-auto bg-black/85 backdrop-blur-md border border-cyan-500/40 rounded-xl p-2 shadow-lg shadow-cyan-950/30">
+          <div className="w-full pointer-events-auto bg-black/85 border border-cyan-500/40 rounded-xl p-2 shadow-lg shadow-cyan-950/30">
             <div className="flex items-center justify-between text-xs mb-1 px-1">
               <div className="flex items-center gap-1.5">
                 <span className="text-cyan-300 font-bold text-[10px] tracking-wider">OVERDRIVE</span>
@@ -589,13 +603,14 @@ export const GameHUD: React.FC<GameHUDProps> = ({
 
       {/* Dev Inspector Mini-HUD */}
       {showDevInspector && (
-        <div className="pointer-events-auto absolute top-28 lg:top-20 right-[max(0.75rem,env(safe-area-inset-right))] sm:right-5 p-3 rounded-lg bg-black/90 border border-cyan-500/40 text-[11px] text-cyan-300 backdrop-blur-md shadow-xl z-30 flex flex-col gap-1">
+        <div className="pointer-events-auto absolute top-28 lg:top-20 right-[max(0.75rem,env(safe-area-inset-right))] sm:right-5 p-3 rounded-lg bg-black/90 border border-cyan-500/40 text-[11px] text-cyan-300 shadow-xl z-30 flex flex-col gap-1">
           <div className="text-white font-bold border-b border-cyan-500/30 pb-1 mb-1">
             [TELEMETRY DIAGNOSTICS]
           </div>
           <div>FPS: <span className="font-bold text-white">{fps}</span></div>
           <div>DRAW CALLS: <span className="font-bold text-white">{drawCalls}</span></div>
           <div>INSTANCES: <span className="font-bold text-white">{instanceCount}</span></div>
+          <div>RES SCALE: <span className="font-bold text-white">{live.renderScale || '-'}</span></div>
           <div>ZONE: <span className="font-bold text-white">{stats.currentBiome.toUpperCase()}</span></div>
           <div>LANE: <span className="font-bold text-white">{stats.currentLane}</span></div>
           <div>GRINDING: <span className="font-bold text-white">{stats.isGrinding ? 'YES' : 'NO'}</span></div>
@@ -605,3 +620,5 @@ export const GameHUD: React.FC<GameHUDProps> = ({
     </div>
   );
 };
+
+export const GameHUD = React.memo(GameHUDView);

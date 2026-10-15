@@ -30,6 +30,13 @@ const PORTAL_ARCH_TUBE = 0.3;
 const PORTAL_ARCH_CENTER_Y = 3.6; // centre of the semicircular top
 const PORTAL_MEMBRANE_RADIUS = PORTAL_ARCH_RADIUS - PORTAL_ARCH_TUBE;
 
+// GLB obstacles switch to their decimated LOD (~4.5k tris instead of ~57k)
+// this far from the camera. Only the full-detail level casts shadows, so
+// shadow casting is limited to obstacles near the rider for free.
+const OBSTACLE_LOD_DISTANCE = 30;
+// Coins are drawn as one instanced mesh; this many can be live at once.
+const MAX_LIVE_COINS = 96;
+
 // Boost gate gantry: the bar sits well above the chase camera (y ~2.6-2.9).
 const BOOST_GATE_BAR_Y = 4.3;
 const BOOST_GATE_POST_HEIGHT = 4.5;
@@ -108,6 +115,16 @@ const PORTAL_MEMBRANE_FRAGMENT = /* glsl */ `
     #include <colorspace_fragment>
   }
 `;
+
+export interface ObstacleModelDef {
+  id: string;
+  name: string;
+  url: string;
+  /** Decimated copy shown beyond OBSTACLE_LOD_DISTANCE (optional). */
+  lodUrl?: string;
+  targetHeight: number;
+  yaw: number;
+}
 
 export interface Obstacle3DTemplate {
   id: string;
@@ -342,6 +359,10 @@ export interface ObstacleItem {
   targetBiome?: BiomeType;
   nearMissed?: boolean;
   telegraphMesh?: THREE.Mesh;
+  /** Road height under the obstacle, cached at spawn. */
+  groundY?: number;
+  /** Pool the mesh group returns to when the obstacle is despawned. */
+  poolKey?: string;
 }
 
 export interface CoinItem {
@@ -349,7 +370,8 @@ export interface CoinItem {
   x: number;
   y: number;
   z: number;
-  mesh: THREE.Mesh;
+  /** Road height under the coin's spawn point, cached at spawn. */
+  groundY: number;
   collected: boolean;
 }
 
@@ -361,6 +383,8 @@ export interface PowerUpItem {
   z: number;
   mesh: THREE.Group;
   collected: boolean;
+  /** Road height under the power-up, cached at spawn. */
+  groundY?: number;
 }
 
 export interface CollisionResult {
@@ -565,6 +589,18 @@ export class ObstacleManager {
   private lastSpawnZ = 35;
   private genState: ObstacleGeneratorState;
   private _nearMissPosScratch = new THREE.Vector3();
+  // Reused every frame by checkCollisions() (read synchronously by the engine).
+  private _collision: CollisionResult = { collectedCoins: 0 };
+  // Despawned obstacle groups, by kind, reused by the next spawn of that kind.
+  private pools = new Map<string, THREE.Object3D[]>();
+  // All coins are one instanced draw; matrices are rewritten from CoinItem.
+  private coinMesh: THREE.InstancedMesh;
+  private coinMatrix = new THREE.Matrix4();
+  private coinQuat = new THREE.Quaternion();
+  private coinPos = new THREE.Vector3();
+  private coinScale = new THREE.Vector3(1, 1, 1);
+  private coinAxis = new THREE.Vector3(0, 1, 0);
+  private coinTime = 0;
   // Fixed seed (tests / replays) or null for a fresh layout every run.
   private fixedSeed: number | null;
   private lastPlayerSpeed = 22;
@@ -729,14 +765,16 @@ export class ObstacleManager {
   // GLB obstacle models in public/. A model that fails to load is skipped and
   // the procedural barrier covers for it; failed models are retried on the
   // next preload call (next manager or run), successful ones are kept.
-  static readonly OBSTACLE_MODEL_DEFS: ReadonlyArray<{ id: string; name: string; url: string; targetHeight: number; yaw: number }> = [
-    { id: 'sentinel', name: 'Cyber Sentinel', url: 'obstacle01.glb', targetHeight: 2.2, yaw: -Math.PI / 2 },
-    { id: 'frost-drake', name: 'Frost Drake', url: 'obstacle02.glb', targetHeight: 2.2, yaw: -Math.PI / 2 },
-    { id: 'bio-predator', name: 'Bio Predator', url: 'obstacle03.glb', targetHeight: 2.2, yaw: -Math.PI / 2 },
-    { id: 'xenobeast', name: 'Cyber Beast', url: 'obstacle04.glb', targetHeight: 2.1, yaw: -Math.PI / 2 },
+  // `lodUrl` is a decimated copy (gltf-transform simplify, ~8% of the
+  // triangles) shown beyond OBSTACLE_LOD_DISTANCE.
+  static readonly OBSTACLE_MODEL_DEFS: ReadonlyArray<ObstacleModelDef> = [
+    { id: 'sentinel', name: 'Cyber Sentinel', url: 'obstacle01.glb', lodUrl: 'obstacle01_lod.glb', targetHeight: 2.2, yaw: -Math.PI / 2 },
+    { id: 'frost-drake', name: 'Frost Drake', url: 'obstacle02.glb', lodUrl: 'obstacle02_lod.glb', targetHeight: 2.2, yaw: -Math.PI / 2 },
+    { id: 'bio-predator', name: 'Bio Predator', url: 'obstacle03.glb', lodUrl: 'obstacle03_lod.glb', targetHeight: 2.2, yaw: -Math.PI / 2 },
+    { id: 'xenobeast', name: 'Cyber Beast', url: 'obstacle04.glb', lodUrl: 'obstacle04_lod.glb', targetHeight: 2.1, yaw: -Math.PI / 2 },
   ];
 
-  private static buildTemplate(def: { id: string; name: string; url: string; targetHeight: number; yaw: number }, gltf: any): Obstacle3DTemplate {
+  private static buildTemplate(def: ObstacleModelDef, gltf: any, lodGltf?: any): Obstacle3DTemplate {
     const rawScene: THREE.Object3D = gltf.scene;
     const rawBox = new THREE.Box3().setFromObject(rawScene);
     const rawSize = rawBox.getSize(new THREE.Vector3());
@@ -745,6 +783,7 @@ export class ObstacleManager {
     const scale = def.targetHeight / Math.max(rawSize.y, 0.001);
     rawScene.scale.set(scale, scale, scale);
 
+    let sharedMaterial: THREE.Material | null = null;
     rawScene.traverse(child => {
       if ((child as THREE.Mesh).isMesh) {
         const m = child as THREE.Mesh;
@@ -752,6 +791,7 @@ export class ObstacleManager {
         m.receiveShadow = true;
         if (m.material) {
           const mat = m.material as THREE.MeshStandardMaterial;
+          if (!sharedMaterial) sharedMaterial = mat;
           if (mat.roughness !== undefined) {
             mat.roughness = Math.max(0.2, Math.min(0.85, mat.roughness));
           }
@@ -765,7 +805,42 @@ export class ObstacleManager {
     const pivot = new THREE.Group();
     pivot.name = `Obstacle3D_${def.id}`;
     rawScene.position.set(-rawCenter.x * scale, -rawBox.min.y * scale, -rawCenter.z * scale);
-    pivot.add(rawScene);
+
+    const lodScene: THREE.Object3D | null = lodGltf && lodGltf.scene ? lodGltf.scene : null;
+    if (lodScene) {
+      // Same placement as the full model; it reuses the full model's material
+      // (its own low-res textures are dropped), so there is no extra shader
+      // variant and no texture pop when the level switches.
+      lodScene.scale.set(scale, scale, scale);
+      lodScene.position.copy(rawScene.position);
+      lodScene.traverse(child => {
+        if ((child as THREE.Mesh).isMesh) {
+          const m = child as THREE.Mesh;
+          const own = m.material as THREE.Material | THREE.Material[];
+          if (sharedMaterial) {
+            m.material = sharedMaterial;
+            const owned = Array.isArray(own) ? own : [own];
+            for (const om of owned) {
+              if (!om || om === sharedMaterial) continue;
+              const anyMat = om as any;
+              for (const key of ['map', 'normalMap', 'roughnessMap', 'metalnessMap', 'emissiveMap', 'aoMap']) {
+                anyMat[key]?.dispose?.();
+              }
+              om.dispose();
+            }
+          }
+          m.castShadow = false;
+          m.receiveShadow = true;
+        }
+      });
+      const lod = new THREE.LOD();
+      lod.name = `Obstacle3DLOD_${def.id}`;
+      lod.addLevel(rawScene, 0);
+      lod.addLevel(lodScene, OBSTACLE_LOD_DISTANCE);
+      pivot.add(lod);
+    } else {
+      pivot.add(rawScene);
+    }
     pivot.rotation.y = def.yaw;
 
     return {
@@ -801,7 +876,11 @@ export class ObstacleManager {
     const loader = getObstacleLoader();
 
     ObstacleManager.preloadPromise = (async () => {
-      // All models download and decode in parallel.
+      // All models (and their LOD copies) download and decode in parallel. A
+      // missing LOD only costs the decimated level, never the model.
+      const lodResults = await Promise.all(
+        missing.map(def => (def.lodUrl ? loader.loadAsync(def.lodUrl).catch(() => null) : Promise.resolve(null)))
+      );
       const results = await Promise.allSettled(missing.map(def => loader.loadAsync(def.url)));
 
       let failures = 0;
@@ -818,7 +897,7 @@ export class ObstacleManager {
           return;
         }
         try {
-          const template = ObstacleManager.buildTemplate(def, res.value);
+          const template = ObstacleManager.buildTemplate(def, res.value, lodResults[i]);
           const existingIdx = ObstacleManager.cachedTemplates.findIndex(t => t.id === def.id);
           if (existingIdx !== -1) ObstacleManager.cachedTemplates[existingIdx] = template;
           else ObstacleManager.cachedTemplates.push(template);
@@ -899,10 +978,56 @@ export class ObstacleManager {
     otGeom.rotateX(-Math.PI / 2);
     this.overheadTelegraphGeom = otGeom;
 
+    this.coinMesh = new THREE.InstancedMesh(this.coinGeom, this.goldMat, MAX_LIVE_COINS);
+    this.coinMesh.name = 'CoinInstances';
+    this.coinMesh.instanceMatrix.setUsage(THREE.DynamicDrawUsage);
+    this.coinMesh.count = 0;
+    // One draw call for every coin on the track; its instances move every
+    // frame, so a cached bounding sphere would be stale (culling it saves nothing).
+    this.coinMesh.frustumCulled = false;
+    this.group.add(this.coinMesh);
+
     this.fixedSeed = seed ?? null;
     this.genState = new ObstacleGeneratorState(this.fixedSeed ?? randomRunSeed());
     ObstacleManager.schedulePreload();
     this.spawnInitialObstacles();
+  }
+
+  /** Pop a pooled group of this kind, or build one. */
+  private acquire<T extends THREE.Object3D>(key: string, build: () => T): T {
+    const pool = this.pools.get(key);
+    const reused = pool && pool.length > 0 ? (pool.pop() as T) : null;
+    return reused ?? build();
+  }
+
+  /** Detach an obstacle's group and keep it for reuse (portals are not pooled). */
+  private releaseObstacleMesh(obs: ObstacleItem): void {
+    this.group.remove(obs.mesh);
+    if (!obs.poolKey) return;
+    let pool = this.pools.get(obs.poolKey);
+    if (!pool) {
+      pool = [];
+      this.pools.set(obs.poolKey, pool);
+    }
+    if (pool.length < 24) pool.push(obs.mesh);
+  }
+
+  /** Write every live coin into the instanced mesh (spin + position). */
+  private syncCoinInstances(): void {
+    const coins = this.coins;
+    this.coinQuat.setFromAxisAngle(this.coinAxis, this.coinTime * 4.0);
+    let n = 0;
+    for (let i = 0; i < coins.length && n < MAX_LIVE_COINS; i++) {
+      const c = coins[i];
+      if (c.collected) continue;
+      this.coinPos.set(c.x, c.y, c.z);
+      this.coinMatrix.compose(this.coinPos, this.coinQuat, this.coinScale);
+      this.coinMesh.setMatrixAt(n++, this.coinMatrix);
+    }
+    if (n !== this.coinMesh.count || n > 0) {
+      this.coinMesh.count = n;
+      this.coinMesh.instanceMatrix.needsUpdate = true;
+    }
   }
 
   private spawnInitialObstacles(): void {
@@ -972,28 +1097,28 @@ export class ObstacleManager {
   private createGrindRail(lane: LaneIndex, z: number, length = 18.0): void {
     const x = getLaneX(lane);
     const groundH = getTerrainHeight(x, z);
-    const railGroup = new THREE.Group();
     const railTopY = groundH + 0.90;
-    railGroup.position.set(x, 0, z);
-
-    // Top Glowing Rail Tube
-    const tubeMesh = new THREE.Mesh(this.railTubeGeom, this.railMat);
-    tubeMesh.position.set(0, railTopY, 0);
-    railGroup.add(tubeMesh);
 
     // Support Posts (every 5m along the rail length)
     const postCount = Math.max(2, Math.floor(length / 5));
+    const poolKey = `rail-${postCount}`;
+    const railGroup = this.acquire(poolKey, () => {
+      const g = new THREE.Group();
+      // Top Glowing Rail Tube
+      g.add(new THREE.Mesh(this.railTubeGeom, this.railMat));
+      for (let p = 0; p < postCount; p++) g.add(new THREE.Mesh(this.railPostGeom, this.railPostMat));
+      return g;
+    });
+    railGroup.position.set(x, 0, z);
+    railGroup.children[0].position.set(0, railTopY, 0);
     const startZ = -length * 0.5 + 2.0;
     const stepZ = (length - 4.0) / (postCount - 1);
     for (let p = 0; p < postCount; p++) {
       const pz = startZ + p * stepZ;
       const postGroundH = getTerrainHeight(x, z + pz);
-      const postMesh = new THREE.Mesh(this.railPostGeom, this.railPostMat);
-      postMesh.position.set(0, postGroundH + 0.45, pz);
-      railGroup.add(postMesh);
+      railGroup.children[p + 1].position.set(0, postGroundH + 0.45, pz);
     }
 
-    railGroup.frustumCulled = false;
     this.group.add(railGroup);
 
     this.obstacles.push({
@@ -1010,29 +1135,31 @@ export class ObstacleManager {
       mesh: railGroup,
       isGrindRail: true,
       canJump: true,
+      groundY: groundH,
+      poolKey,
     });
   }
 
   private createBoostGate(lane: LaneIndex, z: number): void {
     const x = getLaneX(lane);
     const groundH = getTerrainHeight(x, z);
-    const gateGroup = new THREE.Group();
+    const gateGroup = this.acquire('boost-gate', () => {
+      const g = new THREE.Group();
+      // Left & Right Pillars (tall enough to carry the bar above the camera)
+      const postL = new THREE.Mesh(this.boostPillarGeom, this.boostMat);
+      postL.position.set(-1.25, BOOST_GATE_POST_HEIGHT / 2, 0);
+      const postR = new THREE.Mesh(this.boostPillarGeom, this.boostMat);
+      postR.position.set(1.25, BOOST_GATE_POST_HEIGHT / 2, 0);
+      g.add(postL, postR);
+
+      // Gantry bar at ~4.3 m: the chase camera rides at ~2.6-2.9 m, so a lower
+      // bar sweeps through the lens and fills the screen with flat green.
+      const topBar = new THREE.Mesh(this.boostTopGeom, this.boostMat);
+      topBar.position.set(0, BOOST_GATE_BAR_Y, 0);
+      g.add(topBar);
+      return g;
+    });
     gateGroup.position.set(x, groundH, z);
-
-    // Left & Right Pillars (tall enough to carry the bar above the camera)
-    const postL = new THREE.Mesh(this.boostPillarGeom, this.boostMat);
-    postL.position.set(-1.25, BOOST_GATE_POST_HEIGHT / 2, 0);
-    const postR = new THREE.Mesh(this.boostPillarGeom, this.boostMat);
-    postR.position.set(1.25, BOOST_GATE_POST_HEIGHT / 2, 0);
-    gateGroup.add(postL, postR);
-
-    // Gantry bar at ~4.3 m: the chase camera rides at ~2.6-2.9 m, so a lower
-    // bar sweeps through the lens and fills the screen with flat green.
-    const topBar = new THREE.Mesh(this.boostTopGeom, this.boostMat);
-    topBar.position.set(0, BOOST_GATE_BAR_Y, 0);
-    gateGroup.add(topBar);
-
-    gateGroup.frustumCulled = false;
     this.group.add(gateGroup);
 
     this.obstacles.push({
@@ -1048,35 +1175,36 @@ export class ObstacleManager {
       depth: 1.0,
       mesh: gateGroup,
       isBoostGate: true,
+      groundY: groundH,
+      poolKey: 'boost-gate',
     });
   }
 
   private createSolidBlock(lane: LaneIndex, z: number): void {
     const x = getLaneX(lane);
     const groundH = getTerrainHeight(x, z);
-    const blockGroup = new THREE.Group();
-    blockGroup.position.set(x, groundH, z);
 
-    // Ground Warning Telegraph Strip (projected on road ahead)
-    const telegraphMesh = new THREE.Mesh(this.solidTelegraphGeom, this.telegraphMat);
-    telegraphMesh.position.set(0, 0.05, -3.0);
-    blockGroup.add(telegraphMesh);
+    // The model is chosen once, at spawn: the 3D model if the GLBs are ready
+    // (they are preloaded behind the opening screen), else the procedural
+    // barrier. Blocks already on the road are never swapped in bulk when a
+    // load completes (that swap was a visible hitch).
+    const templates = ObstacleManager.cachedTemplates;
+    const useModel = ObstacleManager.isPreloadComplete && templates.length > 0;
+    // Cycle deterministically across the 3D obstacle models based on Z
+    const templateIdx = useModel ? Math.abs(Math.floor(z / 18)) % templates.length : -1;
+    const poolKey = useModel ? `block-${templates[templateIdx].id}` : 'block-proc';
+    const blockGroup = this.acquire(poolKey, () => {
+      const g = new THREE.Group();
+      // Ground Warning Telegraph Strip (projected on road ahead)
+      const telegraph = new THREE.Mesh(this.solidTelegraphGeom, this.telegraphMat);
+      telegraph.position.set(0, 0.05, -3.0);
+      g.add(telegraph);
 
-    const modelContainer = new THREE.Group();
-    modelContainer.name = `SolidObstacleBody_${z}_${lane}`;
-    blockGroup.add(modelContainer);
-
-    const applyModel = () => {
-      // Clear previous children in container
-      while (modelContainer.children.length > 0) {
-        modelContainer.remove(modelContainer.children[0]);
-      }
-
-      if (ObstacleManager.isPreloadComplete && ObstacleManager.cachedTemplates.length > 0) {
-        // Cycle deterministically across the 3D obstacle models based on Z
-        const templateIdx = Math.abs(Math.floor(z / 18)) % ObstacleManager.cachedTemplates.length;
-        const template = ObstacleManager.cachedTemplates[templateIdx];
-        const clonedPivot = template.pivot.clone(true);
+      const modelContainer = new THREE.Group();
+      modelContainer.name = 'SolidObstacleBody';
+      g.add(modelContainer);
+      if (useModel) {
+        const clonedPivot = templates[templateIdx].pivot.clone(true);
         clonedPivot.position.set(0, 0, 0);
         modelContainer.add(clonedPivot);
       } else {
@@ -1091,23 +1219,11 @@ export class ObstacleManager {
           band.position.set(0, bandY, 0);
           modelContainer.add(band);
         }
-
-        // Queue an upgrade to the 3D model once loaded. Only while a preload
-        // is scheduled or in flight: the queue is drained when it settles.
-        if (ObstacleManager.isPreloading) {
-          ObstacleManager.pendingSpawnCallbacks.push({
-            owner: this,
-            run: () => {
-              if (blockGroup.parent) applyModel();
-            },
-          });
-        }
       }
-    };
-
-    applyModel();
-
-    blockGroup.frustumCulled = false;
+      return g;
+    });
+    blockGroup.position.set(x, groundH, z);
+    const telegraphMesh = blockGroup.children[0] as THREE.Mesh;
     this.group.add(blockGroup);
 
     this.obstacles.push({
@@ -1125,33 +1241,36 @@ export class ObstacleManager {
       canDuck: false,
       canJump: false,
       telegraphMesh,
+      groundY: groundH,
+      poolKey,
     });
   }
 
   private createLowHurdle(lane: LaneIndex, z: number): void {
     const x = getLaneX(lane);
     const groundH = getTerrainHeight(x, z);
-    const hurdleGroup = new THREE.Group();
+    const hurdleGroup = this.acquire('hurdle', () => {
+      const g = new THREE.Group();
+      // Warning strip (first child: the telegraph)
+      const telegraph = new THREE.Mesh(this.hurdleTelegraphGeom, this.telegraphMat);
+      telegraph.position.set(0, 0.04, -2.5);
+      g.add(telegraph);
+
+      // Low neon hurdle beam
+      const beam = new THREE.Mesh(this.hurdleBeamGeom, this.laserHazardMat);
+      beam.position.set(0, 0.45, 0);
+      g.add(beam);
+
+      // Base anchors
+      const postL = new THREE.Mesh(this.hurdlePostGeom, this.steelMat);
+      postL.position.set(-1.18, 0.28, 0);
+      const postR = new THREE.Mesh(this.hurdlePostGeom, this.steelMat);
+      postR.position.set(1.18, 0.28, 0);
+      g.add(postL, postR);
+      return g;
+    });
     hurdleGroup.position.set(x, groundH, z);
-
-    // Low neon hurdle beam
-    const beam = new THREE.Mesh(this.hurdleBeamGeom, this.laserHazardMat);
-    beam.position.set(0, 0.45, 0);
-    hurdleGroup.add(beam);
-
-    // Base anchors
-    const postL = new THREE.Mesh(this.hurdlePostGeom, this.steelMat);
-    postL.position.set(-1.18, 0.28, 0);
-    const postR = new THREE.Mesh(this.hurdlePostGeom, this.steelMat);
-    postR.position.set(1.18, 0.28, 0);
-    hurdleGroup.add(postL, postR);
-
-    // Warning strip
-    const telegraphMesh = new THREE.Mesh(this.hurdleTelegraphGeom, this.telegraphMat);
-    telegraphMesh.position.set(0, 0.04, -2.5);
-    hurdleGroup.add(telegraphMesh);
-
-    hurdleGroup.frustumCulled = false;
+    const telegraphMesh = hurdleGroup.children[0] as THREE.Mesh;
     this.group.add(hurdleGroup);
 
     this.obstacles.push({
@@ -1169,33 +1288,36 @@ export class ObstacleManager {
       canJump: true,
       canDuck: false,
       telegraphMesh,
+      groundY: groundH,
+      poolKey: 'hurdle',
     });
   }
 
   private createOverheadLaserBarrier(lane: LaneIndex, z: number): void {
     const x = getLaneX(lane);
     const groundH = getTerrainHeight(x, z);
-    const barrierGroup = new THREE.Group();
+    const barrierGroup = this.acquire('overhead', () => {
+      const g = new THREE.Group();
+      // Amber warning decal underneath (first child: the telegraph)
+      const telegraph = new THREE.Mesh(this.overheadTelegraphGeom, this.warningAmberMat);
+      telegraph.position.set(0, 0.04, -2.5);
+      g.add(telegraph);
+
+      // Tall support posts
+      const leftPost = new THREE.Mesh(this.overheadPostGeom, this.steelMat);
+      leftPost.position.set(-1.25, 1.6, 0);
+      const rightPost = new THREE.Mesh(this.overheadPostGeom, this.steelMat);
+      rightPost.position.set(1.25, 1.6, 0);
+      g.add(leftPost, rightPost);
+
+      // High laser beam allowing slide clearance underneath
+      const beamMesh = new THREE.Mesh(this.overheadBeamGeom, this.laserHazardMat);
+      beamMesh.position.set(0, 1.85, 0);
+      g.add(beamMesh);
+      return g;
+    });
     barrierGroup.position.set(x, groundH, z);
-
-    // Tall support posts
-    const leftPost = new THREE.Mesh(this.overheadPostGeom, this.steelMat);
-    leftPost.position.set(-1.25, 1.6, 0);
-    const rightPost = new THREE.Mesh(this.overheadPostGeom, this.steelMat);
-    rightPost.position.set(1.25, 1.6, 0);
-    barrierGroup.add(leftPost, rightPost);
-
-    // High laser beam allowing slide clearance underneath
-    const beamMesh = new THREE.Mesh(this.overheadBeamGeom, this.laserHazardMat);
-    beamMesh.position.set(0, 1.85, 0);
-    barrierGroup.add(beamMesh);
-
-    // Amber warning decal underneath
-    const telegraphMesh = new THREE.Mesh(this.overheadTelegraphGeom, this.warningAmberMat);
-    telegraphMesh.position.set(0, 0.04, -2.5);
-    barrierGroup.add(telegraphMesh);
-
-    barrierGroup.frustumCulled = false;
+    const telegraphMesh = barrierGroup.children[0] as THREE.Mesh;
     this.group.add(barrierGroup);
 
     this.obstacles.push({
@@ -1213,6 +1335,8 @@ export class ObstacleManager {
       canDuck: true,
       canJump: false,
       telegraphMesh,
+      groundY: groundH,
+      poolKey: 'overhead',
     });
   }
 
@@ -1311,17 +1435,13 @@ export class ObstacleManager {
 
   private spawnCoin(x: number, yRel: number, z: number): void {
     const groundH = getTerrainHeight(x, z);
-    const coinMesh = new THREE.Mesh(this.coinGeom, this.goldMat);
-    coinMesh.position.set(x, groundH + yRel, z);
-    coinMesh.frustumCulled = false;
-    this.group.add(coinMesh);
-
+    // Drawn by the shared instanced mesh (syncCoinInstances).
     this.coins.push({
       id: `coin-${z}-${x}`,
       x,
       y: groundH + yRel,
       z,
-      mesh: coinMesh,
+      groundY: groundH,
       collected: false,
     });
   }
@@ -1330,11 +1450,13 @@ export class ObstacleManager {
     const pTypes: PowerUpType[] = ['quantum-magnet', 'sonic-jetpack', 'holo-shield', 'overdrive-2x'];
     const pType = pTypes[Math.floor(this.genState.rng() * pTypes.length)];
     const groundH = getTerrainHeight(x, z);
-    const pGroup = new THREE.Group();
+    const pGroup = this.acquire('power-up', () => {
+      const g = new THREE.Group();
+      g.add(new THREE.Mesh(this.powerUpGeom, this.cyanNeonMat));
+      return g;
+    });
     pGroup.position.set(x, groundH + 1.2, z);
-    const pCore = new THREE.Mesh(this.powerUpGeom, this.cyanNeonMat);
-    pGroup.add(pCore);
-    pGroup.frustumCulled = false;
+    pGroup.visible = true;
     this.group.add(pGroup);
 
     this.powerUps.push({
@@ -1345,35 +1467,47 @@ export class ObstacleManager {
       z,
       mesh: pGroup,
       collected: false,
+      groundY: groundH,
     });
+  }
+
+  private releasePowerUp(p: PowerUpItem): void {
+    this.group.remove(p.mesh);
+    let pool = this.pools.get('power-up');
+    if (!pool) {
+      pool = [];
+      this.pools.set('power-up', pool);
+    }
+    if (pool.length < 8) pool.push(p.mesh);
   }
 
   update(playerZ: number, timeSeconds: number, playerSpeed = 22): void {
     this.lastPlayerSpeed = playerSpeed;
     this.portalTimeUniform.value = timeSeconds;
 
-    // 1. Animate coins & powerups rotation
-    for (const c of this.coins) {
-      if (!c.collected) {
-        c.mesh.rotation.y = timeSeconds * 4.0;
-      }
-    }
+    // 1. Animate coins (instanced, synced below) & powerups rotation
+    this.coinTime = timeSeconds;
+    const puBob = Math.sin(timeSeconds * 4.0) * 0.15;
     for (const p of this.powerUps) {
       if (!p.collected) {
         p.mesh.rotation.y = timeSeconds * 3.0;
-        const gH = getTerrainHeight(p.x, p.z);
-        p.y = gH + 1.2 + Math.sin(timeSeconds * 4.0) * 0.15;
+        const gH = p.groundY ?? getTerrainHeight(p.x, p.z);
+        p.y = gH + 1.2 + puBob;
         p.mesh.position.y = p.y;
       }
     }
 
     // 2. Animate telegraph pulse on approaching obstacles & creature idle bob
+    // (the telegraph materials are shared, so one write per frame is enough)
+    const pulse = Math.sin(timeSeconds * 12.0) * 0.15 + 0.5;
+    let pulsed = false;
     for (const obs of this.obstacles) {
-      if (obs.telegraphMesh) {
+      if (obs.telegraphMesh && !pulsed) {
         const dist = obs.z - playerZ;
         if (dist > 0 && dist < 50) {
-          const pulse = Math.sin(timeSeconds * 12.0) * 0.15 + 0.5;
-          (obs.telegraphMesh.material as THREE.MeshBasicMaterial).opacity = pulse;
+          this.telegraphMat.opacity = pulse;
+          this.warningAmberMat.opacity = pulse;
+          pulsed = true;
         }
       }
 
@@ -1382,7 +1516,7 @@ export class ObstacleManager {
         const dist = obs.z - playerZ;
         if (dist > -10 && dist < 120) {
           const idleBob = Math.sin(timeSeconds * 2.5 + obs.z * 0.4) * 0.035;
-          const gH = getTerrainHeight(obs.x, obs.z);
+          const gH = obs.groundY ?? getTerrainHeight(obs.x, obs.z);
           obs.mesh.position.y = gH + idleBob;
         }
       }
@@ -1402,7 +1536,7 @@ export class ObstacleManager {
     for (let r = 0; r < obstacles.length; r++) {
       const obs = obstacles[r];
       if (obs.z < cullZ) {
-        this.group.remove(obs.mesh);
+        this.releaseObstacleMesh(obs);
       } else {
         obstacles[w++] = obs;
       }
@@ -1413,20 +1547,17 @@ export class ObstacleManager {
     w = 0;
     for (let r = 0; r < coins.length; r++) {
       const c = coins[r];
-      if (c.z < cullZ || c.collected) {
-        this.group.remove(c.mesh);
-      } else {
-        coins[w++] = c;
-      }
+      if (!(c.z < cullZ || c.collected)) coins[w++] = c;
     }
     coins.length = w;
+    this.syncCoinInstances();
 
     const powerUps = this.powerUps;
     w = 0;
     for (let r = 0; r < powerUps.length; r++) {
       const p = powerUps[r];
       if (p.z < cullZ || p.collected) {
-        this.group.remove(p.mesh);
+        this.releasePowerUp(p);
       } else {
         powerUps[w++] = p;
       }
@@ -1435,6 +1566,7 @@ export class ObstacleManager {
   }
 
   attractCoinsToPlayer(playerPos: THREE.Vector3, magnetRadius: number, dt: number): void {
+    let moved = false;
     for (const c of this.coins) {
       if (c.collected) continue;
       const dist = Math.hypot(playerPos.x - c.x, playerPos.z - c.z);
@@ -1443,15 +1575,27 @@ export class ObstacleManager {
         c.x = THREE.MathUtils.lerp(c.x, playerPos.x, pullFactor);
         c.z = THREE.MathUtils.lerp(c.z, playerPos.z, pullFactor);
         c.y = THREE.MathUtils.lerp(c.y, playerPos.y + 0.5, pullFactor);
-        c.mesh.position.set(c.x, c.y, c.z);
+        // The coin moved: its road height is wherever it is now.
+        c.groundY = getTerrainHeight(c.x, c.z);
+        moved = true;
       }
     }
+    if (moved) this.syncCoinInstances();
   }
 
   checkCollisions(playerPos: THREE.Vector3, isSliding: boolean): CollisionResult {
-    const result: CollisionResult = {
-      collectedCoins: 0,
-    };
+    // One result object reused every frame (the engine reads it at once).
+    const result = this._collision;
+    result.collectedCoins = 0;
+    result.hitPortal = undefined;
+    result.hitBoostGate = undefined;
+    result.nearMiss = undefined;
+    result.nearMissPos = undefined;
+    result.isGrinding = undefined;
+    result.collectedPowerUp = undefined;
+    result.hasCrashed = undefined;
+    result.hasStumbled = undefined;
+    result.crashedObstacle = undefined;
 
     const px = playerPos.x;
     const py = playerPos.y;
@@ -1462,18 +1606,17 @@ export class ObstacleManager {
     // 1. Coins Collection
     for (const c of this.coins) {
       if (c.collected) continue;
-      const coinGroundH = getTerrainHeight(c.x, c.z);
-      if (Math.abs(c.z - pz) < 1.8 && Math.abs(c.x - px) < 1.35 && Math.abs((c.y - coinGroundH) - playerRelY) < 2.2) {
+      if (Math.abs(c.z - pz) < 1.8 && Math.abs(c.x - px) < 1.35 && Math.abs((c.y - c.groundY) - playerRelY) < 2.2) {
         c.collected = true;
-        c.mesh.visible = false;
         result.collectedCoins += 1;
       }
     }
+    if (result.collectedCoins > 0) this.syncCoinInstances();
 
     // 2. PowerUps Collection
     for (const p of this.powerUps) {
       if (p.collected) continue;
-      const puGroundH = getTerrainHeight(p.x, p.z);
+      const puGroundH = p.groundY ?? getTerrainHeight(p.x, p.z);
       if (Math.abs(p.z - pz) < 2.0 && Math.abs(p.x - px) < 1.4 && Math.abs((p.y - puGroundH) - playerRelY) < 2.4) {
         p.collected = true;
         p.mesh.visible = false;
@@ -1525,7 +1668,7 @@ export class ObstacleManager {
 
       // Vertical extents relative to the road: the player's body runs from
       // the feet (board) up to head height, the obstacle from its base to top.
-      const obsGroundH = getTerrainHeight(obs.x, obs.z);
+      const obsGroundH = obs.groundY ?? getTerrainHeight(obs.x, obs.z);
       const obsCenterRel = obs.y - obsGroundH;
       const obsBottomRel = obsCenterRel - obs.height * 0.5;
       // Solid blocks force a lane change: treat them as taller than any jump
@@ -1550,7 +1693,8 @@ export class ObstacleManager {
       ) {
         obs.nearMissed = true;
         result.nearMiss = true;
-        result.nearMissPos = this._nearMissPosScratch.set(obs.x, obs.y, obs.z).clone();
+        // Scratch vector: consumed by the engine before the next call.
+        result.nearMissPos = this._nearMissPosScratch.set(obs.x, obs.y, obs.z);
       }
 
       // Physical Collision
@@ -1599,20 +1743,24 @@ export class ObstacleManager {
   removeObstacle(obstacle: ObstacleItem): void {
     const idx = this.obstacles.indexOf(obstacle);
     if (idx !== -1) {
-      this.group.remove(obstacle.mesh);
+      this.releaseObstacleMesh(obstacle);
       this.obstacles.splice(idx, 1);
     }
   }
 
   clearAhead(playerZ: number, distance: number): void {
-    this.obstacles = this.obstacles.filter(obs => {
+    const obstacles = this.obstacles;
+    let w = 0;
+    for (let r = 0; r < obstacles.length; r++) {
+      const obs = obstacles[r];
       // Portals are world boundaries, not hazards; never clear them away.
       if (!obs.isPortal && obs.z >= playerZ && obs.z <= playerZ + distance) {
-        this.group.remove(obs.mesh);
-        return false;
+        this.releaseObstacleMesh(obs);
+      } else {
+        obstacles[w++] = obs;
       }
-      return true;
-    });
+    }
+    obstacles.length = w;
   }
 
   /** Remove every spawned item and this manager's queued GLB upgrades. */
@@ -1622,15 +1770,13 @@ export class ObstacleManager {
     ObstacleManager.pendingSpawnCallbacks = ObstacleManager.pendingSpawnCallbacks.filter(e => e.owner !== this);
     while (this.obstacles.length > 0) {
       const obs = this.obstacles.pop();
-      if (obs) this.group.remove(obs.mesh);
+      if (obs) this.releaseObstacleMesh(obs);
     }
-    while (this.coins.length > 0) {
-      const c = this.coins.pop();
-      if (c) this.group.remove(c.mesh);
-    }
+    this.coins.length = 0;
+    this.coinMesh.count = 0;
     while (this.powerUps.length > 0) {
       const p = this.powerUps.pop();
-      if (p) this.group.remove(p.mesh);
+      if (p) this.releasePowerUp(p);
     }
   }
 
@@ -1652,6 +1798,9 @@ export class ObstacleManager {
   dispose(): void {
     this.disposed = true;
     this.clearSpawned();
+    this.pools.clear();
+    this.group.remove(this.coinMesh);
+    this.coinMesh.dispose();
     this.scene.remove(this.group);
 
     // The cached GLB templates are shared by every manager (and by the next

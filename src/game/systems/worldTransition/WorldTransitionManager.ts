@@ -35,40 +35,24 @@ export interface BlendedEnvironmentParams {
 
 /** Length of the gameplay transition corridor before each world boundary (m). */
 export const TRANSITION_ZONE_LENGTH = 300;
-/**
- * The sky, sun, fog and exposure only change over the last few metres before
- * the boundary, where the portal's warp flash hides the switch. Blending the
- * atmosphere across the whole 300 m corridor put e.g. snow under the volcano's
- * dusk sun long before the rider reached the portal.
- */
-export const ATMOSPHERE_BLEND_LENGTH = 40;
-
-/**
- * Convert the corridor's eased progress (`blended.nextWorldWeight`, a
- * smoothstep over TRANSITION_ZONE_LENGTH) into the atmosphere blend weight: 0
- * until ATMOSPHERE_BLEND_LENGTH metres before the boundary, easing to 1 at it.
- */
-export function atmosphereBlendWeight(corridorWeight: number): number {
-  if (corridorWeight <= 0) return 0;
-  if (corridorWeight >= 1) return 1;
-  // Invert the Hermite smoothstep to recover linear progress through the zone.
-  const linear = 0.5 - Math.sin(Math.asin(1 - 2 * corridorWeight) / 3);
-  const metresToBoundary = (1 - linear) * TRANSITION_ZONE_LENGTH;
-  const x = THREE.MathUtils.clamp(1 - metresToBoundary / ATMOSPHERE_BLEND_LENGTH, 0, 1);
-  return x * x * (3 - 2 * x);
-}
 
 /**
  * WorldTransitionManager orchestrates:
  * 1. Tracking player distance across the 5 campaign worlds (0 - 2249m, 2250 - 4499m, etc.)
- * 2. Preloading the upcoming world during the approach window
- * 3. Smooth mathematical crossfading of sky, fog, ambient, and sun lighting in transition zones
+ * 2. The approach states (STABLE -> PREPARING -> TRANSITIONING -> COMPLETING)
+ * 3. Reference crossfade weights of sky, fog, ambient and sun over the corridor
+ *    (reported for telemetry/tests; the renderer does not blend: the next world
+ *    is seen through the portal gateway and everything switches as the rider
+ *    crosses it, see src/game/portal)
  * 4. Firing world entry callbacks with debouncing
- * 5. Lifecycle recycling of previous world instances
+ *
+ * The world switch is at distance k * WORLD_LENGTH_DISTANCE exactly: the first
+ * update with distance >= the boundary reports the next world as current, on
+ * the same frame the portal gateway registers the crossing.
  */
 export class WorldTransitionManager {
   public readonly worldLength: number = WORLD_LENGTH_DISTANCE; // 2250m per world
-  public readonly transitionZoneLength: number = TRANSITION_ZONE_LENGTH; // gameplay corridor (preload/state); the atmosphere itself blends over ATMOSPHERE_BLEND_LENGTH
+  public readonly transitionZoneLength: number = TRANSITION_ZONE_LENGTH; // gameplay corridor (state/telemetry); rendering switches at the boundary
   public readonly preloadDistance: number = 150; // Preload 150m ahead of transition zone
 
   private _currentState: TransitionState = 'STABLE';

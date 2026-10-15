@@ -12,7 +12,7 @@ import { GraphicsConfig } from '../../../types';
  */
 export class VerdantWildsAtmosphere {
   public group: THREE.Group;
-  private scene: THREE.Scene;
+  private scene: THREE.Object3D;
 
   // Pollen motes particle system
   private fireflies: THREE.Points | null = null;
@@ -27,7 +27,7 @@ export class VerdantWildsAtmosphere {
   private sunRayGeom: THREE.BufferGeometry | null = null;
   private sunRayMaterial: THREE.MeshBasicMaterial | null = null;
 
-  constructor(scene: THREE.Scene, graphicsConfig: GraphicsConfig) {
+  constructor(scene: THREE.Object3D, graphicsConfig: GraphicsConfig) {
     this.scene = scene;
     this.group = new THREE.Group();
     this.group.name = 'VerdantWildsAtmosphereGroup';
@@ -122,7 +122,7 @@ export class VerdantWildsAtmosphere {
       color: 0xfff1d6, // warm daylight
       vertexColors: true,
       transparent: true,
-      opacity: 0.05,
+      opacity: 0.035,
       blending: THREE.AdditiveBlending,
       depthWrite: false,
       side: THREE.DoubleSide,
@@ -184,9 +184,7 @@ export class VerdantWildsAtmosphere {
     // 2. Keep sun shafts anchored ahead of player
     if (this.sunRayGroup) {
       for (const ray of this.sunRayGroup.children) {
-        if (ray.position.z < playerZ - 60) {
-          ray.position.z += 300;
-        }
+        while (ray.position.z < playerZ - 60) ray.position.z += 300;
       }
     }
   }

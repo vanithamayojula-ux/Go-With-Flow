@@ -2,6 +2,14 @@ import * as THREE from 'three';
 import { CyberChunk } from './terrain';
 import { FoliageShader } from '../graphics/shaders';
 
+/**
+ * Legacy neon grass / crystal-spire instancing. The campaign worlds now own
+ * all vegetation, and the terrain chunks no longer produce grass/tree
+ * instances, so these two InstancedMeshes were always empty yet re-uploaded
+ * their instance buffers every 0.3 s. They are no longer created; the
+ * materials stay so engine/settings code that writes their uniforms keeps
+ * working, and updateFoliage() is a no-op.
+ */
 export class FoliageManager {
   scene: THREE.Scene;
   group: THREE.Group;
@@ -116,20 +124,7 @@ export class FoliageManager {
       `,
     });
 
-    // Initialize Instanced Meshes
-    const grassGeom = new THREE.ConeGeometry(0.12, 1.2, 4);
-    grassGeom.translate(0, 0.6, 0);
-    this.grassMesh = new THREE.InstancedMesh(grassGeom, this.grassMaterial, 1200);
-    this.grassMesh.count = 0;
-    this.grassMesh.instanceMatrix.setUsage(THREE.DynamicDrawUsage);
-    this.group.add(this.grassMesh);
-
-    const treeGeom = new THREE.CylinderGeometry(0.05, 0.45, 6.0, 5);
-    treeGeom.translate(0, 3.0, 0);
-    this.treeMesh = new THREE.InstancedMesh(treeGeom, this.treeMaterial, 300);
-    this.treeMesh.count = 0;
-    this.treeMesh.instanceMatrix.setUsage(THREE.DynamicDrawUsage);
-    this.group.add(this.treeMesh);
+    // No instanced meshes (see class comment): grassMesh / treeMesh stay null.
   }
 
   updateFoliage(
@@ -138,6 +133,7 @@ export class FoliageManager {
     playerX: number,
     density: number
   ): void {
+    if (!this.grassMesh || !this.treeMesh) return;
     const grassMesh = this.grassMesh;
     const treeMesh = this.treeMesh;
     if (!grassMesh || !treeMesh) return;

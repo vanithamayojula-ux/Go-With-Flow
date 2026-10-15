@@ -11,6 +11,8 @@ export interface PlayerCharacter {
   armors?: Record<string, THREE.Object3D>;
   visorMesh?: THREE.Mesh;
   underglowMesh?: THREE.Mesh;
+  /** Additive glow plane under the board (replaces the old point lights). */
+  underglowHalo?: THREE.Mesh;
   underglowLight?: THREE.PointLight;
   forwardSpotLight?: THREE.SpotLight;
   footLightLeft?: THREE.PointLight;
@@ -215,7 +217,8 @@ function createCyberPhantomBoard(): THREE.Group {
   rearKickTail.rotation.x = 25 * (Math.PI / 180);
   group.add(frontPad, rearStomp, rearKickTail);
 
-  // 8. 2 Side Pods: radius 0.09 cyan-white emissive 2.5 + PointLight 1.5
+  // 8. 2 Side Pods: radius 0.09 cyan-white emissive nozzles (no runtime
+  // lights: the light count stays constant so lit shaders never recompile)
   // Left Thruster Pod
   const podGeom = new THREE.CylinderGeometry(0.09, 0.09, 0.18, 24);
   podGeom.rotateX(Math.PI / 2);
@@ -226,9 +229,6 @@ function createCyberPhantomBoard(): THREE.Group {
   leftNozzle.position.set(0, 0, -0.091);
   leftNozzle.rotation.y = Math.PI;
   leftPod.add(leftNozzle);
-  const leftPodLight = new THREE.PointLight(0x00d2e0, 1.5, 3.5);
-  leftPodLight.position.set(0, 0, -0.10);
-  leftPod.add(leftPodLight);
 
   // Right Thruster Pod
   const rightPod = new THREE.Mesh(podGeom, chassisMat);
@@ -237,9 +237,6 @@ function createCyberPhantomBoard(): THREE.Group {
   rightNozzle.position.set(0, 0, -0.091);
   rightNozzle.rotation.y = Math.PI;
   rightPod.add(rightNozzle);
-  const rightPodLight = new THREE.PointLight(0x00d2e0, 1.5, 3.5);
-  rightPodLight.position.set(0, 0, -0.10);
-  rightPod.add(rightPodLight);
 
   group.add(leftPod, rightPod);
 
@@ -592,6 +589,28 @@ function createVoidStalkerBoard(): THREE.Group {
 // 2. Character Factory & Rigging Integration
 // ---------------------------------------------------------------------------
 
+let underglowHaloTexture: THREE.Texture | null = null;
+
+/** Radial falloff for the additive glow under the board (built once). */
+function getUnderglowHaloTexture(): THREE.Texture | null {
+  if (underglowHaloTexture) return underglowHaloTexture;
+  if (typeof document === 'undefined') return null;
+  const size = 64;
+  const canvas = document.createElement('canvas');
+  canvas.width = size;
+  canvas.height = size;
+  const ctx = canvas.getContext('2d');
+  if (!ctx) return null;
+  const g = ctx.createRadialGradient(size / 2, size / 2, 0, size / 2, size / 2, size / 2);
+  g.addColorStop(0, 'rgba(255,255,255,1)');
+  g.addColorStop(0.45, 'rgba(255,255,255,0.45)');
+  g.addColorStop(1, 'rgba(255,255,255,0)');
+  ctx.fillStyle = g;
+  ctx.fillRect(0, 0, size, size);
+  underglowHaloTexture = new THREE.CanvasTexture(canvas);
+  return underglowHaloTexture;
+}
+
 export function createPlayerCharacter(heroId?: HeroId): PlayerCharacter {
   const rootGroup = new THREE.Group();
   rootGroup.name = 'PlayerCharacterRoot';
@@ -601,20 +620,10 @@ export function createPlayerCharacter(heroId?: HeroId): PlayerCharacter {
   boardGroup.name = 'SurfboardGroup';
   boardGroup.position.set(0, 0.08, 0);
 
-  // Shared Lighting & Ground Contact Shadow for Hoverboards
-  const footLightLeft = new THREE.PointLight(0x00d2e0, 0.9, 2.0);
-  footLightLeft.position.set(-0.05, 0.06, 0.28);
-  boardGroup.add(footLightLeft);
-
-  const footLightRight = new THREE.PointLight(0x00d2e0, 0.9, 2.0);
-  footLightRight.position.set(0.05, 0.06, -0.28);
-  boardGroup.add(footLightRight);
-
-  const forwardSpotLight = new THREE.SpotLight(0x00d2e0, 3.0, 26, Math.PI / 6, 0.35, 1.1);
-  forwardSpotLight.position.set(0, 0.05, 0.65);
-  forwardSpotLight.target.position.set(0, -0.2, 10.0);
-  boardGroup.add(forwardSpotLight);
-  boardGroup.add(forwardSpotLight.target);
+  // Board glow & ground contact shadow. The glow is emissive/additive
+  // geometry, not lights: the scene keeps exactly two lights (sun + sky) so
+  // adding/hiding the board never changes the light count, which would force
+  // every lit material in the scene to recompile mid-run.
 
   const underglowGeom = new THREE.PlaneGeometry(0.48, 1.55);
   const underglowMat = new THREE.MeshBasicMaterial({
@@ -639,9 +648,24 @@ export function createPlayerCharacter(heroId?: HeroId): PlayerCharacter {
   shadowBlob.position.set(0, -0.078, 0.04);
   boardGroup.add(shadowBlob);
 
-  const underglowLight = new THREE.PointLight(0x00d2e0, 1.2, 2.8);
-  underglowLight.position.set(0, -0.06, 0);
-  boardGroup.add(underglowLight);
+  // Soft additive halo on the road under the board (stands in for the old
+  // underglow point light).
+  const underglowHalo = new THREE.Mesh(
+    new THREE.PlaneGeometry(1.1, 2.1),
+    new THREE.MeshBasicMaterial({
+      color: 0x00d2e0,
+      map: getUnderglowHaloTexture(),
+      transparent: true,
+      opacity: 0.35,
+      blending: THREE.AdditiveBlending,
+      depthWrite: false,
+      side: THREE.DoubleSide,
+    })
+  );
+  underglowHalo.rotation.x = Math.PI / 2;
+  underglowHalo.position.set(0, -0.082, 0.04);
+  underglowHalo.renderOrder = 1;
+  boardGroup.add(underglowHalo);
 
   // Instantiate All 5 Distinct Surfboard Models
   const cyberPhantomBoard = createCyberPhantomBoard();
@@ -676,10 +700,7 @@ export function createPlayerCharacter(heroId?: HeroId): PlayerCharacter {
   const proceduralBoardExtras: THREE.Object3D[] = [
     underglowMesh,
     shadowBlob,
-    underglowLight,
-    footLightLeft,
-    footLightRight,
-    forwardSpotLight,
+    underglowHalo,
   ];
   const setProceduralBoardExtrasVisible = (visible: boolean) => {
     for (const o of proceduralBoardExtras) o.visible = visible;
@@ -765,8 +786,8 @@ export function createPlayerCharacter(heroId?: HeroId): PlayerCharacter {
     emissive: new THREE.Color(0x00d2e0),
     emissiveIntensity: 1.2,
     roughness: 0.1,
-    transmission: 0.35,
-    thickness: 0.5,
+    // No transmission: any transmissive material makes three render an extra
+    // full-scene transmission pass every frame, in every world.
   });
 
   // 1. Cyber Runner Helmet
@@ -870,10 +891,7 @@ export function createPlayerCharacter(heroId?: HeroId): PlayerCharacter {
     armors,
     visorMesh,
     underglowMesh,
-    underglowLight,
-    forwardSpotLight,
-    footLightLeft,
-    footLightRight,
+    underglowHalo,
     wheels: [],
     capeMesh,
     headGroup,

@@ -7,12 +7,17 @@ import { ObstacleManager } from './obstacles';
 import { AudioManager } from './audio';
 import { ThemeManager } from './themeManager';
 import { WorldManager } from './WorldManager';
+import { WorldId } from './WorldConfig';
 import { SkyIslesWorld } from './worlds/skyIsles';
 import { VerdantWildsWorld } from './worlds/verdantWilds';
 import { CrimsonDunesWorld } from './worlds/crimsonDunes';
 import { CrystalHeightsWorld } from './worlds/crystalHeights';
 import { ObsidianCoreWorld } from './worlds/obsidianCore';
-import { PostProcessShader } from '../graphics/shaders';
+import { PostPipeline } from './engine/PostPipeline';
+import { WorldConstructor, WorldStreamer } from './engine/WorldStreamer';
+import { ShaderWarmup } from './engine/ShaderWarmup';
+import { AdaptiveQuality, GpuTimer } from './perf/AdaptiveQuality';
+import { liveStats } from '../state/liveStats';
 import { telemetry } from '../utils/performanceTelemetry';
 import { reportGameError } from '../utils/errorMonitoring';
 import { ProgressionManager } from './progression';
@@ -42,7 +47,11 @@ export interface GameEngineOptions {
   progressionMgr?: ProgressionManager;
   cosmeticMgr?: CosmeticManager;
   gameModeMgr?: GameModeManager;
-  onStatsUpdate: (stats: PlayerStats, fps: number, drawCalls: number, instanceCount: number) => void;
+  /**
+   * Optional: live stats are published to the `liveStats` store
+   * (src/state/liveStats.ts), which is what the HUD subscribes to.
+   */
+  onStatsUpdate?: (stats: PlayerStats, fps: number, drawCalls: number, instanceCount: number) => void;
   onNotification: (msg: string) => void;
   onGameOver?: () => void;
   /** Called when the engine wants the UI to show the pause menu (tab hidden / window blur). */
@@ -54,6 +63,29 @@ const DOUBLE_TAP_MS = 320;
 // While the jetpack cruises above the track, coins in this radius fly up to it.
 const JETPACK_COIN_PULL_RADIUS = 14.0;
 const BASE_FOV = 62;
+// Adaptive quality ignores the first seconds of a run (asset uploads, compiles).
+const ADAPTIVE_SETTLE_MS = 2500;
+// Motion blur only kicks in once the speed lines are strong (~45 m/s or boosting).
+const MOTION_BLUR_THRESHOLD = 0.3;
+
+const WORLD_CONSTRUCTORS: Record<WorldId, WorldConstructor> = {
+  'sky-isles': SkyIslesWorld as unknown as WorldConstructor,
+  'verdant-wilds': VerdantWildsWorld as unknown as WorldConstructor,
+  'crimson-dunes': CrimsonDunesWorld as unknown as WorldConstructor,
+  'crystal-heights': CrystalHeightsWorld as unknown as WorldConstructor,
+  'obsidian-core': ObsidianCoreWorld as unknown as WorldConstructor,
+};
+
+const POWER_UP_LABELS: Record<string, 'magnet' | 'jetpack' | 'multiplier' | 'shield'> = {
+  'quantum-magnet': 'magnet',
+  'magnet': 'magnet',
+  'sonic-jetpack': 'jetpack',
+  'jetpack': 'jetpack',
+  'overdrive-2x': 'multiplier',
+  'multiplier2x': 'multiplier',
+  'holo-shield': 'shield',
+  'hoverboard-shield': 'shield',
+};
 
 function isTypingTarget(target: EventTarget | null): boolean {
   const el = target as HTMLElement | null;
@@ -62,18 +94,19 @@ function isTypingTarget(target: EventTarget | null): boolean {
   return tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT' || el.isContentEditable === true;
 }
 
+/** MSAA on the HDR scene target only on the top tier (each resolve costs bandwidth). */
+function msaaForPreset(preset: QualityPreset): boolean {
+  return preset === 'desktop-full';
+}
+
 export class GameEngine {
   public container: HTMLElement;
   public renderer: THREE.WebGLRenderer;
   public scene: THREE.Scene;
   public camera: THREE.PerspectiveCamera;
 
-  // Render Target & Post-processing
-  public renderTarget: THREE.WebGLRenderTarget;
-  public postScene: THREE.Scene;
-  public postCamera: THREE.OrthographicCamera;
-  public postMaterial: THREE.ShaderMaterial;
-  public postQuadGeom: THREE.PlaneGeometry;
+  // Post-processing (scene HDR target, quarter-res bloom, final pass)
+  public post: PostPipeline;
 
   // Subsystem Managers
   public audio: AudioManager;
@@ -87,11 +120,16 @@ export class GameEngine {
   public progressionMgr: ProgressionManager;
   public cosmeticMgr: CosmeticManager;
   public gameModeMgr: GameModeManager;
-  public skyIslesWorld: SkyIslesWorld | null = null;
-  public verdantWildsWorld: VerdantWildsWorld | null = null;
-  public crimsonDunesWorld: CrimsonDunesWorld | null = null;
-  public crystalHeightsWorld: CrystalHeightsWorld | null = null;
-  public obsidianCoreWorld: ObsidianCoreWorld | null = null;
+  /** Campaign world instances (current + the next one while approaching its gateway). */
+  public worlds: WorldStreamer;
+  /** Async shader compiles (main + shadow-depth programs) for new content. */
+  public shaders: ShaderWarmup;
+
+  // Adaptive render scale / quality
+  public adaptive: AdaptiveQuality;
+  private gpuTimer: GpuTimer;
+  private adaptiveHoldUntil = 0;
+  private drawingBufferSize = new THREE.Vector2();
 
   // Configuration & Settings State
   public graphicsConfig: GraphicsConfig;
@@ -103,6 +141,9 @@ export class GameEngine {
   // Field of view before the per-frame speed widening; wider in portrait.
   public baseFov: number = BASE_FOV;
   private _isPaused: boolean = false;
+  // While paused one frame is rendered (so the menu has a backdrop and
+  // settings changes show), then rendering stops until resumed.
+  private pausedFrameRendered = false;
 
   /**
    * Pausing (or resuming) re-anchors the frame clock so the next delta is not
@@ -115,11 +156,25 @@ export class GameEngine {
     if (value === this._isPaused) return;
     this._isPaused = value;
     this.lastTime = performance.now();
+    this.pausedFrameRendered = false;
     this.releaseAllInput();
+    if (this.adaptive) {
+      this.adaptive.resetTimers();
+      this.adaptiveHoldUntil = performance.now() + 1000;
+    }
+  }
+
+  /** The HDR scene render target (kept for callers of the old field). */
+  public get renderTarget(): THREE.WebGLRenderTarget {
+    return this.post.sceneTarget;
+  }
+
+  public get postMaterial(): THREE.ShaderMaterial {
+    return this.post.postMaterial;
   }
 
   // Callbacks
-  public onStatsUpdate: (stats: PlayerStats, fps: number, drawCalls: number, instanceCount: number) => void;
+  public onStatsUpdate?: (stats: PlayerStats, fps: number, drawCalls: number, instanceCount: number) => void;
   public onNotification: (msg: string) => void;
   public onGameOver?: () => void;
   public onRequestPause?: () => void;
@@ -152,6 +207,7 @@ export class GameEngine {
   private isDisposed: boolean = false;
 
   private lastTime: number = performance.now();
+  private lastRafTime = -1;
   private frameCount: number = 0;
   private fpsAccum: number = 0;
   private currentFps: number = 60;
@@ -167,6 +223,13 @@ export class GameEngine {
   private lastBiome: BiomeType = getBiomeAt(0);
   private lastTier: string = 'Chill';
   private lastTransitionState: string = 'STABLE';
+  private lastDrawCalls = 0;
+  private lastHeroRig: unknown = null;
+  private templatesCompiled = false;
+  private orbsCollectedThisFrame = 0;
+  private readonly collectChunkOrbs = (chunk: { foliageInstances: { orbs: any[] } }) => {
+    this.orbsCollectedThisFrame += this.playerMgr.checkOrbCollection(chunk.foliageInstances.orbs);
+  };
 
   // Event Handler References for clean removal
   private handleKeyDownBound: (e: KeyboardEvent) => void;
@@ -197,10 +260,19 @@ export class GameEngine {
     this.scene = new THREE.Scene();
     this.camera = new THREE.PerspectiveCamera(62, width / height, 0.2, 1200);
 
-    const targetDpr = this.getTargetDpr(this.graphicsConfig.preset);
+    const preset = this.graphicsConfig.preset;
+    this.adaptive = new AdaptiveQuality({
+      maxPixelRatio: this.getTargetDpr(preset),
+      msaa: msaaForPreset(preset) && this.graphicsConfig.enablePostProcess,
+      targetFps: this.graphicsConfig.targetFPS || 60,
+    });
+    const targetDpr = this.adaptive.level.pixelRatio;
 
+    // With post-processing on, the canvas only receives the final full-screen
+    // pass: a multisampled backbuffer would be pure waste (MSAA, when wanted,
+    // lives on the HDR scene target instead).
     this.renderer = new THREE.WebGLRenderer({
-      antialias: this.graphicsConfig.preset !== 'webgl-min',
+      antialias: !this.graphicsConfig.enablePostProcess && preset !== 'webgl-min',
       powerPreference: 'high-performance',
     });
     this.renderer.setSize(width, height);
@@ -211,26 +283,17 @@ export class GameEngine {
     // PCFSoftShadowMap is deprecated/removed in three r18x; PCF is the supported soft-ish filter.
     this.renderer.shadowMap.type = THREE.PCFShadowMap;
     this.container.appendChild(this.renderer.domElement);
+    this.gpuTimer = new GpuTimer(this.renderer.getContext());
 
-    // 2. Post-processing Render Target & Quad
-    // Linear HDR target: tone mapping + sRGB encoding happen in the post pass.
-    this.renderTarget = new THREE.WebGLRenderTarget(width * targetDpr, height * targetDpr, {
-      minFilter: THREE.LinearFilter,
-      magFilter: THREE.LinearFilter,
-      format: THREE.RGBAFormat,
-      type: THREE.HalfFloatType,
-      samples: this.graphicsConfig.preset === 'desktop-full' ? 4 : 1,
-      depthBuffer: true,
-    });
-
-    this.postScene = new THREE.Scene();
-    this.postCamera = new THREE.OrthographicCamera(-1, 1, 1, -1, -1, 1);
-
-    this.postMaterial = new THREE.ShaderMaterial({
-      vertexShader: PostProcessShader.vertexShader,
-      fragmentShader: PostProcessShader.fragmentShader,
-      uniforms: {
-        tDiffuse: { value: this.renderTarget.texture },
+    // 2. Post-processing: linear HDR target; tone mapping + sRGB encoding
+    // happen in the final pass.
+    this.renderer.getDrawingBufferSize(this.drawingBufferSize);
+    this.post = new PostPipeline(
+      this.renderer,
+      this.drawingBufferSize.x,
+      this.drawingBufferSize.y,
+      this.adaptive.level.msaa ? 4 : 0,
+      {
         uTime: { value: 0 },
         uFilmGrain: { value: this.shaderParams.filmGrainIntensity ?? 0.0 },
         uBloom: { value: this.shaderParams.bloomIntensity ?? 0.35 },
@@ -243,20 +306,16 @@ export class GameEngine {
         uScanlines: { value: this.shaderParams.scanlineIntensity ?? 0.0 },
         uGlitch: { value: 0 },
         uWarpIntensity: { value: 0 },
-        uResolution: { value: new THREE.Vector2(width * targetDpr, height * targetDpr) },
-      },
-      depthWrite: false,
-      depthTest: false,
-    });
-
-    this.postQuadGeom = new THREE.PlaneGeometry(2, 2);
-    const quadMesh = new THREE.Mesh(this.postQuadGeom, this.postMaterial);
-    quadMesh.frustumCulled = false;
-    this.postScene.add(quadMesh);
+        uResolution: { value: new THREE.Vector2(this.drawingBufferSize.x, this.drawingBufferSize.y) },
+      }
+    );
+    this.post.postMaterial.uniforms.uBlurThreshold.value = MOTION_BLUR_THRESHOLD;
 
     // 3. Subsystem Managers Initialization
     this.skyMgr = new SkyManager(this.scene, this.renderer);
     this.skyMgr.applyLightingPreset(this.lightingMode);
+    this.skyMgr.setShadowMapSize(preset === 'desktop-full' ? 2048 : 1024);
+    this.skyMgr.setShadowsEnabled(this.graphicsConfig.enableShadows);
 
     this.terrainMgr = new TerrainManager(this.scene);
     this.foliageMgr = new FoliageManager(this.scene);
@@ -290,8 +349,25 @@ export class GameEngine {
     // Initial check for progression cosmetics
     this.cosmeticMgr.evaluateProgressionUnlocks(this.progressionMgr);
 
-    // Instantiate Sky Isles world environment
-    this.skyIslesWorld = new SkyIslesWorld(this.scene, this.graphicsConfig);
+    this.shaders = new ShaderWarmup(this.renderer, this.camera, this.scene, () =>
+      this.graphicsConfig.enablePostProcess ? this.post.sceneTarget : null
+    );
+
+    // Campaign worlds: Sky Isles now; each next world is built ahead of its
+    // gateway (its reflection environment is baked once, in its own frame,
+    // and its shaders compile in the background before it is ever drawn).
+    this.worlds = new WorldStreamer(this.scene, this.renderer, this.camera, WORLD_CONSTRUCTORS, {
+      onPreloadStart: id => this.skyMgr.prebakeEnvironment(id),
+      compile: roots => this.shaders.compile(roots),
+      needsCompile: object => this.shaders.needsCompile(object),
+      warmDraw: (roots, filter) => {
+        const ms = this.shaders.warmDraw(roots, filter);
+        if (ms > 50 && typeof window !== 'undefined' && (window as any).__gameEngine === this) {
+          console.info(`[GameEngine] warm draw ${Math.round(ms)} ms`);
+        }
+      },
+    });
+    this.worlds.reset('sky-isles', this.graphicsConfig);
 
     // Populate initial chunks & foliage
     this.terrainMgr.update(this.playerMgr.position.z, this.playerMgr.position.x, 3);
@@ -320,6 +396,37 @@ export class GameEngine {
     window.addEventListener('blur', this.handleWindowBlurBound);
 
     this.setupResizeObserver();
+    this.applyPostTier();
+    this.adaptiveHoldUntil = performance.now() + ADAPTIVE_SETTLE_MS;
+  }
+
+  /**
+   * Compile every shader the opening seconds need before the first frame: the
+   * post passes, the initial scene, and (once loaded) the obstacle models.
+   */
+  private prewarm(): void {
+    try {
+      this.post.compile();
+      this.camera.position.copy(this.playerMgr.cameraPos);
+      this.camera.lookAt(this.playerMgr.cameraLookAt);
+      this.camera.updateMatrixWorld();
+      // Whole scene: main-pass programs plus the shadow-depth variants of
+      // every caster (those otherwise compile on first shadow draw).
+      this.shaders.compile([this.scene]);
+      // ...and one off-screen draw of everything, hidden things included
+      // (portal warp rings, spare boards/helmets, shield): some programs only
+      // finish compiling on their first real draw, which would otherwise land
+      // mid-run (e.g. at the first portal).
+      this.shaders.warmDraw([this.scene], () => true);
+    } catch (err) {
+      console.warn('[GameEngine] shader prewarm failed:', err);
+    }
+    this.adaptiveHoldUntil = performance.now() + ADAPTIVE_SETTLE_MS;
+  }
+
+  /** Re-render one frame while paused (resize, settings change). */
+  public requestRender(): void {
+    this.pausedFrameRendered = false;
   }
 
   private onVisibilityChange(): void {
@@ -414,27 +521,98 @@ export class GameEngine {
       if (w <= 0 || h <= 0) return;
 
       this.applyViewportFraming(w, h);
-
-      const pr = this.getTargetDpr(this.graphicsConfig.preset);
-      this.renderer.setPixelRatio(pr);
+      this.renderer.setPixelRatio(this.adaptive.level.pixelRatio);
       this.renderer.setSize(w, h);
-      this.renderTarget.setSize(w * pr, h * pr);
-      if (this.postMaterial.uniforms && this.postMaterial.uniforms.uResolution) {
-        this.postMaterial.uniforms.uResolution.value.set(w * pr, h * pr);
-      }
+      this.resizeRenderTargets();
+      // A resize while paused still shows one correct frame.
+      this.pausedFrameRendered = false;
     });
     this.resizeObserver.observe(this.container);
   }
 
+  /** Match the post targets to the canvas drawing buffer (never the CSS size). */
+  private resizeRenderTargets(): void {
+    this.renderer.getDrawingBufferSize(this.drawingBufferSize);
+    this.post.setSize(this.drawingBufferSize.x, this.drawingBufferSize.y);
+  }
+
+  /** Apply the adaptive quality level: render scale, MSAA, bloom/motion blur tier. */
+  private applyQualityLevel(): void {
+    const level = this.adaptive.level;
+    if (this.renderer.getPixelRatio() !== level.pixelRatio) {
+      // setPixelRatio resizes only the drawing buffer; the canvas CSS size is untouched.
+      this.renderer.setPixelRatio(level.pixelRatio);
+    }
+    this.resizeRenderTargets();
+    this.post.setSamples(level.msaa ? 4 : 0);
+    this.applyPostTier();
+    this.pausedFrameRendered = false;
+  }
+
+  /** Per-tier post settings that don't change per frame. */
+  private applyPostTier(): void {
+    const u = this.post.postMaterial.uniforms;
+    u.uMotionBlur.value = this.adaptive.level.motionBlur && this.graphicsConfig.preset !== 'webgl-min' ? 1 : 0;
+  }
+
+  /** (Re)build the adaptive ladder for the current preset and apply its top level. */
+  private configureAdaptive(): void {
+    const preset = this.graphicsConfig.preset;
+    this.adaptive.configure({
+      maxPixelRatio: this.getTargetDpr(preset),
+      msaa: msaaForPreset(preset) && this.graphicsConfig.enablePostProcess,
+      targetFps: this.graphicsConfig.targetFPS || 60,
+    });
+    this.adaptiveHoldUntil = performance.now() + ADAPTIVE_SETTLE_MS;
+    this.applyQualityLevel();
+  }
+
+  /**
+   * Compile an object's materials against the live scene (lights, fog,
+   * environment) for the target it will actually be drawn into.
+   */
+  private compileObject(object: THREE.Object3D): Promise<unknown> {
+    return this.shaders.compile([object]);
+  }
+
   public start(): void {
     this.lastTime = performance.now();
+    let first = true;
     const animate = (now: number) => {
       if (this.isDisposed) return;
+      if (first) {
+        // Compile on the first frame, not in the constructor: a StrictMode
+        // double mount disposes the first engine before it ever runs.
+        first = false;
+        this.prewarm();
+      }
       this.animationFrameId = requestAnimationFrame(animate);
+      const rafDelta = this.lastRafTime >= 0 ? now - this.lastRafTime : 0;
+      this.lastRafTime = now;
+      if (this._isPaused) {
+        // Paused: one frame for the menu backdrop / settings preview, then
+        // nothing until resumed (the UI stays responsive, the GPU idles).
+        if (this.pausedFrameRendered) {
+          this.lastTime = now;
+          return;
+        }
+        this.pausedFrameRendered = true;
+      }
+      const t0 = performance.now();
       this.update(now);
       this.render(now);
+      this.sampleAdaptive(rafDelta, performance.now() - t0, now);
     };
     this.animationFrameId = requestAnimationFrame(animate);
+  }
+
+  private sampleAdaptive(frameMs: number, workMs: number, now: number): void {
+    const gpuMs = this.gpuTimer.poll();
+    if (gpuMs >= 0) this.adaptive.reportGpuTime(gpuMs);
+    if (this._isPaused || this.playerMgr.gameState !== 'playing' || now < this.adaptiveHoldUntil) return;
+    if (this.adaptive.sample(frameMs, workMs, now)) {
+      this.applyQualityLevel();
+    }
   }
 
   private onKeyDown(e: KeyboardEvent): void {
@@ -637,28 +815,12 @@ export class GameEngine {
           this.audio.playDataShardCollect();
           // addCoins() grants exactly one shard per coin, so say that.
           const n = collision.collectedCoins;
-          this.onNotification(`+${n} Data Shard${n === 1 ? '' : 's'}!`);
+          this.onNotification(n === 1 ? '+1 Data Shard!' : `+${n} Data Shards!`);
         }
 
         if (collision.collectedPowerUp) {
           this.playerMgr.applyPowerUp(collision.collectedPowerUp, this.audio);
-          // Durations come from the power-up just applied (base + upgrade level).
-          const apu = this.playerMgr.activePowerUps;
-          const secs = (d?: number) => `${Math.round((d ?? 0) * 10) / 10}s`;
-          const magnetText = `🧲 QUANTUM SHARD ATTRACTOR (${secs(apu.magnetMaxDuration)})`;
-          const jetpackText = `🚀 HYPERDRIVE FLIGHT (${secs(apu.jetpackMaxDuration)})`;
-          const multiplierText = `⚡ 2X OVERDRIVE MULTIPLIER (${secs(apu.multiplierMaxDuration)})`;
-          const pNames: Record<string, string> = {
-            'quantum-magnet': magnetText,
-            'sonic-jetpack': jetpackText,
-            'holo-shield': '🛡️ HOLO-DEFENSE SHIELD ENGAGED',
-            'overdrive-2x': multiplierText,
-            'magnet': magnetText,
-            'jetpack': jetpackText,
-            'hoverboard-shield': '🛡️ HOLO-DEFENSE SHIELD ENGAGED',
-            'multiplier2x': multiplierText,
-          };
-          this.onNotification(pNames[collision.collectedPowerUp] || 'Power-Up Collected!');
+          this.onNotification(this.powerUpNotification(collision.collectedPowerUp));
         }
 
         // Collisions: Stumble or Crash
@@ -712,9 +874,6 @@ export class GameEngine {
       }
       this.lastTransitionState = metrics.state;
 
-      // Ensure active world(s) instances are preloaded & synced with zero popping
-      this.syncActiveWorld(metrics);
-
       // Announce new world entry cleanly with debouncing
       if (shouldNotifyNewWorld && worldToAnnounce) {
         telemetry.endTransition();
@@ -742,11 +901,10 @@ export class GameEngine {
         this.lastTier = currentTier;
       }
 
-      // Check collectible shards in chunks
-      let collectedTotal = 0;
-      for (const chunk of this.terrainMgr.chunks.values()) {
-        collectedTotal += this.playerMgr.checkOrbCollection(chunk.foliageInstances.orbs);
-      }
+      // Check collectible shards in chunks (no iterator allocation per frame)
+      this.orbsCollectedThisFrame = 0;
+      this.terrainMgr.chunks.forEach(this.collectChunkOrbs);
+      const collectedTotal = this.orbsCollectedThisFrame;
       if (collectedTotal > 0) {
         this.progressionMgr.recordShardCollection(collectedTotal);
         this.audio.playDataShardCollect();
@@ -776,13 +934,59 @@ export class GameEngine {
         this.foliageMgr.grassMaterial.uniforms.uPlayerPos.value.copy(this.playerMgr.position);
       }
 
-      // Apply Blended Sky & Atmospheric Lighting smoothly between worlds
+      // Sky, sun, fog and exposure blend over the last metres before a
+      // gateway; the reflection environment is a cached per-world bake that is
+      // swapped (never re-baked) when the boundary is crossed.
       this.skyMgr.applyWorldAtmosphere(metrics.currentWorldId, metrics.nextWorldId, blended.nextWorldWeight);
       this.skyMgr.update(this.playerMgr.position, this.playerMgr.velocity.z, timeSeconds, this.playerMgr.stats.speed);
       this.themeMgr.update(dt, this.skyMgr, this.terrainMgr, this.obstacleMgr, this.playerMgr.position, timeSeconds);
 
-      // Active & Preloaded World Procedural Simulation
-      this.updateActiveWorlds(dt, timeSeconds, metrics);
+      // Campaign worlds: current + (while approaching a gateway) the next one,
+      // built over several frames ahead of the boundary.
+      this.worlds.update(this.playerMgr.position.z, dt, timeSeconds, this.graphicsConfig, metrics);
+
+      this.compileLateAssets();
+    }
+  }
+
+  private powerUpNotification(type: string): string {
+    // Durations come from the power-up just applied (base + upgrade level).
+    const apu = this.playerMgr.activePowerUps;
+    const secs = (d?: number) => `${Math.round((d ?? 0) * 10) / 10}s`;
+    switch (POWER_UP_LABELS[type]) {
+      case 'magnet':
+        return `🧲 QUANTUM SHARD ATTRACTOR (${secs(apu.magnetMaxDuration)})`;
+      case 'jetpack':
+        return `🚀 HYPERDRIVE FLIGHT (${secs(apu.jetpackMaxDuration)})`;
+      case 'multiplier':
+        return `⚡ 2X OVERDRIVE MULTIPLIER (${secs(apu.multiplierMaxDuration)})`;
+      case 'shield':
+        return '🛡️ HOLO-DEFENSE SHIELD ENGAGED';
+      default:
+        return 'Power-Up Collected!';
+    }
+  }
+
+  /**
+   * Assets that finish loading after the engine started (hero GLB, obstacle
+   * models) get their shaders compiled the moment they appear, off the render
+   * path where possible (KHR_parallel_shader_compile).
+   */
+  private compileLateAssets(): void {
+    const rig = this.playerMgr.playerCharacter ? this.playerMgr.playerCharacter.heroRig : undefined;
+    if (rig !== this.lastHeroRig) {
+      this.lastHeroRig = rig;
+      if (rig) this.compileObject(this.playerMgr.group);
+    }
+    if (!this.templatesCompiled && ObstacleManager.isPreloadComplete) {
+      this.templatesCompiled = true;
+      // Templates are never in the scene; compile() only needs their trees
+      // (the live scene supplies lights, fog and environment).
+      const pivots = ObstacleManager.cachedTemplates.map(t => t.pivot);
+      this.shaders.compile(pivots).then(() => {
+        // First real draw happens off screen too (both LOD levels).
+        if (!this.isDisposed) this.shaders.warmDraw(pivots, () => true);
+      });
     }
   }
 
@@ -827,8 +1031,11 @@ export class GameEngine {
         baseFov + 8,
         Math.max(baseFov, baseFov + (this.playerMgr.stats.speed / 150) * 6 + (this.playerMgr.stats.isBoosting ? 2 : 0))
       );
-      this.camera.fov = THREE.MathUtils.lerp(this.camera.fov, targetFov, 3.5 * rawDt);
-      this.camera.updateProjectionMatrix();
+      const fov = THREE.MathUtils.lerp(this.camera.fov, targetFov, 3.5 * rawDt);
+      if (Math.abs(fov - this.camera.fov) > 1e-4) {
+        this.camera.fov = fov;
+        this.camera.updateProjectionMatrix();
+      }
 
       this.camera.position.copy(this.playerMgr.cameraPos);
       this.camera.position.x += screenShakeX;
@@ -841,12 +1048,13 @@ export class GameEngine {
       }
     }
 
-
     // Glitch timers drive both camera jitter (above) and the post-process
     // shader, so they must decay even when post-processing is off.
     if (this.boostGlitchTimer > 0) this.boostGlitchTimer = Math.max(0, this.boostGlitchTimer - rawDt);
     if (this.stumbleGlitchTimer > 0) this.stumbleGlitchTimer = Math.max(0, this.stumbleGlitchTimer - rawDt);
 
+    this.gpuTimer.begin();
+    let totalDrawCalls: number;
     // Render Scene passes
     if (this.graphicsConfig.enablePostProcess) {
       const currentSpeed = this.playerMgr.stats.speed;
@@ -888,6 +1096,8 @@ export class GameEngine {
 
       // A real lens only fringes slightly; the old neon look used up to 0.008.
       chromaticAberration = Math.min(chromaticAberration, 0.0015);
+      // Lens fringing is a top-tier nicety (two extra taps at the frame edge).
+      if (this.graphicsConfig.preset !== 'desktop-full') chromaticAberration = 0;
 
       if (this.graphicsConfig.reducedFlash) {
         glitchIntensity = 0;
@@ -895,70 +1105,61 @@ export class GameEngine {
         this.screenShakeTimer = 0;
       }
 
-      if (this.postMaterial.uniforms.uTime) this.postMaterial.uniforms.uTime.value = timeSeconds;
-      if (this.postMaterial.uniforms.uFilmGrain) this.postMaterial.uniforms.uFilmGrain.value = this.shaderParams.filmGrainIntensity ?? 0.0;
-      if (this.postMaterial.uniforms.uColorLift) this.postMaterial.uniforms.uColorLift.value = this.shaderParams.colorLift ?? 0.2;
-      if (this.postMaterial.uniforms.uRainIntensity) {
-        this.postMaterial.uniforms.uRainIntensity.value = this.shaderParams.rainIntensity ?? 0.0;
-      }
-      if (this.postMaterial.uniforms.uBloom) this.postMaterial.uniforms.uBloom.value = this.shaderParams.bloomIntensity ?? 0.55;
-      if (this.postMaterial.uniforms.uChromaticAberration) this.postMaterial.uniforms.uChromaticAberration.value = chromaticAberration;
-      if (this.postMaterial.uniforms.uScanlines) this.postMaterial.uniforms.uScanlines.value = this.shaderParams.scanlineIntensity ?? 0.0;
-      if (this.postMaterial.uniforms.uGlitch) this.postMaterial.uniforms.uGlitch.value = glitchIntensity;
-      if (this.postMaterial.uniforms.uWarpIntensity) {
-        this.postMaterial.uniforms.uWarpIntensity.value = this.playerMgr.warpTimer > 0 ? this.playerMgr.warpTimer * 0.75 : 0.0;
-      }
-      if (this.postMaterial.uniforms.uSpeedLines) {
-        this.postMaterial.uniforms.uSpeedLines.value = effectiveSpeedLines;
-      }
-      if (this.postMaterial.uniforms.uHeatShimmer) this.postMaterial.uniforms.uHeatShimmer.value = heatShimmerFactor;
+      const u = this.post.postMaterial.uniforms;
+      u.uTime.value = timeSeconds;
+      u.uFilmGrain.value = this.shaderParams.filmGrainIntensity ?? 0.0;
+      u.uColorLift.value = this.shaderParams.colorLift ?? 0.2;
+      u.uRainIntensity.value = this.shaderParams.rainIntensity ?? 0.0;
+      u.uBloom.value = (this.shaderParams.bloomIntensity ?? 0.55) * this.adaptive.level.bloomScale;
+      u.uChromaticAberration.value = chromaticAberration;
+      u.uScanlines.value = this.shaderParams.scanlineIntensity ?? 0.0;
+      u.uGlitch.value = glitchIntensity;
+      u.uWarpIntensity.value = this.playerMgr.warpTimer > 0 ? this.playerMgr.warpTimer * 0.75 : 0.0;
+      u.uSpeedLines.value = effectiveSpeedLines;
+      u.uHeatShimmer.value = heatShimmerFactor;
 
-      this.renderer.setRenderTarget(this.renderTarget);
-      this.renderer.render(this.scene, this.camera);
-      const sceneCalls = this.renderer.info.render.calls;
-
-      this.renderer.setRenderTarget(null);
-      this.renderer.render(this.postScene, this.postCamera);
-      const totalDrawCalls = sceneCalls + this.renderer.info.render.calls;
-
-      const instances = (this.foliageMgr.grassMesh ? this.foliageMgr.grassMesh.count : 0) +
-        (this.foliageMgr.treeMesh ? this.foliageMgr.treeMesh.count : 0);
-
-      this.statsUpdateTimer += rawDt;
-      const stateChanged = this.playerMgr.gameState !== this.lastSentGameState;
-      if (this.statsUpdateTimer >= 0.066 || stateChanged) {
-        this.statsUpdateTimer = 0;
-        this.lastSentGameState = this.playerMgr.gameState;
-        this.onStatsUpdate(this.playerMgr.stats, this.currentFps, totalDrawCalls, instances);
-      }
+      totalDrawCalls = this.post.render(this.scene, this.camera);
     } else {
       this.renderer.setRenderTarget(null);
       this.renderer.render(this.scene, this.camera);
-
-      this.statsUpdateTimer += rawDt;
-      if (this.statsUpdateTimer >= 0.066) {
-        this.statsUpdateTimer = 0;
-        this.onStatsUpdate(this.playerMgr.stats, this.currentFps, this.renderer.info.render.calls, 0);
-      }
+      totalDrawCalls = this.renderer.info.render.calls;
     }
+    this.gpuTimer.end();
+    this.lastDrawCalls = totalDrawCalls;
+
+    this.statsUpdateTimer += rawDt;
+    const stateChanged = this.playerMgr.gameState !== this.lastSentGameState;
+    if (this.statsUpdateTimer >= 0.066 || stateChanged || this._isPaused) {
+      this.statsUpdateTimer = 0;
+      this.lastSentGameState = this.playerMgr.gameState;
+      const instances =
+        (this.foliageMgr.grassMesh ? this.foliageMgr.grassMesh.count : 0) +
+        (this.foliageMgr.treeMesh ? this.foliageMgr.treeMesh.count : 0);
+      liveStats.publish(this.playerMgr.stats, this.currentFps, totalDrawCalls, instances, this.adaptive.label);
+      if (this.onStatsUpdate) this.onStatsUpdate(this.playerMgr.stats, this.currentFps, totalDrawCalls, instances);
+    }
+  }
+
+  /** Draw calls of the last rendered frame (scene + post passes). */
+  public get drawCalls(): number {
+    return this.lastDrawCalls;
   }
 
   // --- Dynamic Synchronization APIs ---
 
   public updateGraphicsConfig(config: GraphicsConfig): void {
-    const prevPreset = this.graphicsConfig.preset;
+    const prev = this.graphicsConfig;
     this.graphicsConfig = config;
 
-    // Update DPR dynamically if preset changed
-    const targetDpr = this.getTargetDpr(config.preset);
-    if (this.renderer.getPixelRatio() !== targetDpr || prevPreset !== config.preset) {
-      this.renderer.setPixelRatio(targetDpr);
-      const w = Math.max(this.container.clientWidth || window.innerWidth || 800, 100);
-      const h = Math.max(this.container.clientHeight || window.innerHeight || 600, 100);
-      this.renderTarget.setSize(w * targetDpr, h * targetDpr);
-      if (this.postMaterial.uniforms && this.postMaterial.uniforms.uResolution) {
-        this.postMaterial.uniforms.uResolution.value.set(w * targetDpr, h * targetDpr);
-      }
+    // Preset / post / target-FPS change: rebuild the quality ladder, which
+    // resizes the render targets and rebuilds the MSAA scene target.
+    if (
+      prev.preset !== config.preset ||
+      prev.enablePostProcess !== config.enablePostProcess ||
+      prev.targetFPS !== config.targetFPS
+    ) {
+      this.configureAdaptive();
+      this.skyMgr.setShadowMapSize(config.preset === 'desktop-full' ? 2048 : 1024);
     }
 
     if (this.renderer.shadowMap.enabled !== config.enableShadows) {
@@ -972,12 +1173,14 @@ export class GameEngine {
       this.playerMgr.position.x,
       config.vegetationDensity
     );
+    this.pausedFrameRendered = false;
   }
 
   public updateLightingMode(mode: LightingMode): void {
     this.lightingMode = mode;
     // Lighting comes from each world's physical atmosphere (see SkyManager).
     this.skyMgr.applyLightingPreset(mode);
+    this.pausedFrameRendered = false;
   }
 
   public updateShaderParams(params: ShaderParams): void {
@@ -992,7 +1195,7 @@ export class GameEngine {
     if (treeUniforms.uWindStrength) treeUniforms.uWindStrength.value = params.windStrength * 0.5;
     if (treeUniforms.uRimLightIntensity) treeUniforms.uRimLightIntensity.value = params.rimLightIntensity;
 
-    const pUniforms = this.postMaterial.uniforms;
+    const pUniforms = this.post.postMaterial.uniforms;
     if (pUniforms.uFilmGrain) pUniforms.uFilmGrain.value = params.filmGrainIntensity;
     if (pUniforms.uBloom) pUniforms.uBloom.value = params.bloomIntensity;
     if (pUniforms.uColorLift) pUniforms.uColorLift.value = params.colorLift;
@@ -1001,93 +1204,7 @@ export class GameEngine {
     if (pUniforms.uSpeedLines && params.speedLineIntensity !== undefined) {
       pUniforms.uSpeedLines.value = params.speedLineIntensity;
     }
-  }
-
-  private syncActiveWorld(metrics?: { currentWorldId: string; nextWorldId: string; state: string }): void {
-    const currentWorld = metrics ? metrics.currentWorldId : this.worldMgr.currentWorldId;
-    // Only the current world is instantiated. The next world is not preloaded:
-    // its scenery streams in ahead of the player and would show before the
-    // portal, so it spawns when the player crosses the boundary.
-
-    // Check which worlds are required without allocating sets or arrays
-    const needSkyIsles = currentWorld === 'sky-isles';
-    const needVerdantWilds = currentWorld === 'verdant-wilds';
-    const needCrimsonDunes = currentWorld === 'crimson-dunes';
-    const needCrystalHeights = currentWorld === 'crystal-heights';
-    const needObsidianCore = currentWorld === 'obsidian-core';
-
-    // 1. Dispose worlds that are no longer needed (releasing all GPU/CPU memory)
-    if (!needSkyIsles && this.skyIslesWorld) {
-      this.skyIslesWorld.dispose();
-      this.skyIslesWorld = null;
-    }
-    if (!needVerdantWilds && this.verdantWildsWorld) {
-      this.verdantWildsWorld.dispose();
-      this.verdantWildsWorld = null;
-    }
-    if (!needCrimsonDunes && this.crimsonDunesWorld) {
-      this.crimsonDunesWorld.dispose();
-      this.crimsonDunesWorld = null;
-    }
-    if (!needCrystalHeights && this.crystalHeightsWorld) {
-      this.crystalHeightsWorld.dispose();
-      this.crystalHeightsWorld = null;
-    }
-    if (!needObsidianCore && this.obsidianCoreWorld) {
-      this.obsidianCoreWorld.dispose();
-      this.obsidianCoreWorld = null;
-    }
-
-    // 2. Initialize required worlds smoothly ahead of boundary
-    if (needSkyIsles && !this.skyIslesWorld) {
-      this.skyIslesWorld = new SkyIslesWorld(this.scene, this.graphicsConfig);
-    }
-    if (needVerdantWilds && !this.verdantWildsWorld) {
-      this.verdantWildsWorld = new VerdantWildsWorld(this.scene, this.graphicsConfig);
-    }
-    if (needCrimsonDunes && !this.crimsonDunesWorld) {
-      this.crimsonDunesWorld = new CrimsonDunesWorld(this.scene, this.graphicsConfig);
-    }
-    if (needCrystalHeights && !this.crystalHeightsWorld) {
-      this.crystalHeightsWorld = new CrystalHeightsWorld(this.scene, this.graphicsConfig);
-    }
-    if (needObsidianCore && !this.obsidianCoreWorld) {
-      this.obsidianCoreWorld = new ObsidianCoreWorld(this.scene, this.graphicsConfig);
-    }
-  }
-
-  private updateActiveWorlds(
-    dt: number,
-    timeSeconds: number,
-    metrics: { currentWorldId: string; nextWorldId: string; state: string }
-  ): void {
-    const pZ = this.playerMgr.position.z;
-
-    // Update active primary world
-    if (metrics.currentWorldId === 'sky-isles' && this.skyIslesWorld) {
-      this.skyIslesWorld.update(pZ, dt, timeSeconds, this.graphicsConfig);
-    } else if (metrics.currentWorldId === 'verdant-wilds' && this.verdantWildsWorld) {
-      this.verdantWildsWorld.update(pZ, dt, timeSeconds, this.graphicsConfig);
-    } else if (metrics.currentWorldId === 'crimson-dunes' && this.crimsonDunesWorld) {
-      this.crimsonDunesWorld.update(pZ, dt, timeSeconds, this.graphicsConfig);
-    } else if (metrics.currentWorldId === 'crystal-heights' && this.crystalHeightsWorld) {
-      this.crystalHeightsWorld.update(pZ, dt, timeSeconds, this.graphicsConfig);
-    } else if (metrics.currentWorldId === 'obsidian-core' && this.obsidianCoreWorld) {
-      this.obsidianCoreWorld.update(pZ, dt, timeSeconds, this.graphicsConfig);
-    }
-
-    // If preloading or transitioning into next world, update next world as well
-    if (metrics.state === 'TRANSITIONING' || metrics.state === 'PREPARING') {
-      if (metrics.nextWorldId === 'verdant-wilds' && this.verdantWildsWorld) {
-        this.verdantWildsWorld.update(pZ, dt, timeSeconds, this.graphicsConfig);
-      } else if (metrics.nextWorldId === 'crimson-dunes' && this.crimsonDunesWorld) {
-        this.crimsonDunesWorld.update(pZ, dt, timeSeconds, this.graphicsConfig);
-      } else if (metrics.nextWorldId === 'crystal-heights' && this.crystalHeightsWorld) {
-        this.crystalHeightsWorld.update(pZ, dt, timeSeconds, this.graphicsConfig);
-      } else if (metrics.nextWorldId === 'obsidian-core' && this.obsidianCoreWorld) {
-        this.obsidianCoreWorld.update(pZ, dt, timeSeconds, this.graphicsConfig);
-      }
-    }
+    this.pausedFrameRendered = false;
   }
 
   public resetRun(): void {
@@ -1106,28 +1223,14 @@ export class GameEngine {
     this.terrainMgr.rebuildAroundPlayer(0, 0, 3);
     this.foliageMgr.updateFoliage(this.terrainMgr.chunks, 0, 0, this.graphicsConfig.vegetationDensity);
 
-    if (this.obsidianCoreWorld) {
-      this.obsidianCoreWorld.dispose();
-      this.obsidianCoreWorld = null;
-    }
-    if (this.crystalHeightsWorld) {
-      this.crystalHeightsWorld.dispose();
-      this.crystalHeightsWorld = null;
-    }
-    if (this.crimsonDunesWorld) {
-      this.crimsonDunesWorld.dispose();
-      this.crimsonDunesWorld = null;
-    }
-    if (this.verdantWildsWorld) {
-      this.verdantWildsWorld.dispose();
-      this.verdantWildsWorld = null;
-    }
-    if (this.skyIslesWorld) {
-      this.skyIslesWorld.dispose();
-      this.skyIslesWorld = null;
-    }
-    this.skyIslesWorld = new SkyIslesWorld(this.scene, this.graphicsConfig);
+    // Back to Sky Isles: every world instance (current, next, retiring) is
+    // dropped and the sky snaps to Sky Isles' atmosphere.
+    this.worlds.reset('sky-isles', this.graphicsConfig);
+    this.skyMgr.applyAtmosphere('sky-isles');
     this.gameModeMgr.onRunStart();
+    this.adaptive.resetTimers();
+    this.adaptiveHoldUntil = performance.now() + ADAPTIVE_SETTLE_MS;
+    this.pausedFrameRendered = false;
   }
 
   public revivePlayer(): void {
@@ -1180,6 +1283,9 @@ export class GameEngine {
       this.resizeObserver = null;
     }
 
+    // Persist progression that was batched during the run.
+    this.progressionMgr.save();
+
     this.terrainMgr.dispose();
     this.foliageMgr.dispose();
     this.skyMgr.dispose();
@@ -1187,30 +1293,11 @@ export class GameEngine {
     this.obstacleMgr.dispose();
     this.themeMgr.dispose();
     this.worldMgr.dispose();
-    if (this.skyIslesWorld) {
-      this.skyIslesWorld.dispose();
-      this.skyIslesWorld = null;
-    }
-    if (this.verdantWildsWorld) {
-      this.verdantWildsWorld.dispose();
-      this.verdantWildsWorld = null;
-    }
-    if (this.crimsonDunesWorld) {
-      this.crimsonDunesWorld.dispose();
-      this.crimsonDunesWorld = null;
-    }
-    if (this.crystalHeightsWorld) {
-      this.crystalHeightsWorld.dispose();
-      this.crystalHeightsWorld = null;
-    }
-    if (this.obsidianCoreWorld) {
-      this.obsidianCoreWorld.dispose();
-      this.obsidianCoreWorld = null;
-    }
+    this.worlds.dispose();
 
-    this.renderTarget.dispose();
-    this.postMaterial.dispose();
-    this.postQuadGeom.dispose();
+    this.gpuTimer.dispose();
+    this.shaders.dispose();
+    this.post.dispose();
     this.renderer.dispose();
 
     if (this.renderer.domElement && this.renderer.domElement.parentElement) {

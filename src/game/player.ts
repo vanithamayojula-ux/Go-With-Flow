@@ -77,6 +77,8 @@ export class PlayerManager {
   boardFoilMesh?: THREE.Mesh;
   underglowMesh?: THREE.Mesh;
   underglowLight?: THREE.PointLight;
+  // Scratch vector for particle emit positions (no per-event allocation).
+  private _fxScratch = new THREE.Vector3();
 
   stumbleTimer = 0;
 
@@ -506,6 +508,9 @@ export class PlayerManager {
     if (pc.underglowMesh && pc.underglowMesh.material) {
       (pc.underglowMesh.material as THREE.MeshBasicMaterial).color.set(uColor);
     }
+    if (pc.underglowHalo && pc.underglowHalo.material) {
+      (pc.underglowHalo.material as THREE.MeshBasicMaterial).color.set(uColor);
+    }
     if (pc.underglowLight) {
       pc.underglowLight.color.set(uColor);
     }
@@ -595,7 +600,7 @@ export class PlayerManager {
   }
 
   emitLaneShiftParticles(direction: -1 | 1) {
-    const sidePos = this.position.clone();
+    const sidePos = this._fxScratch.copy(this.position);
     sidePos.x += (this.targetLaneX - this.position.x) >= 0 ? 0.35 : -0.35;
     sidePos.y += 0.2;
     this.emitSparks(sidePos, 5, 0x00d2e0);
@@ -1179,14 +1184,6 @@ export class PlayerManager {
     if (this.underglowMesh) {
       (this.underglowMesh.material as THREE.MeshBasicMaterial).opacity = 0.45 * dynamicPulse;
     }
-    if (this.playerCharacter.forwardSpotLight) {
-      this.playerCharacter.forwardSpotLight.intensity = 2.0 + speedRatio * 1.8 + Math.sin(time * pulseFreq) * 0.4;
-    }
-    if (this.playerCharacter.footLightLeft && this.playerCharacter.footLightRight) {
-      const footInt = (this.isSliding ? 2.6 : 0.9) * dynamicPulse;
-      this.playerCharacter.footLightLeft.intensity = footInt;
-      this.playerCharacter.footLightRight.intensity = footInt;
-    }
 
     // Slide Contact Sparks & Rail Grind Friction Sparks
     if (this.isSliding) {
@@ -1451,7 +1448,7 @@ export class PlayerManager {
           this.stats.windOrbsCollected = this.stats.dataShardsCollected;
           this.stats.score += 200;
           this.overdriveMeter = Math.min(100, this.overdriveMeter + 10);
-          this.emitJumpDust(new THREE.Vector3(orb.x, orb.y, orb.z), 5);
+          this.emitJumpDust(this._fxScratch.set(orb.x, orb.y, orb.z), 5);
           collectedCount++;
         }
       }

@@ -1,13 +1,19 @@
 import React from 'react';
 import { ArrowLeft, ArrowRight, ArrowUp, ArrowDown, Zap, RefreshCw, RotateCcw, Crosshair, Radio } from 'lucide-react';
 import { TrickType } from '../types';
+import { useLiveStatsSelector } from '../state/liveStats';
 
 interface ControlsOverlayProps {
   onControlAction: (action: 'left' | 'right' | 'jump' | 'forward' | 'drift' | 'slide' | 'shield', pressed: boolean) => void;
   onTriggerTrick: (trick: TrickType) => void;
-  isAirborne: boolean;
-  slowMoActive: boolean;
+  /** Defaults to the live stats store (re-renders only when it flips). */
+  isAirborne?: boolean;
+  /** Defaults to the live stats store (re-renders only when it flips). */
+  slowMoActive?: boolean;
 }
+
+const selectAirborne = (s: { stats: { isGrounded: boolean } }) => !s.stats.isGrounded;
+const selectSlowMo = (s: { stats: { slowMoActive: boolean } }) => s.stats.slowMoActive;
 
 const TRICKS: {
   trick: TrickType;
@@ -71,12 +77,16 @@ const TRICKS: {
   },
 ];
 
-export const ControlsOverlay: React.FC<ControlsOverlayProps> = ({
+const ControlsOverlayView: React.FC<ControlsOverlayProps> = ({
   onControlAction,
   onTriggerTrick,
-  isAirborne,
-  slowMoActive,
+  isAirborne: isAirborneProp,
+  slowMoActive: slowMoActiveProp,
 }) => {
+  const liveAirborne = useLiveStatsSelector(selectAirborne);
+  const liveSlowMo = useLiveStatsSelector(selectSlowMo);
+  const isAirborne = isAirborneProp ?? liveAirborne;
+  const slowMoActive = slowMoActiveProp ?? liveSlowMo;
   const highlighted = isAirborne || slowMoActive;
 
   return (
@@ -90,7 +100,7 @@ export const ControlsOverlay: React.FC<ControlsOverlayProps> = ({
         className="fixed left-1/2 -translate-x-1/2 bottom-[calc(max(0.5rem,env(safe-area-inset-bottom))+4.25rem)] sm:bottom-[calc(max(0.5rem,env(safe-area-inset-bottom))+4.75rem)] w-[min(24rem,calc(100vw-1rem))]
                    lg:left-auto lg:translate-x-0 lg:bottom-auto lg:w-auto lg:right-[max(1.25rem,env(safe-area-inset-right))] lg:top-1/2 lg:-translate-y-1/2"
       >
-        <div className="pointer-events-auto grid grid-cols-4 gap-1.5 p-1.5 rounded-xl bg-black/80 backdrop-blur-xl border border-cyan-500/30 shadow-[0_0_20px_rgba(0,240,255,0.15)] lg:flex lg:flex-col lg:gap-2 lg:p-2">
+        <div className="pointer-events-auto grid grid-cols-4 gap-1.5 p-1.5 rounded-xl bg-black/80 border border-cyan-500/30 shadow-[0_0_20px_rgba(0,240,255,0.15)] lg:flex lg:flex-col lg:gap-2 lg:p-2">
           <span className="hidden lg:flex items-center justify-center gap-1 px-1 pt-0.5 text-[10px] font-black text-cyan-300 uppercase tracking-widest">
             <Zap className="w-3 h-3 text-cyan-400 animate-pulse" />
             {slowMoActive ? 'OVERDRIVE' : isAirborne ? 'AIR TRICKS' : 'STUNTS'}
@@ -120,7 +130,7 @@ export const ControlsOverlay: React.FC<ControlsOverlayProps> = ({
         <div className="flex items-center gap-1.5 sm:gap-2 pointer-events-auto shrink-0">
           <button
             id="btn-carve-left"
-            className="min-h-[48px] min-w-[48px] w-12 h-12 sm:w-14 sm:h-14 rounded-xl bg-black/80 backdrop-blur-xl border border-cyan-500/40 text-cyan-300 flex items-center justify-center active:scale-95 active:bg-cyan-500/80 active:text-black transition-all shadow-[0_0_15px_rgba(0,240,255,0.2)]"
+            className="min-h-[48px] min-w-[48px] w-12 h-12 sm:w-14 sm:h-14 rounded-xl bg-black/80 border border-cyan-500/40 text-cyan-300 flex items-center justify-center active:scale-95 active:bg-cyan-500/80 active:text-black transition-all shadow-[0_0_15px_rgba(0,240,255,0.2)]"
             onPointerDown={() => onControlAction('left', true)}
             onPointerUp={() => onControlAction('left', false)}
             onPointerLeave={() => onControlAction('left', false)}
@@ -131,7 +141,7 @@ export const ControlsOverlay: React.FC<ControlsOverlayProps> = ({
 
           <button
             id="btn-carve-right"
-            className="min-h-[48px] min-w-[48px] w-12 h-12 sm:w-14 sm:h-14 rounded-xl bg-black/80 backdrop-blur-xl border border-cyan-500/40 text-cyan-300 flex items-center justify-center active:scale-95 active:bg-cyan-500/80 active:text-black transition-all shadow-[0_0_15px_rgba(0,240,255,0.2)]"
+            className="min-h-[48px] min-w-[48px] w-12 h-12 sm:w-14 sm:h-14 rounded-xl bg-black/80 border border-cyan-500/40 text-cyan-300 flex items-center justify-center active:scale-95 active:bg-cyan-500/80 active:text-black transition-all shadow-[0_0_15px_rgba(0,240,255,0.2)]"
             onPointerDown={() => onControlAction('right', true)}
             onPointerUp={() => onControlAction('right', false)}
             onPointerLeave={() => onControlAction('right', false)}
@@ -143,7 +153,7 @@ export const ControlsOverlay: React.FC<ControlsOverlayProps> = ({
 
         {/* Center: keyboard hints. Hidden on touch screens and narrow windows,
             where they would push the touch buttons off-screen. */}
-        <div className="hidden md:flex pointer-coarse:hidden min-w-0 items-center gap-2 px-3 py-2 rounded-lg bg-black/85 backdrop-blur-xl border border-cyan-500/30 text-[11px] lg:text-sm text-white/90 font-mono tracking-wide shadow-lg whitespace-nowrap overflow-hidden">
+        <div className="hidden md:flex pointer-coarse:hidden min-w-0 items-center gap-2 px-3 py-2 rounded-lg bg-black/85 border border-cyan-500/30 text-[11px] lg:text-sm text-white/90 font-mono tracking-wide shadow-lg whitespace-nowrap overflow-hidden">
           <span className="inline-flex items-center gap-1">
             <kbd className="px-1.5 py-0.5 rounded bg-cyan-950/60 border border-cyan-500/40 text-cyan-300 font-bold text-[10px] lg:text-xs">A</kbd>
             <kbd className="px-1.5 py-0.5 rounded bg-cyan-950/60 border border-cyan-500/40 text-cyan-300 font-bold text-[10px] lg:text-xs">D</kbd>
@@ -171,7 +181,7 @@ export const ControlsOverlay: React.FC<ControlsOverlayProps> = ({
           {/* Slide / Duck Button */}
           <button
             id="btn-action-slide"
-            className="min-h-[48px] min-w-[48px] w-12 h-12 sm:w-14 sm:h-14 rounded-xl bg-pink-950/80 backdrop-blur-xl border border-pink-500/60 text-pink-200 flex flex-col items-center justify-center active:scale-95 active:bg-pink-500 active:text-black transition-all shadow-[0_0_15px_rgba(255,0,127,0.3)]"
+            className="min-h-[48px] min-w-[48px] w-12 h-12 sm:w-14 sm:h-14 rounded-xl bg-pink-950/80 border border-pink-500/60 text-pink-200 flex flex-col items-center justify-center active:scale-95 active:bg-pink-500 active:text-black transition-all shadow-[0_0_15px_rgba(255,0,127,0.3)]"
             onPointerDown={() => onControlAction('slide', true)}
             onPointerUp={() => onControlAction('slide', false)}
             onPointerLeave={() => onControlAction('slide', false)}
@@ -184,7 +194,7 @@ export const ControlsOverlay: React.FC<ControlsOverlayProps> = ({
           {/* Jump Button */}
           <button
             id="btn-action-jump"
-            className="min-h-[48px] min-w-[48px] w-12 h-12 sm:w-14 sm:h-14 rounded-xl bg-cyan-950/80 backdrop-blur-xl border border-cyan-400/70 text-cyan-100 flex flex-col items-center justify-center active:scale-95 active:bg-cyan-400 active:text-black transition-all shadow-[0_0_20px_rgba(0,240,255,0.4)]"
+            className="min-h-[48px] min-w-[48px] w-12 h-12 sm:w-14 sm:h-14 rounded-xl bg-cyan-950/80 border border-cyan-400/70 text-cyan-100 flex flex-col items-center justify-center active:scale-95 active:bg-cyan-400 active:text-black transition-all shadow-[0_0_20px_rgba(0,240,255,0.4)]"
             onPointerDown={() => onControlAction('jump', true)}
             onPointerUp={() => onControlAction('jump', false)}
             onPointerLeave={() => onControlAction('jump', false)}
@@ -198,3 +208,5 @@ export const ControlsOverlay: React.FC<ControlsOverlayProps> = ({
     </div>
   );
 };
+
+export const ControlsOverlay = React.memo(ControlsOverlayView);

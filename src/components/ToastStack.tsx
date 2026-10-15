@@ -28,7 +28,7 @@ export const ToastStack: React.FC<ToastStackProps> = ({ toasts }) => {
       {toasts.map(t => (
         <div
           key={t.id}
-          className="max-w-full px-3.5 py-1 rounded-md bg-black/90 border border-cyan-500/60 text-cyan-300 text-xs font-bold text-center backdrop-blur-md shadow-lg shadow-cyan-950/40"
+          className="max-w-full px-3.5 py-1 rounded-md bg-black/90 border border-cyan-500/60 text-cyan-300 text-xs font-bold text-center shadow-lg shadow-cyan-950/40"
         >
           {t.msg}
           {t.count > 1 && <span className="ml-1.5 text-white/70">x{t.count}</span>}

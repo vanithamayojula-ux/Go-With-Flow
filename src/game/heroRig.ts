@@ -465,14 +465,8 @@ export function buildHeroRig(heroId: HeroId): HeroRig | null {
       scene.position.z -= scaledCenter.z;
     }
 
-    // Dedicated rider lighting to illuminate character clearly
-    const riderLight = new THREE.DirectionalLight(0xffffff, 2.5);
-    riderLight.position.set(0, 4.0, -3.5); // Illuminates rider from above and behind (chase camera view)
-    bodyGroup.add(riderLight);
-
-    const riderRim = new THREE.PointLight(heroDef.color || 0x00f0ff, 2.0, 6.0);
-    riderRim.position.set(0, 1.2, 0.4);
-    bodyGroup.add(riderRim);
+    // No per-rider lights: the scene keeps a constant light count (sun + sky)
+    // so swapping heroes never recompiles every lit material mid-run.
 
     const dummyJoint = new THREE.Object3D();
     return {

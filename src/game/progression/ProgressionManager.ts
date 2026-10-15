@@ -26,6 +26,8 @@ import {
   LEVEL_REWARDS_BY_LEVEL,
 } from './rewards';
 
+const SAVE_DEBOUNCE_MS = 5000;
+
 export interface ProgressionEvents {
   onXpGained?: (amount: number, reason: string) => void;
   onLevelUp?: (newLevel: number, reward?: LevelReward) => void;
@@ -38,6 +40,14 @@ export class ProgressionManager {
   private _state: ProgressionSaveData;
   private _events: ProgressionEvents;
   private _dirty = false;
+  // XP from coins/near misses/tricks arrives many times a second mid-run;
+  // those saves are batched (localStorage writes are synchronous).
+  private _saveTimer: ReturnType<typeof setTimeout> | null = null;
+  private _flushBound = () => this.flushSave();
+  private _visibilityBound = () => {
+    if (typeof document !== 'undefined' && document.visibilityState === 'hidden') this.flushSave();
+  };
+  private _listening = false;
 
   // Track session milestones in-run to prevent double-crediting
   private _sessionWorldsVisited = new Set<string>();
@@ -175,7 +185,9 @@ export class ProgressionManager {
       }
     }
 
-    this.save();
+    // Level-ups persist at once; plain XP ticks are batched.
+    if (levelsGained > 0) this.save();
+    else this.scheduleSave();
     return { newLevel, levelsGained, rewardsUnlocked };
   }
 
@@ -411,13 +423,56 @@ export class ProgressionManager {
    * Persist progression state to localStorage.
    */
   public save(): void {
+    if (this._saveTimer !== null) {
+      clearTimeout(this._saveTimer);
+      this._saveTimer = null;
+    }
     if (this._dirty) {
       saveProgressionState(this._state);
       this._dirty = false;
     }
   }
 
+  /**
+   * Persist within ~5 s (and immediately when the page is hidden/closed).
+   * Outside a browser (tests) it saves synchronously.
+   */
+  public scheduleSave(): void {
+    // Outside a real browser (tests mock a bare `window`) save at once.
+    if (
+      typeof window === 'undefined' ||
+      typeof window.addEventListener !== 'function' ||
+      typeof document === 'undefined' ||
+      typeof document.addEventListener !== 'function' ||
+      typeof setTimeout !== 'function'
+    ) {
+      this.save();
+      return;
+    }
+    if (!this._listening) {
+      this._listening = true;
+      window.addEventListener('pagehide', this._flushBound);
+      document.addEventListener('visibilitychange', this._visibilityBound);
+    }
+    if (this._saveTimer === null) {
+      this._saveTimer = setTimeout(() => {
+        this._saveTimer = null;
+        this.save();
+      }, SAVE_DEBOUNCE_MS);
+    }
+  }
+
+  /** Write any batched progress now (run end, tab hidden, page close). */
+  public flushSave(): void {
+    this.save();
+  }
+
   public dispose(): void {
     this.save();
+    if (this._listening && typeof window !== 'undefined' && typeof window.removeEventListener === 'function') {
+      window.removeEventListener('pagehide', this._flushBound);
+      document.removeEventListener('visibilitychange', this._visibilityBound);
+      this._listening = false;
+    }
   }
 }

@@ -3,25 +3,34 @@ import { GraphicsConfig } from '../../../types';
 import {
   TREE_ARCHETYPES,
   TreeArchetype,
-  createProceduralTreeGeometry,
+  createProceduralTreeGeometryGen,
   createForestFloorEmbankmentGeometry,
-  createVerdantWildsMaterials,
   sampleForestFloorHeight,
+  getLeafClusterTexture,
   FOREST_DITCH_Y,
 } from './VerdantWildsTerrain';
 import { VerdantWildsAtmosphere } from './VerdantWildsAtmosphere';
-import { VerdantWildsDecorations } from './VerdantWildsDecorations';
+import {
+  buildRuinArchGeometries,
+  buildRuinPillarGeometries,
+  buildMushroomClusterGeometry,
+  buildFernClumpGeometry,
+  buildStreamRibbonGeometry,
+} from './VerdantWildsDecorations';
 import { verdantWildsConfig } from './verdantWildsConfig';
-
-export interface ActiveForestChunkItem {
-  id: string;
-  z: number;
-  meshes: THREE.Mesh[];
-  decorations: THREE.Object3D[];
-}
+import { StreamedWorld, StreamChunk, WarmTask } from '../shared/streamedWorld';
+import { InstancePool, trs } from '../shared/instancePool';
+import { createTerrainMaterial, TerrainMaterialHandle } from '../shared/terrainMaterial';
+import { createScanStandardMaterial, ScanStandardHandle } from '../shared/scanMaterial';
+import { applyStreamFade, getWorldFade } from '../shared/distanceFade';
+import { getGreyNoiseTexture } from '../shared/noiseTextures';
+import { ENV_MODEL_HEIGHT, RockPools, applyEnvModels, createRockMaterials, createRockPools, rockTint } from '../shared/envRocks';
+import { EnvModelId, getLoadedTextureSet } from '../../../graphics/assetLibrary';
 
 const CHUNK_LENGTH = 60;
 const GROUND_SEED = 77;
+const GROUND_WIDTH = 140;
+const ROCK_IDS: readonly EnvModelId[] = ['boulder', 'block', 'slab'];
 
 // Road clearance: nothing solid in |x| < ROAD_CLEAR_X below y = ROAD_CLEAR_Y
 const ROAD_CLEAR_X = 6.0;
@@ -38,114 +47,209 @@ const TREE_MIN_ABS_X: Record<string, number> = {
 };
 const TREE_X_SPREAD = 15.0;
 
+interface VerdantKit {
+  treeGeoms: Map<string, THREE.BufferGeometry>;
+  treeMinAbsX: Map<string, number>;
+  ground: THREE.BufferGeometry;
+  groundMat: TerrainMaterialHandle;
+  stoneMat: TerrainMaterialHandle;
+  rockMats: Map<EnvModelId, TerrainMaterialHandle>;
+  bark: ScanStandardHandle;
+  crown: THREE.MeshStandardMaterial;
+  leafCards: THREE.MeshStandardMaterial;
+  moss: THREE.MeshStandardMaterial;
+  carving: THREE.MeshStandardMaterial;
+  shroomMat: THREE.MeshStandardMaterial;
+  fernMat: THREE.MeshStandardMaterial;
+  water: THREE.MeshPhysicalMaterial;
+  arch: { stone: THREE.BufferGeometry; carving: THREE.BufferGeometry; moss: THREE.BufferGeometry };
+  pillar: { stone: THREE.BufferGeometry; moss: THREE.BufferGeometry };
+  shrooms: THREE.BufferGeometry;
+  ferns: THREE.BufferGeometry;
+  stream: THREE.BufferGeometry;
+}
+const K: Partial<VerdantKit> = {};
+
 /**
- * VerdantWildsWorld coordinates:
- * - Procedural forest floor (hidden road bed, verge, roadside ditch, rolling bank)
- * - Streamed broadleaf / ancient / slender trees with smooth leafy crowns
- * - Light atmosphere (sunlit pollen motes, soft sun shafts)
- * - Mossy stone ruins, natural mushrooms, ferns and ditch streams
- * - Chunk-based streaming & Graphics quality presets
+ * Horizontal reach of everything that can end up below y = 8 m at any tree
+ * scale, turned into a minimum lateral offset from the road centre.
  */
-export class VerdantWildsWorld {
-  public scene: THREE.Scene;
-  public group: THREE.Group;
+function computeTreeMinAbsX(arch: TreeArchetype, geom: THREE.BufferGeometry): number {
+  const pos = geom.attributes.position;
+  const lowLimit = ROAD_CLEAR_Y / TREE_SCALE_MIN;
+  let reach = 0;
+  for (let i = 0; i < pos.count; i++) {
+    if (pos.getY(i) < lowLimit) reach = Math.max(reach, Math.hypot(pos.getX(i), pos.getZ(i)));
+  }
+  const derived = ROAD_CLEAR_X + reach * TREE_SCALE_MAX + 0.5;
+  return Math.max(TREE_MIN_ABS_X[arch.id] ?? derived, derived);
+}
+
+const KIT_STEPS: WarmTask[] = [
+  // One resumable task per tree archetype (yields after every crown clump)
+  ...TREE_ARCHETYPES.map((arch) => function* (): Generator<void, void> {
+    K.treeGeoms ??= new Map();
+    K.treeMinAbsX ??= new Map();
+    if (K.treeGeoms.has(arch.id)) return;
+    const g = yield* createProceduralTreeGeometryGen(arch, 202);
+    K.treeGeoms.set(arch.id, g);
+    K.treeMinAbsX.set(arch.id, computeTreeMinAbsX(arch, g));
+  }),
+  () => void getGreyNoiseTexture(1337, 0.66, 4),
+  () => void getLeafClusterTexture(),
+  () => {
+    K.ground ??= createForestFloorEmbankmentGeometry(GROUND_WIDTH, CHUNK_LENGTH, 48, 24, GROUND_SEED);
+  },
+  () => {
+    if (K.groundMat) return;
+    const fade = getWorldFade('verdant-wilds');
+    K.groundMat = createTerrainMaterial({
+      name: 'verdant-floor',
+      ground: { tile: 4.5, tint: 0xa6b67e, normalScale: 1.0, roughness: [0.88, 1.0] },
+      rock: { tile: 7, tint: 0xc4c6b4, normalScale: 1.1, roughness: [0.75, 1.0] },
+      slope: [0.9, 0.97],
+      vertexColors: true,
+      vcLuma: true,
+      vcRef: 0x4a5129,
+      vcRefRock: 0x4a5129,
+      vcKeep: 0.55,
+      roughness: 0.95,
+      fade,
+    });
+    K.stoneMat = createTerrainMaterial({
+      name: 'verdant-ruin-stone',
+      ground: { tile: 4.5, tint: 0xb9b49a, fallback: 0x6e6a60 },
+      rock: { tile: 5, tint: 0xd2d0c6, normalScale: 0.9, fallback: 0x6e6a60 },
+      slope: [0.75, 0.92],
+      macro: 0.12,
+      fade,
+    });
+    K.rockMats = createRockMaterials('verdant', ROCK_IDS, {
+      ground: { tile: 4.5, tint: 0xb9b49a, normalScale: 0.8, fallback: 0x55572f },
+      rock: { tile: 4, tint: 0xd2d0c6, normalScale: 0.6, fallback: 0x6a6a5c },
+      slope: [0.7, 0.9],
+      fade,
+    });
+  },
+  () => {
+    if (K.bark) return;
+    const fade = getWorldFade('verdant-wilds');
+    const noise = getGreyNoiseTexture(1337, 0.66, 4);
+    K.bark = createScanStandardMaterial({
+      fallbackColor: 0x4f3e2d,
+      fallbackMap: noise,
+      scanTint: 0xa89c8e,
+      vertexColors: true,
+      roughness: 0.9,
+      fade,
+    });
+    K.crown = applyStreamFade(new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.88, metalness: 0, map: noise }), fade);
+    const leafTex = getLeafClusterTexture();
+    K.leafCards = applyStreamFade(
+      new THREE.MeshStandardMaterial({
+        color: 0xffffff,
+        vertexColors: true,
+        map: leafTex,
+        alphaTest: 0.45,
+        roughness: 0.78,
+        metalness: 0,
+        visible: !!leafTex,
+      }),
+      fade
+    );
+    K.moss = applyStreamFade(new THREE.MeshStandardMaterial({ color: 0x4b5a28, roughness: 0.95, metalness: 0, map: noise }), fade);
+    K.carving = applyStreamFade(new THREE.MeshStandardMaterial({ color: 0x58594a, roughness: 0.95, metalness: 0, map: noise }), fade);
+    K.shroomMat = applyStreamFade(new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.75, metalness: 0 }), fade);
+    K.fernMat = applyStreamFade(
+      new THREE.MeshStandardMaterial({ color: 0x3f5a24, roughness: 0.85, metalness: 0, side: THREE.DoubleSide }),
+      fade
+    );
+    // Shallow, slightly tea-stained forest stream
+    K.water = applyStreamFade(
+      new THREE.MeshPhysicalMaterial({ color: 0x26332a, roughness: 0.06, metalness: 0, ior: 1.33, transparent: true, opacity: 0.88 }),
+      fade
+    );
+  },
+  () => {
+    K.arch ??= buildRuinArchGeometries();
+    K.pillar ??= buildRuinPillarGeometries();
+  },
+  () => {
+    K.shrooms ??= buildMushroomClusterGeometry();
+  },
+  () => {
+    K.ferns ??= buildFernClumpGeometry();
+    K.stream ??= buildStreamRibbonGeometry(55, 2.4);
+  },
+];
+
+/**
+ * VerdantWildsWorld: scanned forest floor (leaf litter / soil) on a rolling
+ * embankment, instanced broadleaf / ancient / slender trees with scanned bark,
+ * scanned mossy boulders, mossy ruins, mushrooms, ferns and ditch streams.
+ */
+export class VerdantWildsWorld extends StreamedWorld {
   public config = verdantWildsConfig;
+  public atmosphere: VerdantWildsAtmosphere | null = null;
+  protected readonly chunkLength = CHUNK_LENGTH;
 
-  // Subsystems
-  public atmosphere: VerdantWildsAtmosphere;
-  public decorations: VerdantWildsDecorations;
-
-  // Shared Geometries & Materials
-  private treeGeoms: Map<string, THREE.BufferGeometry> = new Map();
-  /** Minimum |x| for each archetype so trunks/roots stay clear of the road. */
-  private treeMinAbsX: Map<string, number> = new Map();
-  private groundGeom: THREE.BufferGeometry | null = null;
-  private materials: ReturnType<typeof createVerdantWildsMaterials>;
-
-  // Active streamed chunks
-  private activeChunks: ActiveForestChunkItem[] = [];
-  private lastChunkZ = -999;
+  private groundPool: InstancePool | null = null;
+  private treePools = new Map<string, InstancePool>();
+  /** Background stand (no shadows) further from the road. */
+  private farTreePools = new Map<string, InstancePool>();
+  private shroomPool: InstancePool | null = null;
+  private fernPool: InstancePool | null = null;
+  private rockPools: RockPools | null = null;
 
   constructor(scene: THREE.Scene, graphicsConfig: GraphicsConfig) {
-    this.scene = scene;
-    this.group = new THREE.Group();
-    this.group.name = 'VerdantWildsWorldRootGroup';
-    this.scene.add(this.group);
-
-    this.materials = createVerdantWildsMaterials();
-    this.initGeometries();
-
-    this.atmosphere = new VerdantWildsAtmosphere(this.scene, graphicsConfig);
-    this.decorations = new VerdantWildsDecorations(this.scene, this.materials.noiseTexture);
+    super(scene, graphicsConfig, 'verdant-wilds', 'VerdantWildsWorldRootGroup');
   }
 
-  private initGeometries(): void {
+  protected warmTasks(): WarmTask[] {
+    return [
+      ...KIT_STEPS,
+      () => {
+        this.atmosphere = new VerdantWildsAtmosphere(this.group, this.graphicsConfig);
+        this.atmosphere.group.visible = false;
+      },
+    ];
+  }
+
+  protected onKitReady(): void {
+    const k = K as VerdantKit;
+    this.groundPool = this.addPool(new InstancePool('verdant-ground', k.ground, k.groundMat.material, 16, { receiveShadow: true }));
     for (const arch of TREE_ARCHETYPES) {
-      const geom = createProceduralTreeGeometry(arch, 202);
-      this.treeGeoms.set(arch.id, geom);
-      this.treeMinAbsX.set(arch.id, this.computeTreeMinAbsX(arch, geom));
+      const g = k.treeGeoms.get(arch.id)!;
+      this.treePools.set(
+        arch.id,
+        this.addPool(new InstancePool(`verdant-tree-${arch.id}`, g, [k.bark.material, k.crown, k.leafCards], 48, { castShadow: true }))
+      );
+      this.farTreePools.set(
+        arch.id,
+        this.addPool(new InstancePool(`verdant-tree-far-${arch.id}`, g, [k.bark.material, k.crown, k.leafCards], 40))
+      );
     }
-
-    // Standard 60 m forest floor chunk (70 m wide)
-    this.groundGeom = createForestFloorEmbankmentGeometry(70, CHUNK_LENGTH, 30, 24, GROUND_SEED);
+    this.shroomPool = this.addPool(new InstancePool('verdant-mushrooms', k.shrooms, k.shroomMat, 20, { castShadow: true }));
+    this.fernPool = this.addPool(new InstancePool('verdant-ferns', k.ferns, k.fernMat, 20));
+    this.rockPools = createRockPools('verdant', ROCK_IDS, k.rockMats, 40, 0);
+    for (const p of this.rockPools.near.values()) this.addPool(p);
   }
 
-  /**
-   * Horizontal reach of everything that can end up below y = 8 m at any tree
-   * scale, turned into a minimum lateral offset from the road centre.
-   */
-  private computeTreeMinAbsX(arch: TreeArchetype, geom: THREE.BufferGeometry): number {
-    const pos = geom.attributes.position;
-    const lowLimit = ROAD_CLEAR_Y / TREE_SCALE_MIN;
-    let reach = 0;
-    for (let i = 0; i < pos.count; i++) {
-      if (pos.getY(i) < lowLimit) {
-        reach = Math.max(reach, Math.hypot(pos.getX(i), pos.getZ(i)));
-      }
+  protected applyScannedAssets(): void {
+    const k = K as VerdantKit;
+    const floor = getLoadedTextureSet('verdant-wilds/floor');
+    const rock = getLoadedTextureSet('verdant-wilds/rock');
+    const bark = getLoadedTextureSet('shared/bark');
+    k.groundMat.setGround(floor);
+    k.groundMat.setRock(rock);
+    k.stoneMat.setGround(floor);
+    k.stoneMat.setRock(rock);
+    for (const h of k.rockMats.values()) {
+      h.setGround(floor);
+      h.setRock(rock);
     }
-    const derived = ROAD_CLEAR_X + reach * TREE_SCALE_MAX + 0.5;
-    return Math.max(TREE_MIN_ABS_X[arch.id] ?? derived, derived);
-  }
-
-  public update(playerZ: number, dt: number, time: number, graphicsConfig: GraphicsConfig): void {
-    const chunkZ = Math.floor(playerZ / CHUNK_LENGTH);
-
-    if (chunkZ !== this.lastChunkZ) {
-      this.lastChunkZ = chunkZ;
-      this.streamChunks(playerZ, graphicsConfig);
-    }
-
-    this.atmosphere.update(dt, playerZ, time);
-    this.decorations.update(time);
-  }
-
-  private streamChunks(playerZ: number, graphicsConfig: GraphicsConfig): void {
-    const cullBehindZ = playerZ - 100;
-    const cullAheadZ = playerZ + 420;
-
-    // 1. Cull old chunks
-    for (let i = this.activeChunks.length - 1; i >= 0; i--) {
-      const item = this.activeChunks[i];
-      if (item.z < cullBehindZ || item.z > cullAheadZ) {
-        for (const m of item.meshes) {
-          this.group.remove(m);
-        }
-        for (const d of item.decorations) {
-          this.decorations.removeObject(d);
-        }
-        this.activeChunks.splice(i, 1);
-      }
-    }
-
-    // 2. Generate chunks ahead
-    const activeZCoords = new Set(this.activeChunks.map(c => Math.round(c.z / CHUNK_LENGTH)));
-    const base = Math.floor(playerZ / CHUNK_LENGTH);
-    for (let b = 0; b <= 5; b++) { // include the band under the player (ground at portal entry)
-      const band = base + b;
-      if (!activeZCoords.has(band)) {
-        this.spawnChunk(band * CHUNK_LENGTH, graphicsConfig);
-      }
-    }
+    if (bark) k.bark.apply(bark);
+    if (this.rockPools) applyEnvModels(this.rockPools, k.rockMats);
   }
 
   /** Lowest ground height under a footprint, so props never float on slopes. */
@@ -158,147 +262,154 @@ export class VerdantWildsWorld {
     return h;
   }
 
-  private spawnChunk(centerZ: number, graphicsConfig: GraphicsConfig): void {
+  protected spawnChunk(chunk: StreamChunk): void {
+    const k = K as VerdantKit;
+    const centerZ = chunk.centerZ;
     const seed = Math.abs(centerZ) * 31 + 47;
     const rnd = (offset = 0) => {
       const x = Math.sin(seed + offset) * 10000;
       return x - Math.floor(x);
     };
-    const shadows = graphicsConfig.enableShadows;
-
-    const spawnedMeshes: THREE.Mesh[] = [];
-    const spawnedDecs: THREE.Object3D[] = [];
+    const preset = this.preset;
 
     // 1. Forest floor (bed at y = -0.08 under the road slab for |x| <= 5.5)
-    if (this.groundGeom) {
-      const ground = new THREE.Mesh(this.groundGeom, this.materials.forestFloorMaterial);
-      ground.position.set(0, 0, centerZ);
-      ground.receiveShadow = shadows;
-      this.group.add(ground);
-      spawnedMeshes.push(ground);
-    }
+    this.place(chunk, this.groundPool, trs(0, 0, centerZ, 0, 1));
 
-    // 2. Trees along the flanks. Minimum |x| per type: ancient >= 20,
-    //    broadleaf >= 14, slender >= 13.5 (raised further if the geometry's
-    //    low reach demands it); spread +0..15 m outward.
+    // 2. Trees along the flanks
     let treeDensity = 4;
-    if (graphicsConfig.preset === 'mobile-opt') treeDensity = 2;
-    if (graphicsConfig.preset === 'webgl-min') treeDensity = 1;
-
+    if (preset === 'mobile-opt') treeDensity = 2;
+    if (preset === 'webgl-min') treeDensity = 1;
     for (let t = 0; t < treeDensity; t++) {
       const side = t % 2 === 0 ? -1 : 1;
-
       const pick = rnd(t * 3 + 3);
       let archId = 'canopy-broadleaf';
       if (pick > 0.7) archId = 'ancient-greatwood';
       else if (pick < 0.25) archId = 'slender-willow';
-
-      const geom = this.treeGeoms.get(archId);
-      if (!geom) continue;
-
-      const minAbsX = this.treeMinAbsX.get(archId) ?? 20;
+      else if (pick < 0.3) archId = 'ancient-snag';
+      const minAbsX = k.treeMinAbsX.get(archId) ?? 20;
       const posX = side * (minAbsX + rnd(t * 3 + 1) * TREE_X_SPREAD);
       const zLocal = (rnd(t * 3 + 2) - 0.5) * 45.0;
+      if (!this.inRange(centerZ + zLocal, 4)) continue;
       const scale = TREE_SCALE_MIN + rnd(t * 3 + 5) * (TREE_SCALE_MAX - TREE_SCALE_MIN);
-
-      const tree = new THREE.Mesh(geom, [this.materials.treeMaterial, this.materials.leafCardMaterial]);
-      tree.position.set(posX, this.groundUnder(posX, zLocal, 2.5 * scale) - 0.2, centerZ + zLocal);
-      tree.rotation.y = rnd(t * 3 + 4) * Math.PI * 2;
-      tree.scale.set(scale, scale, scale);
-      tree.castShadow = shadows;
-      tree.receiveShadow = shadows;
-      this.group.add(tree);
-      spawnedMeshes.push(tree);
+      this.place(
+        chunk,
+        this.treePools.get(archId) ?? null,
+        trs(posX, this.groundUnder(posX, zLocal, 2.5 * scale) - 0.2, centerZ + zLocal, rnd(t * 3 + 4) * Math.PI * 2, scale)
+      );
     }
 
-    // 3. Mossy ruins: arch over the road (pillars' inner faces at |x| = 6.4,
-    //    lintel underside at y = 11) or a broken column at |x| = 9.
-    if (rnd(10) > 0.65) {
-      const arch = this.decorations.spawnRuinArch(new THREE.Vector3(0, 0, centerZ + 10), 1.0);
-      spawnedDecs.push(arch);
-    } else if (rnd(11) > 0.5) {
+    // 2b. Background stand beyond the near trees (|x| 38..62), no shadows
+    const farTrees = preset === 'desktop-full' ? 3 : preset === 'mobile-opt' ? 1 : 0;
+    for (let t = 0; t < farTrees; t++) {
+      const side = rnd(80 + t) > 0.5 ? 1 : -1;
+      const pick = rnd(81 + t);
+      const archId = pick > 0.6 ? 'ancient-greatwood' : pick > 0.2 ? 'canopy-broadleaf' : 'slender-willow';
+      const posX = side * (38 + rnd(82 + t) * 24);
+      const zLocal = (rnd(83 + t) - 0.5) * 56;
+      if (!this.inRange(centerZ + zLocal, 4)) continue;
+      const scale = 0.9 + rnd(84 + t) * 0.45;
+      this.place(
+        chunk,
+        this.farTreePools.get(archId) ?? null,
+        trs(posX, this.groundUnder(posX, zLocal, 2.5 * scale) - 0.3, centerZ + zLocal, rnd(85 + t) * Math.PI * 2, scale)
+      );
+    }
+
+    // 3. Mossy ruins: a rare arch over the road, or a broken column at |x| = 9
+    if (rnd(10) > 0.9 && this.canSpanRoad(centerZ + 10)) {
+      this.addObject(chunk, this.makeRuin('arch', 0, 0, centerZ + 10, 0));
+    } else if (rnd(11) > 0.55) {
       const side = rnd(12) > 0.5 ? 1 : -1;
       const px = side * 9.0;
-      const pillar = this.decorations.spawnRuinPillar(
-        new THREE.Vector3(px, this.groundUnder(px, 5, 1.6), centerZ + 5),
-        0.95
-      );
-      spawnedDecs.push(pillar);
-    }
-
-    // 4. Mushrooms (|x| 13..17, mirrored to grow outward) & ferns (|x| ~14)
-    if (graphicsConfig.preset !== 'webgl-min') {
-      const shroomSide = rnd(13) > 0.5 ? 1 : -1;
-      const sx = shroomSide * 13.0;
-      const shrooms = this.decorations.spawnMushrooms(
-        new THREE.Vector3(sx, this.groundUnder(sx + shroomSide * 2, -12, 2) - 0.05, centerZ - 12),
-        1.1
-      );
-      spawnedDecs.push(shrooms);
-
-      if (rnd(14) > 0.4) {
-        const fx = -shroomSide * 14.0;
-        const ferns = this.decorations.spawnFerns(
-          new THREE.Vector3(fx, this.groundUnder(fx, 15, 1.5) - 0.05, centerZ + 15),
-          1.0
-        );
-        spawnedDecs.push(ferns);
+      if (this.inRange(centerZ + 5, 2)) {
+        this.addObject(chunk, this.makeRuin('pillar', px, this.groundUnder(px, 5, 1.6), centerZ + 5, rnd(26) * 6.28, 0.95));
       }
     }
 
-    // 5. Stream in the flat-floored roadside ditch (|x| 8.7..12.3)
-    if (graphicsConfig.preset === 'desktop-full' && rnd(15) > 0.55) {
-      const streamSide = rnd(16) > 0.5 ? 1 : -1;
-      const stream = this.decorations.createStreamRibbon(
-        new THREE.Vector3(streamSide * 10.5, FOREST_DITCH_Y + 0.04, centerZ),
-        55,
-        2.4
-      );
-      spawnedDecs.push(stream);
+    // 4. Mushrooms (|x| 13..17, growing outward) & ferns (|x| ~14)
+    if (preset !== 'webgl-min') {
+      const side = rnd(13) > 0.5 ? 1 : -1;
+      const sx = side * 13.0;
+      if (this.inRange(centerZ - 12, 4)) {
+        const y = this.groundUnder(sx + side * 2, -12, 2) - 0.05;
+        // Template grows toward +x; a half turn makes it grow toward -x
+        this.place(chunk, this.shroomPool, trs(sx, y, centerZ - 12, side > 0 ? 0 : Math.PI, 1.1));
+      }
+      if (rnd(14) > 0.4 && this.inRange(centerZ + 15, 3)) {
+        const fx = -side * 14.0;
+        this.place(chunk, this.fernPool, trs(fx, this.groundUnder(fx, 15, 1.5) - 0.05, centerZ + 15, rnd(27) * 6.28, 1.0));
+      }
     }
 
-    this.activeChunks.push({
-      id: `forest-chunk-${centerZ}`,
-      z: centerZ,
-      meshes: spawnedMeshes,
-      decorations: spawnedDecs,
-    });
+    // 5. Scanned mossy boulders on the banks (|x| 14..34)
+    if (this.rockPools) {
+      const n = preset === 'webgl-min' ? 1 : preset === 'mobile-opt' ? 2 : 3;
+      for (let b = 0; b < n; b++) {
+        if (rnd(60 + b) < 0.25) continue;
+        const id = ROCK_IDS[Math.floor(rnd(61 + b) * ROCK_IDS.length) % ROCK_IDS.length];
+        const s = 0.8 + rnd(62 + b) * (id === 'slab' ? 1.2 : 1.8);
+        const side = rnd(63 + b) > 0.5 ? 1 : -1;
+        const bx = side * (14 + s + rnd(64 + b) * 18);
+        const zl = (rnd(65 + b) - 0.5) * 54;
+        if (!this.inRange(centerZ + zl, s)) continue;
+        const by = this.groundUnder(bx, zl, s * 0.8) - ENV_MODEL_HEIGHT[id] * s * 0.22;
+        this.place(chunk, this.rockPools.near.get(id) ?? null, trs(bx, by, centerZ + zl, rnd(66 + b) * 6.28, s, s, s, (rnd(67 + b) - 0.5) * 0.15), rockTint(rnd(68 + b)));
+      }
+    }
+
+    // 6. Stream in the flat-floored roadside ditch (|x| 8.7..12.3)
+    if (preset === 'desktop-full' && rnd(15) > 0.55 && this.inRange(centerZ, 27.5)) {
+      const streamSide = rnd(16) > 0.5 ? 1 : -1;
+      const stream = new THREE.Mesh(k.stream, k.water);
+      stream.position.set(streamSide * 10.5, FOREST_DITCH_Y + 0.04, centerZ);
+      stream.receiveShadow = true;
+      this.addObject(chunk, stream);
+    }
   }
 
-  public dispose(): void {
-    this.scene.remove(this.group);
-
-    for (const chunk of this.activeChunks) {
-      for (const m of chunk.meshes) {
-        this.group.remove(m);
-      }
-      for (const d of chunk.decorations) {
-        this.decorations.removeObject(d);
-      }
+  private makeRuin(type: 'arch' | 'pillar', x: number, y: number, z: number, rotY: number, scale = 1): THREE.Group {
+    const k = K as VerdantKit;
+    const g = new THREE.Group();
+    g.position.set(x, y, z);
+    g.rotation.y = rotY;
+    g.scale.setScalar(scale);
+    const add = (geo: THREE.BufferGeometry, mat: THREE.Material) => {
+      const m = new THREE.Mesh(geo, mat);
+      m.castShadow = true;
+      m.receiveShadow = true;
+      g.add(m);
+    };
+    if (type === 'arch') {
+      add(k.arch.stone, k.stoneMat.material);
+      add(k.arch.carving, k.carving);
+      add(k.arch.moss, k.moss);
+    } else {
+      add(k.pillar.stone, k.stoneMat.material);
+      add(k.pillar.moss, k.moss);
     }
-    this.activeChunks = [];
+    return g;
+  }
 
-    // Dispose geometries
-    for (const geom of this.treeGeoms.values()) {
-      geom.dispose();
+  protected animate(playerZ: number, dt: number, time: number): void {
+    const k = K as VerdantKit;
+    k.groundMat.tick(dt);
+    k.stoneMat.tick(dt);
+    for (const h of k.rockMats.values()) h.tick(dt);
+    if (this.atmosphere) {
+      const on = this.playerInRange(playerZ);
+      this.atmosphere.group.visible = on;
+      if (on) this.atmosphere.update(dt, playerZ, time);
     }
-    this.treeGeoms.clear();
-    this.treeMinAbsX.clear();
+  }
 
-    if (this.groundGeom) {
-      this.groundGeom.dispose();
-      this.groundGeom = null;
-    }
-
-    // Dispose materials & textures
-    this.materials.forestFloorMaterial.dispose();
-    this.materials.treeMaterial.dispose();
-    this.materials.leafCardMaterial.dispose();
-    this.materials.leafTexture?.dispose();
-    this.materials.streamWaterMaterial.dispose();
-    if (this.materials.noiseTexture) this.materials.noiseTexture.dispose();
-
-    this.atmosphere.dispose();
-    this.decorations.dispose();
+  protected disposeWorld(): void {
+    this.atmosphere?.dispose();
+    this.atmosphere = null;
+    this.groundPool = null;
+    this.treePools.clear();
+    this.farTreePools.clear();
+    this.shroomPool = null;
+    this.fernPool = null;
+    this.rockPools = null;
   }
 }

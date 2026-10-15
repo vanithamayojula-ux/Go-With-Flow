@@ -21,6 +21,9 @@ import { ProgressionManager } from './game/progression';
 import { CosmeticManager } from './game/cosmetics';
 import { GameModeManager } from './game/modes';
 import { SocialManager } from './game/social';
+import { liveStats, useLiveStats, useLiveStatsOnly } from './state/liveStats';
+import { detectDeviceTier, graphicsConfigForTier } from './game/perf/deviceTier';
+import { preloadGameAssets } from './game/perf/preload';
 import {
   CosmeticsConfig,
   GraphicsConfig,
@@ -116,21 +119,71 @@ const DEFAULT_MISSIONS: SessionGoal[] = [
   },
 ];
 
+// Missions track live run stats, but only need checking a couple of times a second.
+const MISSION_CHECK_INTERVAL_MS = 500;
+
+function persistMissions(list: SessionGoal[]): void {
+  try {
+    localStorage.setItem('skyflow_missions', JSON.stringify(list));
+  } catch {}
+}
+
+/** Mission progress for the given stats; returns `prev` itself when nothing moved. */
+function progressMissions(prev: SessionGoal[], s: PlayerStats): { list: SessionGoal[]; changed: boolean; completedFlip: boolean } {
+  let changed = false;
+  let completedFlip = false;
+  const list = prev.map(m => {
+    let newCurrent = m.current;
+    if (m.id === 'near_miss_5') {
+      newCurrent = Math.max(m.current, s.nearMissCount || 0);
+    } else if (m.id === 'score_10k') {
+      newCurrent = Math.max(m.current, s.score || 0);
+    } else if (m.id === 'distance_2k') {
+      newCurrent = Math.max(m.current, s.distance || 0);
+    }
+    const completed = newCurrent >= m.target;
+    if (newCurrent !== m.current || completed !== m.completed) {
+      changed = true;
+      if (completed !== m.completed) completedFlip = true;
+      return { ...m, current: newCurrent, completed };
+    }
+    return m;
+  });
+  return { list: changed ? list : prev, changed, completedFlip };
+}
+
+// Live-stat wrappers: only these subtrees re-render on stats ticks.
+const LivePauseModal: React.FC<Omit<React.ComponentProps<typeof PauseModal>, 'stats'>> = props => {
+  const stats = useLiveStatsOnly();
+  return <PauseModal {...props} stats={stats} />;
+};
+
+const LiveGameOverModal: React.FC<Omit<React.ComponentProps<typeof GameOverModal>, 'stats'>> = props => {
+  const stats = useLiveStatsOnly();
+  return <GameOverModal {...props} stats={stats} />;
+};
+
+const LiveGraphicsDrawer: React.FC<Omit<React.ComponentProps<typeof GraphicsDrawer>, 'fps' | 'drawCalls'>> = props => {
+  // Subscribed only while open, so a closed drawer never re-renders on ticks.
+  return props.isOpen ? <OpenGraphicsDrawer {...props} /> : <GraphicsDrawer {...props} fps={0} drawCalls={0} />;
+};
+
+const OpenGraphicsDrawer: React.FC<Omit<React.ComponentProps<typeof GraphicsDrawer>, 'fps' | 'drawCalls'>> = props => {
+  const live = useLiveStats();
+  return <GraphicsDrawer {...props} fps={live.fps} drawCalls={live.drawCalls} />;
+};
+
 export default function App() {
   const [graphicsConfig, setGraphicsConfig] = useState<GraphicsConfig>(() => {
     try {
+      // A preset the player chose (saved) always wins.
       const saved = localStorage.getItem('skyflow_graphics_config');
       if (saved) return { ...DEFAULT_GRAPHICS_CONFIG, ...JSON.parse(saved) };
-      // First launch on a phone/tablet: start on Balanced instead of Ultra
-      // (no shadows, 1.2x DPR cap). Players can still switch in Settings.
-      const isTouchDevice =
-        typeof window !== 'undefined' &&
-        typeof window.matchMedia === 'function' &&
-        window.matchMedia('(pointer: coarse)').matches;
-      if (isTouchDevice) {
-        return { ...DEFAULT_GRAPHICS_CONFIG, preset: 'mobile-opt', vegetationDensity: 0.65, enableShadows: false };
-      }
-      return DEFAULT_GRAPHICS_CONFIG;
+      // First launch: pick a starting tier from the device. Phones/tablets
+      // start on Balanced without shadows; integrated / mobile / software GPUs
+      // (or <= 4 cores / <= 4 GB) on Balanced with 1024 px shadows; discrete
+      // GPUs on Ultra. Adaptive resolution refines it during play.
+      return graphicsConfigForTier(DEFAULT_GRAPHICS_CONFIG, detectDeviceTier().tier);
     } catch {
       return DEFAULT_GRAPHICS_CONFIG;
     }
@@ -286,56 +339,20 @@ export default function App() {
     }
   });
 
-  const [stats, setStats] = useState<PlayerStats>({
-    speed: 24,
-    maxSpeed: 52,
-    distance: 0,
-    score: 0,
-    highScore: 0,
-    styleMeter: 25,
-    styleTier: 'Chill',
-    overdriveMeter: 25,
-    overdriveTier: 'Charged',
-    comboTier: 'blue',
-    airTime: 0,
-    isGrounded: true,
-    combo: 0,
-    windOrbsCollected: 0,
-    dataShardsCollected: 0,
-    currentBiome: 'neon-undercity',
-    currentFriction: 0.02,
-    activeTrickName: null,
-    slowMoActive: false,
-    isOnFloatingIsland: false,
-    currentLane: 0,
-    isSliding: false,
-    slideTimer: 0,
-    isGrinding: false,
-    isBoosting: false,
-    boostEnergy: 100,
-    activePowerUps: {
-      magnetTimer: 0,
-      jetpackTimer: 0,
-      hoverboardShield: false,
-      multiplierTimer: 0,
-    },
-    scoreMultiplier: 1,
-    gameState: 'playing',
-  });
-
-  const statsRef = useRef<PlayerStats>(stats);
-  statsRef.current = stats;
-
+  // Live run stats (score, speed, fps...) live in the liveStats store, pushed
+  // by the engine; the HUD subscribes to it directly so this shell only
+  // re-renders on discrete events (game over, pause, mission completed...).
+  // The refs below run ahead of state and are flushed at those events.
   const highScoreRef = useRef(highScore);
-  highScoreRef.current = highScore;
+  if (highScore > highScoreRef.current) highScoreRef.current = highScore;
 
   const bestDistanceRef = useRef(bestDistance);
-  bestDistanceRef.current = bestDistance;
+  if (bestDistance > bestDistanceRef.current) bestDistanceRef.current = bestDistance;
 
-  const fps = 60;
-  const [currentFpsDisplay, setCurrentFpsDisplay] = useState(60);
-  const [drawCalls, setDrawCalls] = useState(45);
-  const [instanceCount, setInstanceCount] = useState(850);
+  const missionsRef = useRef(missions);
+  missionsRef.current = missions;
+  // Mission progress computed mid-run but not yet committed to state/storage.
+  const pendingMissionsRef = useRef<SessionGoal[] | null>(null);
 
   const audioManagerRef = useRef<AudioManager | null>(null);
   const toastIdRef = useRef(0);
@@ -384,7 +401,76 @@ export default function App() {
     };
   }, []);
 
+  /**
+   * Commit everything tracked off-state during the run (mission progress,
+   * best score / distance) to React state and storage. Called at run end,
+   * pause, quit and when the tab is hidden.
+   */
+  const flushRunProgress = useCallback(() => {
+    // Fold in the very latest stats (the 2 Hz check may be up to 0.5 s old,
+    // e.g. the score at the moment of the crash).
+    const s = liveStats.getLiveStats();
+    if (s.score > highScoreRef.current) highScoreRef.current = s.score;
+    if (s.distance > bestDistanceRef.current) bestDistanceRef.current = s.distance;
+    const base = pendingMissionsRef.current ?? missionsRef.current;
+    pendingMissionsRef.current = null;
+    const { list, changed } = progressMissions(base, s);
+    if (changed || base !== missionsRef.current) {
+      missionsRef.current = list;
+      setMissions(list);
+      persistMissions(list);
+    }
+    const best = highScoreRef.current;
+    setHighScore(prev => (best > prev ? best : prev));
+    const dist = bestDistanceRef.current;
+    setBestDistance(prev => (dist > prev ? dist : prev));
+  }, []);
+
+  // Watch live stats outside React: best score/distance every tick (cheap
+  // refs), missions at 2 Hz, and state/storage only when a mission completes.
+  useEffect(() => {
+    liveStats.setHighScoreFloor(highScoreRef.current);
+    let lastCheck = 0;
+    const unsubscribe = liveStats.subscribe(() => {
+      const s = liveStats.getSnapshot().stats;
+      if (s.score > highScoreRef.current) {
+        highScoreRef.current = s.score;
+        liveStats.setHighScoreFloor(s.score);
+      }
+      if (s.distance > bestDistanceRef.current) bestDistanceRef.current = s.distance;
+
+      const now = performance.now();
+      if (now - lastCheck < MISSION_CHECK_INTERVAL_MS) return;
+      lastCheck = now;
+      const base = pendingMissionsRef.current ?? missionsRef.current;
+      const { list, changed, completedFlip } = progressMissions(base, s);
+      if (!changed) return;
+      if (completedFlip) {
+        pendingMissionsRef.current = null;
+        missionsRef.current = list;
+        setMissions(list);
+        persistMissions(list);
+      } else {
+        pendingMissionsRef.current = list;
+      }
+    });
+    const onHidden = () => {
+      if (document.visibilityState === 'hidden') flushRunProgress();
+    };
+    document.addEventListener('visibilitychange', onHidden);
+    return () => {
+      unsubscribe();
+      document.removeEventListener('visibilitychange', onHidden);
+    };
+  }, [flushRunProgress]);
+
+  // Download/decode the hero + obstacle GLBs while the opening screen is up.
+  useEffect(() => {
+    preloadGameAssets(cosmeticsConfig.heroId || 'shadow');
+  }, [cosmeticsConfig.heroId]);
+
   const handleClaimMission = useCallback((missionId: string) => {
+    flushRunProgress();
     let rewardToGrant = 0;
     let nextMissions: SessionGoal[] | null = null;
 
@@ -413,7 +499,7 @@ export default function App() {
       });
       triggerNotification(`🎉 +${rewardToGrant} Shards Mission Reward Claimed!`);
     }
-  }, [triggerNotification]);
+  }, [triggerNotification, flushRunProgress]);
 
   // Adds shards to the persistent bank (used by challenge/achievement claims).
   const creditShards = useCallback((amount: number, source: string) => {
@@ -428,50 +514,6 @@ export default function App() {
     triggerNotification(`🎉 +${amount} Shards ${source} Reward Claimed!`);
   }, [triggerNotification]);
 
-  const handleStatsUpdate = useCallback((newStats: PlayerStats, currentFps: number, calls: number, instances: number) => {
-    statsRef.current = newStats;
-
-    if (newStats.score > highScoreRef.current) {
-      highScoreRef.current = newStats.score;
-      setHighScore(newStats.score);
-    }
-    if (newStats.distance > bestDistanceRef.current) {
-      bestDistanceRef.current = newStats.distance;
-      setBestDistance(newStats.distance);
-    }
-    newStats.highScore = Math.max(newStats.highScore, highScoreRef.current, newStats.score);
-    setStats({ ...newStats });
-    setCurrentFpsDisplay(currentFps);
-    setDrawCalls(calls);
-    setInstanceCount(instances);
-
-    setMissions(prev => {
-      let changed = false;
-      const updated = prev.map(m => {
-        let newCurrent = m.current;
-        if (m.id === 'near_miss_5') {
-          newCurrent = Math.max(m.current, newStats.nearMissCount || 0);
-        } else if (m.id === 'score_10k') {
-          newCurrent = Math.max(m.current, newStats.score || 0);
-        } else if (m.id === 'distance_2k') {
-          newCurrent = Math.max(m.current, newStats.distance || 0);
-        }
-        const completed = newCurrent >= m.target;
-        if (newCurrent !== m.current || completed !== m.completed) {
-          changed = true;
-          return { ...m, current: newCurrent, completed };
-        }
-        return m;
-      });
-      if (changed) {
-        try {
-          localStorage.setItem('skyflow_missions', JSON.stringify(updated));
-        } catch {}
-        return updated;
-      }
-      return prev;
-    });
-  }, []);
 
 
   const handleToggleMute = useCallback(() => {
@@ -590,7 +632,8 @@ export default function App() {
   const handleGameOver = useCallback(() => {
     setIsGameOver(true);
     setResumeCountdown(0);
-    const finalStats = statsRef.current;
+    const finalStats = liveStats.getLiveStats();
+    flushRunProgress();
     const runShards = finalStats.dataShardsCollected || 0;
     const unbankedShards = Math.max(0, runShards - bankedThisRunRef.current);
 
@@ -623,7 +666,8 @@ export default function App() {
         socialMgrRef.current.submitRunSummary(lastSummary, progressionMgrRef.current || undefined);
       }
     }
-  }, [triggerNotification]);
+    progressionMgrRef.current?.flushSave();
+  }, [triggerNotification, flushRunProgress]);
 
   // Emergency Revive Handler: Deducts exactly 15 units of persistent currency
   const handleRevive = useCallback(() => {
@@ -643,16 +687,14 @@ export default function App() {
       setReviveCount(c => c + 1);
       triggerNotification('🌸 Emergency Revive! -15 Banked Shards');
     } else {
-      const runShards = statsRef.current.dataShardsCollected || 0;
+      // The engine's own stats object: the deduction reaches the running game.
+      const live = liveStats.getLiveStats();
+      const runShards = live.dataShardsCollected || 0;
       if (runShards >= 15) {
         const remaining = runShards - 15;
-        statsRef.current.dataShardsCollected = remaining;
-        statsRef.current.windOrbsCollected = remaining;
-        setStats(prev => ({
-          ...prev,
-          dataShardsCollected: remaining,
-          windOrbsCollected: remaining,
-        }));
+        live.dataShardsCollected = remaining;
+        live.windOrbsCollected = remaining;
+        liveStats.refresh();
         setIsGameOver(false);
         setReviveCount(c => c + 1);
         triggerNotification('🌸 Emergency Revive! -15 Run Shards');
@@ -699,7 +741,9 @@ export default function App() {
   const pauseRun = useCallback(() => {
     setResumeCountdown(0);
     setIsPaused(true);
-  }, []);
+    flushRunProgress();
+    progressionMgrRef.current?.flushSave();
+  }, [flushRunProgress]);
 
   const resumeRun = useCallback(() => {
     setIsPaused(false);
@@ -780,6 +824,8 @@ export default function App() {
   }, []);
 
   const handleQuitToMenu = useCallback(() => {
+    flushRunProgress();
+    progressionMgrRef.current?.flushSave();
     bankedThisRunRef.current = 0;
     setIsPaused(false);
     setResumeCountdown(0);
@@ -789,7 +835,7 @@ export default function App() {
       audioManagerRef.current.dispose();
       audioManagerRef.current = null;
     }
-  }, []);
+  }, [flushRunProgress]);
 
   const handleOpenShop = useCallback((tab?: 'heroes' | 'boards' | 'tech') => {
     if (tab === 'tech') {
@@ -855,7 +901,6 @@ export default function App() {
             gameModeMgr={gameModeMgrRef.current || undefined}
             activeMobileTrick={activeMobileTrick}
             onClearMobileTrick={() => setActiveMobileTrick(null)}
-            onStatsUpdate={handleStatsUpdate}
             audioManagerRef={audioManagerRef}
             isCinematicCam={isCinematicCam}
             isUpright={isUprightMode}
@@ -871,11 +916,7 @@ export default function App() {
 
           {/* Game HUD */}
           <GameHUD
-            stats={stats}
             bankedShards={bankedShards}
-            fps={currentFpsDisplay}
-            drawCalls={drawCalls}
-            instanceCount={instanceCount}
             lightingMode={lightingMode}
             onSelectLighting={setLightingMode}
             isMuted={isMuted}
@@ -904,15 +945,13 @@ export default function App() {
           {/* On-Screen Touch & Keybind Controls */}
           <ControlsOverlay
             onControlAction={handleControlAction}
-            onTriggerTrick={trick => setActiveMobileTrick(trick)}
-            isAirborne={!stats.isGrounded}
-            slowMoActive={stats.slowMoActive}
+            onTriggerTrick={setActiveMobileTrick}
           />
         </div>
       )}
 
       {/* Graphics & Shaders Settings Drawer */}
-      <GraphicsDrawer
+      <LiveGraphicsDrawer
         isOpen={isGraphicsDrawerOpen}
         onClose={() => setIsGraphicsDrawerOpen(false)}
         config={graphicsConfig}
@@ -922,8 +961,6 @@ export default function App() {
         shaderParams={shaderParams}
         onUpdateShaderParams={handleUpdateShaderParams}
         onResetDefaults={handleResetDefaults}
-        fps={currentFpsDisplay}
-        drawCalls={drawCalls}
       />
 
       {/* Art Asset Deliverables & Engine Export Modal */}
@@ -976,7 +1013,7 @@ export default function App() {
       {/* Game Paused Modal (hidden while a modal opened from it is on top;
           the run stays paused and the menu returns when that modal closes) */}
       {isPaused && !isGameOver && !isAnyModalOpen && (
-        <PauseModal
+        <LivePauseModal
           isOpen={isPaused}
           onResume={resumeRun}
           onRestart={() => {
@@ -989,7 +1026,6 @@ export default function App() {
           onOpenGraphics={() => setIsSettingsOpen(true)}
           isMuted={isMuted}
           onToggleMute={handleToggleMute}
-          stats={stats}
           missions={missions}
           onClaimMission={handleClaimMission}
           onQuitToMenu={handleQuitToMenu}
@@ -999,8 +1035,7 @@ export default function App() {
       {/* Game Over / Journey's Respite Modal (stays the active screen while a
           modal such as the shop is open over it, and returns when it closes) */}
       {isGameOver && !isAnyModalOpen && (
-        <GameOverModal
-          stats={stats}
+        <LiveGameOverModal
           bankedShards={bankedShards}
           missions={missions}
           progressionMgr={progressionMgrRef.current || undefined}

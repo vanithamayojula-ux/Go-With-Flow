@@ -27,7 +27,8 @@ interface GameCanvasProps {
   gameModeMgr?: GameModeManager;
   activeMobileTrick: TrickType | null;
   onClearMobileTrick: () => void;
-  onStatsUpdate: (stats: PlayerStats, fps: number, drawCalls: number, instanceCount: number) => void;
+  /** Optional: live stats are published to the liveStats store (src/state/liveStats.ts). */
+  onStatsUpdate?: (stats: PlayerStats, fps: number, drawCalls: number, instanceCount: number) => void;
   audioManagerRef: React.MutableRefObject<AudioManager | null>;
   isCinematicCam: boolean;
   isUpright?: boolean;
@@ -114,7 +115,7 @@ export const GameCanvas: React.FC<GameCanvasProps> = ({
       cosmeticMgr,
       gameModeMgr,
       onStatsUpdate: (stats, fps, calls, instances) => {
-        onStatsUpdateRef.current(stats, fps, calls, instances);
+        onStatsUpdateRef.current?.(stats, fps, calls, instances);
       },
       onNotification: msg => {
         onNotificationRef.current(msg);

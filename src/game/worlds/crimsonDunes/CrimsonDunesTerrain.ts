@@ -1,5 +1,4 @@
 import * as THREE from 'three';
-import { createRippleNormalMap } from '../shared/surfaceNormals';
 
 export interface DuneProfile {
   id: string;
@@ -145,17 +144,29 @@ export function createProceduralDuneGeometry(
     const nx = x / (profile.width * 0.5);
     const nz = z / (profile.length * 0.5);
 
-    // Curved crest line; distance is measured from it, compressed on the leeward side
-    const crestLine = Math.sin(nx * 1.8 + 0.3 + phase) * 0.3;
-    const dz = nz - crestLine;
-    const dzScaled = dz < 0 ? dz / (1 + crestLine) : (dz / (1 - crestLine)) * leeSteep;
-    const r = Math.sqrt(nx * nx + dzScaled * dzScaled);
-    const t = Math.max(0, 1 - r);
-    const hill = t * t * (3 - 2 * t);
-
-    // Low-frequency wind ripples that fade out towards the dune edge
-    const ripples = Math.sin(x * 0.32 + z * 0.17 + phase) * 0.22 * t;
-    const y = hill * profile.height + ripples;
+    // Barchan-like profile: a sharp, curved crest (horns trailing downwind, +z),
+    // a long convex windward ramp and a steeper, straight slip face, tapering
+    // to nothing at the lateral edges.
+    const crestZ = -0.2 + 0.32 * nx * nx + Math.sin(nx * 2.1 + phase) * 0.05;
+    const lateral = Math.max(0, 1 - nx * nx);
+    const envelope = Math.pow(lateral, 0.85);
+    const dz = nz - crestZ;
+    let prof: number;
+    if (dz <= 0) {
+      const u = Math.min(1, Math.max(0, 1 + dz / (1 + crestZ)));
+      // Convex ramp that still climbs at the crest (sharp brink), soft at the foot
+      const foot = Math.min(1, u / 0.3);
+      prof = u * (1.3 - 0.3 * u) * foot * foot * (3 - 2 * foot);
+    } else {
+      const leeLen = Math.max(0.2, (1 - crestZ) * (0.55 + 0.35 * (1 - profile.steepness) / leeSteep));
+      const v = Math.min(1, dz / leeLen);
+      // slight rounding of the brink, then a straight slip face easing onto the floor
+      prof = (1 - v) * (1 - v * 0.15) * (1 - Math.exp(-12 * (1 - v))) + Math.exp(-40 * dz) * 0.04;
+      prof = Math.max(0, Math.min(1, prof));
+    }
+    const t = envelope;
+    const ripples = Math.sin(x * 0.32 + z * 0.17 + phase) * 0.18 * t * prof;
+    const y = prof * envelope * profile.height * 0.82 + ripples;
     pos.setY(i, y);
 
     const heightNorm = Math.min(1, Math.max(0, y / profile.height));
@@ -269,6 +280,24 @@ export function createProceduralMesaGeometry(
  * beyond that the sand rises gradually into natural undulations.
  * All z-dependence is periodic over the chunk length so neighbouring chunks meet seamlessly.
  */
+/**
+ * Height of the desert ground bed at lateral x and chunk-local z (the bed is
+ * periodic over `length`, so world z minus any chunk centre works).
+ */
+export function desertGroundHeight(x: number, zLocal: number, length = 60, seed = 555): number {
+  const absX = Math.abs(x);
+  if (absX <= 6.0) return -0.15;
+  const zFreq = (Math.PI * 2) / length;
+  const phase = (seed % 53) * 0.17;
+  const sidePhase = x < 0 ? 2.7 : 0.0;
+  const flank = absX - 6.0;
+  const undulation =
+    Math.sin(flank * 0.11 + 1.3 + sidePhase + phase) * 1.6 +
+    Math.cos(zLocal * zFreq + flank * 0.09 + sidePhase) * 0.9 +
+    Math.sin(zLocal * zFreq * 2 + absX * 0.21) * 0.35;
+  return -0.15 + smoothstep(0, 14, flank) * (flank * 0.07 + undulation + 1.0);
+}
+
 export function createDesertHighwayChunkGeometry(
   width: number,
   length: number,
@@ -319,153 +348,4 @@ export function createDesertHighwayChunkGeometry(
   applyPlanarWorldUVs(geom);
   geom.computeVertexNormals();
   return geom;
-}
-
-/**
- * Generates a tileable 256x256 grayscale value-noise texture (with optional sand-ripple
- * component) for albedo / roughness / bump variation. Returns null without a DOM (Node tests).
- */
-export function createCrimsonDunesNoiseTexture(seed = 1337, ripple = 0.0): THREE.CanvasTexture | null {
-  if (typeof document === 'undefined') return null;
-  const size = 256;
-  const canvas = document.createElement('canvas');
-  canvas.width = size;
-  canvas.height = size;
-  const ctx = canvas.getContext('2d');
-  if (!ctx) return null;
-
-  let s = seed >>> 0;
-  const rnd = () => {
-    s = (s * 1664525 + 1013904223) >>> 0;
-    return s / 4294967296;
-  };
-
-  // Periodic lattices for each octave (cells per side must divide `size`)
-  const octaves = [
-    { cells: 4, amp: 0.35 },
-    { cells: 16, amp: 0.3 },
-    { cells: 32, amp: 0.2 },
-    { cells: 128, amp: 0.15 },
-  ];
-  const lattices = octaves.map(o => {
-    const arr = new Float32Array(o.cells * o.cells);
-    for (let i = 0; i < arr.length; i++) arr[i] = rnd();
-    return arr;
-  });
-
-  const img = ctx.createImageData(size, size);
-  const data = img.data;
-  for (let py = 0; py < size; py++) {
-    for (let px = 0; px < size; px++) {
-      let n = 0;
-      for (let o = 0; o < octaves.length; o++) {
-        const cells = octaves[o].cells;
-        const lat = lattices[o];
-        const fx = (px / size) * cells;
-        const fy = (py / size) * cells;
-        const x0 = Math.floor(fx);
-        const y0 = Math.floor(fy);
-        const tx = fx - x0;
-        const ty = fy - y0;
-        const sx = tx * tx * (3 - 2 * tx);
-        const sy = ty * ty * (3 - 2 * ty);
-        const x1 = (x0 + 1) % cells;
-        const y1 = (y0 + 1) % cells;
-        const a = lat[y0 * cells + x0];
-        const b = lat[y0 * cells + x1];
-        const cc = lat[y1 * cells + x0];
-        const d = lat[y1 * cells + x1];
-        n += (a + (b - a) * sx + (cc - a) * sy + (a - b - cc + d) * sx * sy) * octaves[o].amp;
-      }
-      if (ripple > 0) {
-        // Integer frequencies keep the ripple pattern tileable
-        const r = Math.sin(((px * 6 + py * 2) / size) * Math.PI * 2 + n * 3.0) * 0.5 + 0.5;
-        n = n * (1 - ripple) + r * ripple;
-      }
-      // Map to a gentle 0.78..1.0 range so the albedo is only modulated, not darkened
-      const v = Math.round((0.78 + Math.min(1, Math.max(0, n)) * 0.22) * 255);
-      const idx = (py * size + px) * 4;
-      data[idx] = v;
-      data[idx + 1] = v;
-      data[idx + 2] = v;
-      data[idx + 3] = 255;
-    }
-  }
-  ctx.putImageData(img, 0, 0);
-
-  const tex = new THREE.CanvasTexture(canvas);
-  tex.wrapS = THREE.RepeatWrapping;
-  tex.wrapT = THREE.RepeatWrapping;
-  tex.colorSpace = THREE.NoColorSpace;
-  tex.anisotropy = 4;
-  tex.needsUpdate = true;
-  return tex;
-}
-
-/**
- * Shared Crimson Dunes materials (physically based, natural desert albedos).
- */
-export function createCrimsonDunesMaterials() {
-  const noiseTexture = createCrimsonDunesNoiseTexture(1337, 0.25);
-
-  // Wind ripples (~0.5 m wavelength over the 8 m UV tile) with sand grain;
-  // they catch the low sun as fine parallel shadows across the dunes.
-  const duneRipples = createRippleNormalMap({
-    seed: 31,
-    rippleU: 14,
-    rippleV: 5,
-    rippleHeight: 0.7,
-    warp: 0.3,
-    grain: 0.3,
-    grainScale: 8,
-    strength: 1.2,
-  });
-  const duneMaterial = new THREE.MeshStandardMaterial({
-    vertexColors: true,
-    roughness: 0.96,
-    metalness: 0.0,
-    flatShading: false,
-    map: noiseTexture,
-    roughnessMap: noiseTexture,
-    normalMap: duneRipples,
-    normalScale: new THREE.Vector2(0.28, 0.28),
-    bumpMap: duneRipples ? null : noiseTexture,
-    bumpScale: 0.6,
-  });
-
-  const mesaRockMaterial = new THREE.MeshStandardMaterial({
-    vertexColors: true,
-    roughness: 0.92,
-    metalness: 0.0,
-    flatShading: false,
-    map: noiseTexture,
-    roughnessMap: noiseTexture,
-    bumpMap: noiseTexture,
-    bumpScale: 1.4,
-  });
-
-  const ancientStoneMaterial = new THREE.MeshStandardMaterial({
-    color: 0xa8907a, // Weathered desert stone
-    roughness: 0.9,
-    metalness: 0.0,
-    map: noiseTexture,
-    bumpMap: noiseTexture,
-    bumpScale: 0.8,
-  });
-
-  const solarRelicMaterial = new THREE.MeshStandardMaterial({
-    color: 0xb08d57, // Aged bronze
-    emissive: 0xd97706,
-    emissiveIntensity: 0.3,
-    roughness: 0.4,
-    metalness: 0.85,
-  });
-
-  return {
-    duneMaterial,
-    mesaRockMaterial,
-    ancientStoneMaterial,
-    solarRelicMaterial,
-    noiseTexture,
-  };
 }

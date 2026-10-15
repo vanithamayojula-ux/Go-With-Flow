@@ -4,169 +4,272 @@ import {
   CRYSTAL_ARCHETYPES,
   CRYSTAL_HEIGHTS_CHUNK_LENGTH,
   createProceduralCrystalGeometry,
-  createCelestialPlatformGeometry,
   createCelestialHighwayChunkGeometry,
   createAlpinePeakGeometry,
-  createCrystalHeightsMaterials,
   crystalHeightsGroundHeight,
   getGeometryHorizontalRadius,
 } from './CrystalHeightsTerrain';
 import { CrystalHeightsAtmosphere } from './CrystalHeightsAtmosphere';
-import { CrystalHeightsDecorations } from './CrystalHeightsDecorations';
+import { buildGateGeometries, buildQuartzGeometry, buildSpruceGeometries } from './CrystalHeightsDecorations';
 import { crystalHeightsConfig } from './crystalHeightsConfig';
-
-export interface ActiveCrystalChunkItem {
-  id: string;
-  z: number;
-  meshes: THREE.Mesh[];
-  decorations: THREE.Object3D[];
-}
+import { StreamedWorld, StreamChunk, WarmTask } from '../shared/streamedWorld';
+import { InstancePool, trs } from '../shared/instancePool';
+import { createTerrainMaterial, TerrainMaterialHandle } from '../shared/terrainMaterial';
+import { createScanStandardMaterial, ScanStandardHandle } from '../shared/scanMaterial';
+import { applyStreamFade, getWorldFade } from '../shared/distanceFade';
+import { getGreyNoiseTexture } from '../shared/noiseTextures';
+import { ENV_MODEL_HEIGHT, RockPools, applyEnvModels, createRockMaterials, createRockPools, rockTint } from '../shared/envRocks';
+import { EnvModelId, getLoadedTextureSet } from '../../../graphics/assetLibrary';
 
 /** Nothing solid may enter |x| < ROAD_CLEAR_X below y = 8. */
 const ROAD_CLEAR_X = 6.0;
 const CLEAR_MARGIN = 0.5;
 const GROUND_SEED = 222;
 const CHUNK = CRYSTAL_HEIGHTS_CHUNK_LENGTH;
+const ROCK_IDS: readonly EnvModelId[] = ['boulder', 'block', 'slab'];
 
-// Distant snow-capped range: recycled pool along both flanks
-const PEAKS_PER_SIDE = 5;
+// Distant snow-capped range: recycled along both flanks. The cycle is long
+// enough that a recycled peak re-enters inside the far fade band.
+const PEAKS_PER_SIDE = 8;
 const PEAK_SPACING = 110;
 const PEAK_VARIANTS = 3;
 
+interface CrystalKit {
+  ground: THREE.BufferGeometry;
+  crystals: Map<string, THREE.BufferGeometry>;
+  crystalRadii: Map<string, number>;
+  peaks: THREE.BufferGeometry[];
+  quartz: THREE.BufferGeometry;
+  gate: { stone: THREE.BufferGeometry; ice: THREE.BufferGeometry };
+  spruces: THREE.BufferGeometry[];
+  snow: TerrainMaterialHandle;
+  peakMat: TerrainMaterialHandle;
+  gateMat: TerrainMaterialHandle;
+  rockMats: Map<EnvModelId, TerrainMaterialHandle>;
+  ice: THREE.MeshPhysicalMaterial;
+  quartzMat: THREE.MeshPhysicalMaterial;
+  bark: ScanStandardHandle;
+  needles: THREE.MeshStandardMaterial;
+}
+const K: Partial<CrystalKit> = {};
+
+// Snow tinted faintly blue; granite cool grey (scans are warm-ish)
+const SNOW = { tile: 7, tint: 0xf2f6ff, normalScale: 0.8, roughness: [0.55, 0.92] as [number, number], fallback: 0xe9eef3 };
+const GRANITE = { tile: 9, tint: 0xc4cad4, normalScale: 1.15, roughness: [0.6, 0.95] as [number, number], fallback: 0x7d8287 };
+
+const KIT_STEPS: WarmTask[] = [
+  () => void getGreyNoiseTexture(1337, 0.8, 4),
+  () => {
+    K.ground ??= createCelestialHighwayChunkGeometry(200, CHUNK, 36, 24, GROUND_SEED);
+  },
+  () => {
+    if (K.crystals) return;
+    const m = new Map<string, THREE.BufferGeometry>();
+    const r = new Map<string, number>();
+    for (const arch of CRYSTAL_ARCHETYPES) {
+      const g = createProceduralCrystalGeometry(arch, 111);
+      m.set(arch.id, g);
+      r.set(arch.id, getGeometryHorizontalRadius(g));
+    }
+    K.crystalRadii = r;
+    K.crystals = m;
+    K.quartz = buildQuartzGeometry();
+  },
+  () => {
+    if (K.peaks) return;
+    const peaks: THREE.BufferGeometry[] = [];
+    for (let v = 0; v < PEAK_VARIANTS; v++) peaks.push(createAlpinePeakGeometry(70, 95 + v * 12, v * 3 + 1));
+    K.peaks = peaks;
+  },
+  () => {
+    K.gate ??= buildGateGeometries();
+  },
+  () => {
+    K.spruces ??= buildSpruceGeometries(0);
+  },
+  () => {
+    if (K.spruces && !K.spruces[1]) K.spruces[1] = buildSpruceGeometries(1)[0];
+  },
+  () => {
+    if (K.spruces && !K.spruces[2]) K.spruces[2] = buildSpruceGeometries(2)[0];
+  },
+  () => {
+    if (K.snow) return;
+    const fade = getWorldFade('crystal-heights');
+    K.snow = createTerrainMaterial({
+      name: 'crystal-snowfield',
+      ground: SNOW,
+      rock: GRANITE,
+      slope: [0.7, 0.86],
+      vertexColors: true,
+      vcRef: 0xe3e9ef,
+      vcRefRock: 0x7d8287,
+      vcKeep: 0.45,
+      roughness: 0.92,
+      fade,
+    });
+    K.peakMat = createTerrainMaterial({
+      name: 'crystal-peaks',
+      ground: { ...SNOW, tile: 24 },
+      rock: { ...GRANITE, tile: 30 },
+      slope: [0.5, 0.72],
+      vertexColors: true,
+      vcLuma: true,
+      vcRef: 0xe3e9ef,
+      vcRefRock: 0x7d8287,
+      vcKeep: 0.35,
+      macro: 0.1,
+      band: 'far',
+      fade,
+    });
+    K.gateMat = createTerrainMaterial({
+      name: 'crystal-gate',
+      ground: { ...SNOW, tile: 4 },
+      rock: { ...GRANITE, tile: 5 },
+      slope: [0.55, 0.75],
+      fade,
+    });
+    K.rockMats = createRockMaterials('crystal', ROCK_IDS, {
+      ground: { ...SNOW, tile: 5 },
+      rock: { ...GRANITE, tile: 5, normalScale: 0.6 },
+      slope: [0.62, 0.8],
+      fade,
+    });
+    // Glacial ice / quartz: opaque glossy dielectrics lit by the sky reflection
+    // (MeshPhysical clearcoat + IOR). No transmission: it forced an extra full
+    // scene render every frame.
+    K.ice = applyStreamFade(
+      new THREE.MeshPhysicalMaterial({
+        vertexColors: true,
+        color: 0xffffff,
+        roughness: 0.1,
+        metalness: 0,
+        ior: 1.31,
+        clearcoat: 1,
+        clearcoatRoughness: 0.06,
+        sheen: 0,
+        envMapIntensity: 1.35,
+        flatShading: true,
+      }),
+      fade
+    );
+    K.quartzMat = applyStreamFade(
+      new THREE.MeshPhysicalMaterial({
+        vertexColors: true,
+        color: 0xf4f8fa,
+        roughness: 0.05,
+        metalness: 0,
+        ior: 1.55,
+        clearcoat: 1,
+        clearcoatRoughness: 0.03,
+        envMapIntensity: 1.5,
+        flatShading: true,
+      }),
+      fade
+    );
+    const noise = getGreyNoiseTexture(1337, 0.8, 4);
+    K.bark = createScanStandardMaterial({ fallbackColor: 0x4a3c31, fallbackMap: noise, scanTint: 0x9a8d82, roughness: 0.92, fade });
+    K.needles = applyStreamFade(new THREE.MeshStandardMaterial({ color: 0xffffff, vertexColors: true, roughness: 0.9, metalness: 0 }), fade);
+  },
+];
+
+interface Peak {
+  variant: number;
+  x: number;
+  z: number;
+  s: number;
+  sy: number;
+  rot: number;
+}
+
 /**
- * CrystalHeightsWorld — high-alpine glacier:
- * - Snowfield chunks flanking the road (flat under the road, rising to foothills)
- * - Glacial ice seracs, clear quartz clusters and ice shards beside the road
- * - Granite outcrops / boulders, snow-laden spruces, a road-spanning granite arch
- * - A recycled ring of snow-capped granite peaks on both flanks
- * - Sparse diamond-dust glints (atmosphere)
+ * CrystalHeightsWorld — high-alpine glacier: scanned snow over scanned granite
+ * (slope-blended, faintly blue shadows), glacial ice seracs and quartz
+ * clusters (opaque clearcoat, no transmission pass), scanned granite boulders
+ * and outcrops with snow settled on top, snow-laden spruces with scanned
+ * bark, a rare granite arch, and a recycled snow-capped range on both flanks.
  */
-export class CrystalHeightsWorld {
-  public scene: THREE.Scene;
-  public group: THREE.Group;
+export class CrystalHeightsWorld extends StreamedWorld {
   public config = crystalHeightsConfig;
+  public atmosphere: CrystalHeightsAtmosphere | null = null;
+  protected readonly chunkLength = CHUNK;
 
-  // Subsystems
-  public atmosphere: CrystalHeightsAtmosphere;
-  public decorations: CrystalHeightsDecorations;
-
-  // Geometries & Materials Cache
-  private crystalGeoms: Map<string, THREE.BufferGeometry> = new Map();
-  private crystalRadii: Map<string, number> = new Map();
-  private platformGeom: THREE.BufferGeometry | null = null;
-  private platformRadius = 0;
-  private highwayChunkGeom: THREE.BufferGeometry | null = null;
-  private peakGeoms: THREE.BufferGeometry[] = [];
-  private peakMeshes: THREE.Mesh[] = [];
-  private materials: ReturnType<typeof createCrystalHeightsMaterials>;
-
-  // Streamed Chunks
-  private activeChunks: ActiveCrystalChunkItem[] = [];
-  private lastChunkZ = -999;
+  private groundPool: InstancePool | null = null;
+  private crystalPools = new Map<string, InstancePool>();
+  private quartzPool: InstancePool | null = null;
+  private sprucePools: InstancePool[] = [];
+  private peakPools: InstancePool[] = [];
+  private rockPools: RockPools | null = null;
+  private peaks: Peak[] = [];
+  private peaksDirty = true;
 
   constructor(scene: THREE.Scene, graphicsConfig: GraphicsConfig) {
-    this.scene = scene;
-    this.group = new THREE.Group();
-    this.group.name = 'CrystalHeightsWorldRootGroup';
-    this.scene.add(this.group);
-
-    this.materials = createCrystalHeightsMaterials();
-    this.initGeometries();
-    this.initPeaks();
-
-    this.atmosphere = new CrystalHeightsAtmosphere(this.scene, graphicsConfig);
-    this.decorations = new CrystalHeightsDecorations(this.scene, this.materials.noiseTexture);
+    super(scene, graphicsConfig, 'crystal-heights', 'CrystalHeightsWorldRootGroup');
   }
 
-  private initGeometries(): void {
-    // 1. Ice / quartz formations (+ their horizontal reach for road clearance)
+  protected warmTasks(): WarmTask[] {
+    return [
+      ...KIT_STEPS,
+      () => {
+        this.atmosphere = new CrystalHeightsAtmosphere(this.group, this.graphicsConfig);
+        this.atmosphere.group.visible = false;
+      },
+    ];
+  }
+
+  protected onKitReady(): void {
+    const k = K as CrystalKit;
+    this.groundPool = this.addPool(new InstancePool('crystal-ground', k.ground, k.snow.material, 16));
     for (const arch of CRYSTAL_ARCHETYPES) {
-      const geom = createProceduralCrystalGeometry(arch, 111);
-      this.crystalGeoms.set(arch.id, geom);
-      this.crystalRadii.set(arch.id, getGeometryHorizontalRadius(geom));
+      if (arch.id === 'floating-monolith') continue;
+      this.crystalPools.set(
+        arch.id,
+        this.addPool(new InstancePool(`crystal-${arch.id}`, k.crystals.get(arch.id)!, k.ice, 32, { castShadow: arch.id !== 'celestial-spire' }))
+      );
     }
+    this.quartzPool = this.addPool(new InstancePool('crystal-quartz', k.quartz, k.quartzMat, 16, { castShadow: true }));
+    this.sprucePools = k.spruces.map((g, i) =>
+      this.addPool(new InstancePool(`crystal-spruce-${i}`, g, [k.bark.material, k.needles], 24, { castShadow: true }))
+    );
+    this.peakPools = k.peaks.map((g, i) => this.addPool(new InstancePool(`crystal-peak-${i}`, g, k.peakMat.material, PEAKS_PER_SIDE)));
+    this.rockPools = createRockPools('crystal', ROCK_IDS, k.rockMats, 32, 24);
+    for (const p of this.rockPools.near.values()) this.addPool(p);
+    for (const p of this.rockPools.far.values()) this.addPool(p);
 
-    // 2. Granite outcrop / boulder
-    this.platformGeom = createCelestialPlatformGeometry(26.0, 22.0, 8.0, 9);
-    this.platformRadius = getGeometryHorizontalRadius(this.platformGeom);
-
-    // 3. Snowfield chunk (200 m wide, 60 m long)
-    this.highwayChunkGeom = createCelestialHighwayChunkGeometry(200, CHUNK, 36, 24, GROUND_SEED);
-
-    // 4. Mountain peak variants
-    for (let v = 0; v < PEAK_VARIANTS; v++) {
-      this.peakGeoms.push(createAlpinePeakGeometry(70, 95 + v * 12, v * 3 + 1));
-    }
-  }
-
-  private initPeaks(): void {
+    // Distant range: deterministic layout, recycled forward as the rider passes
     for (let side = -1; side <= 1; side += 2) {
       for (let i = 0; i < PEAKS_PER_SIDE; i++) {
         const slot = i * 2 + (side > 0 ? 1 : 0);
-        const geom = this.peakGeoms[slot % PEAK_VARIANTS];
-        const peak = new THREE.Mesh(geom, this.materials.celestialGroundMaterial);
         const r = Math.abs(Math.sin(slot * 12.9898) * 43758.5453) % 1;
         const s = 0.75 + r * 0.5;
-        peak.scale.set(s, s * (0.85 + ((slot * 7) % 5) * 0.08), s);
-        peak.rotation.y = r * Math.PI * 2;
-        peak.position.set(side * (170 + r * 80), -2, -150 + i * PEAK_SPACING + (side > 0 ? PEAK_SPACING * 0.5 : 0));
-        peak.castShadow = false;
-        peak.receiveShadow = false;
-        this.peakMeshes.push(peak);
-        this.group.add(peak);
+        this.peaks.push({
+          variant: slot % PEAK_VARIANTS,
+          x: side * (175 + r * 80),
+          z: this.origin - 150 + i * PEAK_SPACING + (side > 0 ? PEAK_SPACING * 0.5 : 0),
+          s,
+          sy: s * (0.85 + ((slot * 7) % 5) * 0.08),
+          rot: r * Math.PI * 2,
+        });
       }
     }
   }
 
-  public update(playerZ: number, dt: number, time: number, graphicsConfig: GraphicsConfig): void {
-    const chunkZ = Math.floor(playerZ / CHUNK);
-
-    if (chunkZ !== this.lastChunkZ) {
-      this.lastChunkZ = chunkZ;
-      this.streamChunks(playerZ, graphicsConfig);
+  protected applyScannedAssets(): void {
+    const k = K as CrystalKit;
+    const snow = getLoadedTextureSet('crystal-heights/snow');
+    const rock = getLoadedTextureSet('crystal-heights/rock');
+    const bark = getLoadedTextureSet('shared/bark');
+    for (const h of [k.snow, k.peakMat, k.gateMat, ...k.rockMats.values()]) {
+      h.setGround(snow);
+      h.setRock(rock);
     }
-
-    // Recycle distant peaks that fell behind (no allocation)
-    const cycle = PEAKS_PER_SIDE * PEAK_SPACING;
-    const behind = playerZ - 160;
-    for (let i = 0; i < this.peakMeshes.length; i++) {
-      const p = this.peakMeshes[i].position;
-      if (p.z < behind) {
-        p.z += Math.ceil((behind - p.z) / cycle) * cycle;
-      }
-    }
-
-    this.atmosphere.update(dt, playerZ, time);
-    this.decorations.update(time);
+    if (bark) k.bark.apply(bark);
+    if (this.rockPools) applyEnvModels(this.rockPools, k.rockMats);
   }
 
-  private streamChunks(playerZ: number, graphicsConfig: GraphicsConfig): void {
-    const cullBehindZ = playerZ - 100;
-    const cullAheadZ = playerZ + 460;
-
-    // 1. Cull old chunks
-    for (let i = this.activeChunks.length - 1; i >= 0; i--) {
-      const item = this.activeChunks[i];
-      if (item.z < cullBehindZ || item.z > cullAheadZ) {
-        for (const m of item.meshes) {
-          this.group.remove(m);
-        }
-        for (const d of item.decorations) {
-          this.decorations.removeObject(d);
-        }
-        this.activeChunks.splice(i, 1);
-      }
-    }
-
-    // 2. Generate chunks: the current band (so there is ground under the rider) + 6 ahead
-    const activeZCoords = new Set(this.activeChunks.map(c => Math.round(c.z / CHUNK)));
-    const currentBand = Math.floor(playerZ / CHUNK);
-    for (let b = 0; b <= 6; b++) {
-      const band = currentBand + b;
-      if (!activeZCoords.has(band)) {
-        this.spawnChunk(band * CHUNK, graphicsConfig);
-      }
-    }
+  public setStreamRange(minZ: number, maxZ: number): void {
+    super.setStreamRange(minZ, maxZ);
+    this.peaksDirty = true;
   }
 
   /** Minimum |x| for an object of horizontal reach `reach` (m) to stay clear of the road. */
@@ -174,33 +277,24 @@ export class CrystalHeightsWorld {
     return ROAD_CLEAR_X + reach + CLEAR_MARGIN;
   }
 
-  private spawnChunk(centerZ: number, graphicsConfig: GraphicsConfig): void {
+  protected spawnChunk(chunk: StreamChunk): void {
+    const k = K as CrystalKit;
+    const centerZ = chunk.centerZ;
     const seed = Math.abs(centerZ) * 53 + 79;
     const rnd = (offset = 0) => {
       const x = Math.sin(seed + offset) * 10000;
       return x - Math.floor(x);
     };
-    const shadows = graphicsConfig.enableShadows;
-
-    const spawnedMeshes: THREE.Mesh[] = [];
-    const spawnedDecs: THREE.Object3D[] = [];
+    const preset = this.preset;
+    const ground = (x: number, z: number) => crystalHeightsGroundHeight(x, z, GROUND_SEED);
 
     // 1. Snowfield
-    if (this.highwayChunkGeom) {
-      const ground = new THREE.Mesh(this.highwayChunkGeom, this.materials.celestialGroundMaterial);
-      ground.position.set(0, 0, centerZ);
-      ground.receiveShadow = shadows;
-      this.group.add(ground);
-      spawnedMeshes.push(ground);
-    }
+    this.place(chunk, this.groundPool, trs(0, 0, centerZ, 0, 1));
 
-    // 2. Ice seracs / quartz clusters / ice shards. Placement uses each geometry's
-    //    measured horizontal reach so a randomly rotated formation never enters |x| < 6:
-    //    spires |x| in [max(20, clear) , +15], clusters [max(12.5, clear), +15], shards [max(8, clear), +10]
+    // 2. Ice seracs / quartz clusters / ice shards (measured reach keeps |x| >= 6)
     let crystalDensity = 3;
-    if (graphicsConfig.preset === 'mobile-opt') crystalDensity = 2;
-    if (graphicsConfig.preset === 'webgl-min') crystalDensity = 1;
-
+    if (preset === 'mobile-opt') crystalDensity = 2;
+    if (preset === 'webgl-min') crystalDensity = 1;
     for (let c = 0; c < crystalDensity; c++) {
       const side = c % 2 === 0 ? -1 : 1;
       const pick = rnd(c * 4 + 3);
@@ -209,156 +303,132 @@ export class CrystalHeightsWorld {
       let range = 15.0;
       if (pick > 0.65) {
         archId = 'celestial-spire';
-        minX = 20.0;
-        range = 15.0;
+        minX = 22.0;
+        range = 25.0;
       } else if (pick < 0.25) {
         archId = 'ground-shard';
         minX = 8.0;
         range = 10.0;
       }
-
-      const geom = this.crystalGeoms.get(archId);
-      if (!geom) continue;
-
       const scale = 0.85 + rnd(c * 4 + 5) * 0.35;
-      const reach = (this.crystalRadii.get(archId) ?? 0) * scale;
-      const baseX = Math.max(minX, this.clearX(reach));
-      const posX = side * (baseX + rnd(c * 4 + 1) * range);
+      const reach = (k.crystalRadii.get(archId) ?? 0) * scale;
+      const posX = side * (Math.max(minX, this.clearX(reach)) + rnd(c * 4 + 1) * range);
       const posZ = centerZ + (rnd(c * 4 + 2) - 0.5) * 45.0;
-
-      // Small shards close to the road are the transmissive "hero" ice
-      const hero = archId === 'ground-shard' && Math.abs(posX) < 16;
-      const crystalMesh = new THREE.Mesh(geom, hero ? this.materials.energyCoreMaterial : this.materials.crystalMaterial);
-      crystalMesh.position.set(posX, crystalHeightsGroundHeight(posX, posZ, GROUND_SEED) - 0.15, posZ);
-      crystalMesh.rotation.y = rnd(c * 4 + 4) * Math.PI * 2;
-      crystalMesh.scale.set(scale, scale, scale);
-      crystalMesh.castShadow = shadows && Math.abs(posX) < 45;
-      crystalMesh.receiveShadow = shadows;
-      this.group.add(crystalMesh);
-      spawnedMeshes.push(crystalMesh);
+      if (!this.inRange(posZ, reach)) continue;
+      this.place(
+        chunk,
+        this.crystalPools.get(archId) ?? null,
+        trs(posX, ground(posX, posZ) - 0.15, posZ, rnd(c * 4 + 4) * Math.PI * 2, scale)
+      );
     }
 
-    if (this.platformGeom) {
-      // 3a. Large granite outcrop on the snowfield
-      if (graphicsConfig.preset !== 'webgl-min' && rnd(10) > 0.45) {
-        const s = 0.6 + rnd(13) * 0.4;
-        const pSide = rnd(11) > 0.5 ? 1 : -1;
-        const pX = pSide * (Math.max(32.0, this.clearX(this.platformRadius * s)) + rnd(12) * 25.0);
-        const pZ = centerZ + (rnd(14) - 0.5) * 20.0;
-        const outcrop = new THREE.Mesh(this.platformGeom, this.materials.celestialGroundMaterial);
-        outcrop.position.set(pX, crystalHeightsGroundHeight(pX, pZ, GROUND_SEED) - 0.6 * s, pZ);
-        outcrop.rotation.y = rnd(15) * Math.PI * 2;
-        outcrop.scale.set(s, s, s);
-        outcrop.castShadow = shadows;
-        outcrop.receiveShadow = shadows;
-        this.group.add(outcrop);
-        spawnedMeshes.push(outcrop);
+    // 3. Scanned granite: a large outcrop out on the snowfield + roadside boulders
+    if (this.rockPools) {
+      if (preset !== 'webgl-min' && rnd(10) > 0.4) {
+        const id: EnvModelId = rnd(30) > 0.5 ? 'slab' : 'block';
+        const s = 6 + rnd(13) * 7;
+        const side = rnd(11) > 0.5 ? 1 : -1;
+        const x = side * (this.clearX(s) + 18 + rnd(12) * 30);
+        const z = centerZ + (rnd(14) - 0.5) * 20.0;
+        if (this.inRange(z, s)) {
+          this.place(chunk, this.rockPools.far.get(id) ?? null, trs(x, ground(x, z) - ENV_MODEL_HEIGHT[id] * s * 0.28, z, rnd(15) * 6.28, s), rockTint(rnd(31)));
+        }
       }
-
-      // 3b. Roadside boulder (2.5–4 m)
-      if (rnd(21) > 0.3) {
-        const s = 0.1 + rnd(22) * 0.06;
-        const bSide = rnd(23) > 0.5 ? 1 : -1;
-        const bX = bSide * (Math.max(8.5, this.clearX(this.platformRadius * s)) + rnd(24) * 6.0);
-        const bZ = centerZ + (rnd(25) - 0.5) * 50.0;
-        const boulder = new THREE.Mesh(this.platformGeom, this.materials.celestialGroundMaterial);
-        boulder.position.set(bX, crystalHeightsGroundHeight(bX, bZ, GROUND_SEED) - 0.3 * s * 8, bZ);
-        boulder.rotation.y = rnd(26) * Math.PI * 2;
-        boulder.scale.set(s, s * 1.1, s);
-        boulder.castShadow = shadows;
-        boulder.receiveShadow = shadows;
-        this.group.add(boulder);
-        spawnedMeshes.push(boulder);
+      if (rnd(21) > 0.25) {
+        const id: EnvModelId = rnd(32) > 0.5 ? 'boulder' : 'block';
+        const s = 1.2 + rnd(22) * 1.3;
+        const side = rnd(23) > 0.5 ? 1 : -1;
+        const x = side * (Math.max(8.5, this.clearX(s)) + rnd(24) * 8.0);
+        const z = centerZ + (rnd(25) - 0.5) * 50.0;
+        if (this.inRange(z, s)) {
+          this.place(chunk, this.rockPools.near.get(id) ?? null, trs(x, ground(x, z) - ENV_MODEL_HEIGHT[id] * s * 0.25, z, rnd(26) * 6.28, s), rockTint(rnd(33)));
+        }
       }
     }
 
-    // 4. Landmark: road-spanning granite arch (inner faces |x| = 6.4) or quartz boulder
-    if (rnd(16) > 0.8) {
-      const gate = this.decorations.spawnCelestialGate(new THREE.Vector3(0, 0, centerZ + 10), 1.0);
-      spawnedDecs.push(gate);
-    } else if (rnd(17) > 0.5) {
-      // Boulder reach 2.64 m, quartz reach ~2.9 m (x0.95) → inner edge ≥ 7.7
+    // 4. Rare road-spanning granite arch, else a granite boulder carrying quartz
+    if (rnd(16) > 0.92 && this.canSpanRoad(centerZ + 10)) {
+      this.addObject(chunk, this.makeGate(centerZ + 10));
+    } else if (rnd(17) > 0.5 && this.rockPools) {
       const side = rnd(18) > 0.5 ? 1 : -1;
       const sx = side * (10.5 + rnd(27) * 4.0);
       const sz = centerZ - 8;
-      const shrine = this.decorations.spawnCrystalShrine(
-        new THREE.Vector3(sx, crystalHeightsGroundHeight(sx, sz, GROUND_SEED) - 0.25, sz),
-        0.95
-      );
-      spawnedDecs.push(shrine);
-    }
-
-    // 5. Snow-laden spruces (radius 2.4 m → inner edge ≥ 8.6)
-    if (graphicsConfig.preset !== 'webgl-min' && rnd(19) > 0.35) {
-      const treeCount = graphicsConfig.preset === 'desktop-full' ? 2 : 1;
-      for (let t = 0; t < treeCount; t++) {
-        const treeSide = (rnd(20 + t * 5) > 0.5 ? 1 : -1);
-        const tx = treeSide * (11.0 + rnd(28 + t * 5) * 6.0);
-        const tz = centerZ + 14 - t * 23 + (rnd(29 + t * 5) - 0.5) * 6.0;
-        const s = 0.85 + rnd(30 + t * 5) * 0.4;
-        const tree = this.decorations.spawnCrystalTree(
-          new THREE.Vector3(tx, crystalHeightsGroundHeight(tx, tz, GROUND_SEED) - 0.1, tz),
-          s
-        );
-        spawnedDecs.push(tree);
+      if (this.inRange(sz, 3)) {
+        const gy = ground(sx, sz);
+        this.place(chunk, this.rockPools.near.get('boulder') ?? null, trs(sx, gy - 0.6, sz, sz * 0.37, 2.4, 1.6, 2.0), rockTint(rnd(34)));
+        this.place(chunk, this.quartzPool, trs(sx + 0.2, gy + 0.7, sz - 0.1, 0.6 + sz * 0.37, 0.95, 0.95, 0.95, 0.12, -0.08));
       }
     }
 
-    this.activeChunks.push({
-      id: `crystal-chunk-${centerZ}`,
-      z: centerZ,
-      meshes: spawnedMeshes,
-      decorations: spawnedDecs,
-    });
+    // 5. Snow-laden spruces (radius 2.4 m -> inner edge >= 8.6), with a thicker stand further out
+    if (preset !== 'webgl-min' && this.sprucePools.length) {
+      const treeCount = preset === 'desktop-full' ? 4 : 2;
+      for (let t = 0; t < treeCount; t++) {
+        if (rnd(19 + t * 5) < 0.3) continue;
+        const treeSide = rnd(20 + t * 5) > 0.5 ? 1 : -1;
+        const tx = treeSide * (t < 2 ? 11.0 + rnd(28 + t * 5) * 6.0 : 24 + rnd(28 + t * 5) * 30);
+        const tz = centerZ + 14 - (t % 2) * 23 + (rnd(29 + t * 5) - 0.5) * 10.0;
+        if (!this.inRange(tz, 2.5)) continue;
+        const s = 0.85 + rnd(30 + t * 5) * 0.4;
+        const pool = this.sprucePools[Math.floor(rnd(35 + t) * this.sprucePools.length) % this.sprucePools.length];
+        this.place(chunk, pool, trs(tx, ground(tx, tz) - 0.1, tz, tz * 0.53, s));
+      }
+    }
   }
 
-  public dispose(): void {
-    this.scene.remove(this.group);
+  private makeGate(z: number): THREE.Group {
+    const k = K as CrystalKit;
+    const g = new THREE.Group();
+    g.position.set(0, 0, z);
+    const stone = new THREE.Mesh(k.gate.stone, k.gateMat.material);
+    stone.castShadow = true;
+    stone.receiveShadow = true;
+    const ice = new THREE.Mesh(k.gate.ice, k.ice);
+    ice.castShadow = true;
+    g.add(stone, ice);
+    return g;
+  }
 
-    for (const chunk of this.activeChunks) {
-      for (const m of chunk.meshes) {
-        this.group.remove(m);
+  private updatePeaks(playerZ: number): void {
+    const cycle = PEAKS_PER_SIDE * PEAK_SPACING;
+    const behind = playerZ - 160;
+    for (const p of this.peaks) {
+      if (p.z < behind) {
+        p.z += Math.ceil((behind - p.z) / cycle) * cycle;
+        this.peaksDirty = true;
       }
-      for (const d of chunk.decorations) {
-        this.decorations.removeObject(d);
-      }
     }
-    this.activeChunks = [];
-
-    for (const p of this.peakMeshes) {
-      this.group.remove(p);
+    if (!this.peaksDirty) return;
+    this.peaksDirty = false;
+    for (const pool of this.peakPools) pool.clear();
+    for (const p of this.peaks) {
+      // Peaks are ~70 m in radius: only those fully inside the range
+      if (!this.inRange(p.z, 70 * p.s)) continue;
+      this.peakPools[p.variant]?.add(trs(p.x, -2, p.z, p.rot, p.s, p.sy, p.s));
     }
-    this.peakMeshes = [];
+  }
 
-    // Dispose cached geometries
-    for (const geom of this.crystalGeoms.values()) {
-      geom.dispose();
+  protected animate(playerZ: number, dt: number, time: number): void {
+    const k = K as CrystalKit;
+    for (const h of [k.snow, k.peakMat, k.gateMat]) h.tick(dt);
+    for (const h of k.rockMats.values()) h.tick(dt);
+    this.updatePeaks(playerZ);
+    if (this.atmosphere) {
+      const on = this.playerInRange(playerZ);
+      this.atmosphere.group.visible = on;
+      if (on) this.atmosphere.update(dt, playerZ, time);
     }
-    this.crystalGeoms.clear();
-    this.crystalRadii.clear();
+  }
 
-    for (const g of this.peakGeoms) g.dispose();
-    this.peakGeoms = [];
-
-    if (this.platformGeom) {
-      this.platformGeom.dispose();
-      this.platformGeom = null;
-    }
-
-    if (this.highwayChunkGeom) {
-      this.highwayChunkGeom.dispose();
-      this.highwayChunkGeom = null;
-    }
-
-    // Dispose materials & textures
-    this.materials.crystalMaterial.dispose();
-    this.materials.celestialGroundMaterial.normalMap?.dispose();
-    this.materials.celestialGroundMaterial.dispose();
-    this.materials.celestialArchStoneMaterial.dispose();
-    this.materials.energyCoreMaterial.dispose();
-    if (this.materials.noiseTexture) this.materials.noiseTexture.dispose();
-
-    this.atmosphere.dispose();
-    this.decorations.dispose();
+  protected disposeWorld(): void {
+    this.atmosphere?.dispose();
+    this.atmosphere = null;
+    this.groundPool = null;
+    this.crystalPools.clear();
+    this.quartzPool = null;
+    this.sprucePools = [];
+    this.peakPools = [];
+    this.rockPools = null;
+    this.peaks = [];
   }
 }

@@ -1,6 +1,6 @@
 import * as THREE from 'three';
 import { BiomeType, FloatingIslandData } from '../types';
-import { createRoadTextures, RoadTextures, applyRoadMacroVariation } from '../graphics/roadTextures';
+import { getRoadTextures, RoadTextures, applyRoadMacroVariation } from '../graphics/roadTextures';
 import {
   LANE_WIDTH,
   RAIL_X,
@@ -278,10 +278,26 @@ function createGalvanisedTextures(): { map: THREE.CanvasTexture; roughnessMap: T
   return { map: fin(colC, true), roughnessMap: fin(rouC, false) };
 }
 
+let galvanisedCache: { map: THREE.CanvasTexture; roughnessMap: THREE.CanvasTexture } | null | undefined;
+/** Session-cached galvanising maps (never disposed by TerrainManager). */
+function getGalvanisedTextures() {
+  if (galvanisedCache === undefined) galvanisedCache = createGalvanisedTextures();
+  return galvanisedCache;
+}
+
+/** Highway chunks kept around the rider: dz in [-1, renderDistance + 1]. */
+const MAX_HIGHWAY_CHUNKS = 10;
+const POSTS_PER_SIDE = Math.round(CHUNK_SIZE / GUARD_POST_SPACING);
+
 /**
  * Streams a level asphalt highway: textured road deck on a concrete slab,
  * concrete curbs and galvanised steel W-beam guard rails on posts. Scenery
  * beyond the rails comes from the active campaign world.
+ *
+ * Every highway part is a single InstancedMesh shared by all chunks (6 draw
+ * calls in total instead of ~10 per chunk). The instance buffers are rewritten
+ * only when the set of chunks changes (every 80 m); the per-frame path does
+ * no allocation.
  */
 export class TerrainManager {
   scene: THREE.Scene;
@@ -302,12 +318,27 @@ export class TerrainManager {
   private steelMat: THREE.MeshStandardMaterial;
   private dummy = new THREE.Object3D();
 
+  private roadInst: THREE.InstancedMesh;
+  private slabInst: THREE.InstancedMesh;
+  private curbInst: THREE.InstancedMesh;
+  private beamInst: THREE.InstancedMesh;
+  private postInst: THREE.InstancedMesh;
+  private blockInst: THREE.InstancedMesh;
+  private instGroup = new THREE.Group();
+
+  /** Chunk index range currently built (inclusive). */
+  private builtFrom = Number.NaN;
+  private builtTo = Number.NaN;
+  /** Recycled chunk records (no allocation once warmed up). */
+  private chunkPool: CyberChunk[] = [];
+  private chunkByIndex = new Map<number, CyberChunk>();
+
   constructor(scene: THREE.Scene) {
     this.scene = scene;
 
     const roadWidth = RAIL_X * 2.0;
     const tilesPerChunk = CHUNK_SIZE / ROAD_TILE_LENGTH;
-    this.roadTextures = createRoadTextures({
+    this.roadTextures = getRoadTextures({
       halfWidth: RAIL_X,
       tileLength: ROAD_TILE_LENGTH,
       dividerX: DIVIDER_X,
@@ -331,7 +362,7 @@ export class TerrainManager {
     this.concreteMat = new THREE.MeshStandardMaterial({ color: 0x9c9890, roughness: 0.92, metalness: 0.0 });
     // Hot-dip galvanised steel: fully metallic with a satin (not mirror) finish
     this.steelMat = new THREE.MeshStandardMaterial({ color: 0x9a9fa4, roughness: 0.55, metalness: 1.0 });
-    this.galvTextures = createGalvanisedTextures();
+    this.galvTextures = getGalvanisedTextures();
     this.beamMat = new THREE.MeshStandardMaterial({
       color: this.galvTextures ? 0xffffff : 0xa7abaf,
       map: this.galvTextures?.map ?? null,
@@ -349,127 +380,152 @@ export class TerrainManager {
     this.beamGeom = createWBeamGeometry(CHUNK_SIZE);
     this.postGeom = new THREE.BoxGeometry(0.1, GUARD_RAIL_HEIGHT + 0.12, 0.15);
     this.blockGeom = new THREE.BoxGeometry(0.14, 0.2, 0.1); // spacer block between post and beam
+
+    const make = (geo: THREE.BufferGeometry, mat: THREE.Material, perChunk: number, cast: boolean, name: string) => {
+      const m = new THREE.InstancedMesh(geo, mat, perChunk * MAX_HIGHWAY_CHUNKS);
+      m.name = name;
+      m.count = 0;
+      m.castShadow = cast;
+      m.receiveShadow = true;
+      this.instGroup.add(m);
+      return m;
+    };
+    this.instGroup.name = 'HighwayInstances';
+    this.roadInst = make(this.roadGeom, this.terrainMaterial, 1, false, 'HighwayDeck');
+    this.slabInst = make(this.slabGeom, this.concreteMat, 1, false, 'HighwaySlab');
+    this.curbInst = make(this.curbGeom, this.concreteMat, 2, true, 'HighwayCurbs');
+    this.beamInst = make(this.beamGeom, this.beamMat, 2, true, 'HighwayBeams');
+    this.postInst = make(this.postGeom, this.steelMat, POSTS_PER_SIDE * 2, true, 'HighwayPosts');
+    this.blockInst = make(this.blockGeom, this.steelMat, POSTS_PER_SIDE * 2, true, 'HighwaySpacers');
+    this.blockInst.receiveShadow = false;
+    this.scene.add(this.instGroup);
   }
 
   rebuildAroundPlayer(playerZ: number, playerX: number, renderDistance = 3) {
-    for (const chunk of this.chunks.values()) {
-      this.disposeChunk(chunk);
-    }
-    this.chunks.clear();
+    this.builtFrom = Number.NaN;
+    this.builtTo = Number.NaN;
     this.update(playerZ, playerX, renderDistance);
   }
 
   update(playerZ: number, _playerX: number, renderDistance = 3, _time = 0, _playerSpeed = 20) {
     const currentChunkZ = Math.floor(playerZ / CHUNK_SIZE);
-    const neededKeys = new Set<string>();
+    const from = currentChunkZ - 1;
+    const to = Math.min(currentChunkZ + renderDistance + 1, from + MAX_HIGHWAY_CHUNKS - 1);
+    if (from === this.builtFrom && to === this.builtTo) return;
+    this.builtFrom = from;
+    this.builtTo = to;
 
-    for (let dz = -1; dz <= renderDistance + 1; dz++) {
-      const cz = currentChunkZ + dz;
-      const key = `0_${cz}`;
-      neededKeys.add(key);
-      if (!this.chunks.has(key)) {
-        this.spawnHighwayChunk(cz);
+    // Recycle chunk records that fell out of range
+    for (const [cz, chunk] of this.chunkByIndex) {
+      if (cz < from || cz > to) {
+        this.chunkByIndex.delete(cz);
+        this.chunks.delete(chunk.key);
+        this.chunkPool.push(chunk);
       }
     }
-
-    for (const [key, chunk] of this.chunks.entries()) {
-      if (!neededKeys.has(key)) {
-        this.disposeChunk(chunk);
-        this.chunks.delete(key);
-      }
+    for (let cz = from; cz <= to; cz++) {
+      if (this.chunkByIndex.has(cz)) continue;
+      const chunk = this.chunkPool.pop() ?? this.newChunkRecord();
+      chunk.cz = cz;
+      chunk.key = `0_${cz}`;
+      chunk.foliageInstances.orbs.length = 0;
+      chunk.foliageInstances.floatingIslands.length = 0;
+      chunk.foliageInstances.updrafts.length = 0;
+      chunk.foliageInstances.grass.length = 0;
+      chunk.foliageInstances.trees.length = 0;
+      this.chunkByIndex.set(cz, chunk);
+      this.chunks.set(chunk.key, chunk);
     }
+    this.writeInstances(from, to);
   }
 
-  private spawnHighwayChunk(cz: number) {
-    const key = `0_${cz}`;
-    const zCenter = (cz + 0.5) * CHUNK_SIZE;
-    const roadY = getTerrainHeight(0, zCenter);
-    const decorations: THREE.Object3D[] = [];
-    const add = (o: THREE.Object3D) => {
-      this.scene.add(o);
-      decorations.push(o);
-    };
-
-    // 1. Asphalt deck
-    const roadMesh = new THREE.Mesh(this.roadGeom, this.terrainMaterial);
-    roadMesh.position.set(0, roadY, zCenter);
-    roadMesh.receiveShadow = true;
-    this.scene.add(roadMesh);
-
-    // 2. Concrete slab under the deck (reads as a bridge deck over the Sky Isles void)
-    const slab = new THREE.Mesh(this.slabGeom, this.concreteMat);
-    slab.position.set(0, roadY - 0.56, zCenter);
-    slab.receiveShadow = true;
-    add(slab);
-
-    for (const side of [-1, 1]) {
-      // 3. Concrete curb along the deck edge
-      const curb = new THREE.Mesh(this.curbGeom, this.concreteMat);
-      curb.position.set(side * (RAIL_X + 0.1), roadY + 0.09, zCenter);
-      curb.castShadow = true;
-      curb.receiveShadow = true;
-      add(curb);
-
-      // 4. Galvanised W-beam guard rail on posts
-      // The beam's local +x faces the road, so the +x rail is turned 180 degrees.
-      const beam = new THREE.Mesh(this.beamGeom, this.beamMat);
-      beam.position.set(side * W_BEAM_X, roadY + GUARD_RAIL_HEIGHT, zCenter);
-      if (side > 0) beam.rotation.y = Math.PI;
-      beam.castShadow = true;
-      beam.receiveShadow = true;
-      add(beam);
-
-      const postCount = Math.round(CHUNK_SIZE / GUARD_POST_SPACING);
-      const posts = new THREE.InstancedMesh(this.postGeom, this.steelMat, postCount);
-      const blocks = new THREE.InstancedMesh(this.blockGeom, this.steelMat, postCount);
-      const backX = W_BEAM_X + W_BEAM_DEPTH; // beam back plane
-      for (let i = 0; i < postCount; i++) {
-        const pz = zCenter - CHUNK_SIZE / 2 + (i + 0.5) * GUARD_POST_SPACING;
-        this.dummy.position.set(side * (backX + 0.19), roadY + (GUARD_RAIL_HEIGHT + 0.12) / 2 + 0.12, pz);
-        this.dummy.updateMatrix();
-        posts.setMatrixAt(i, this.dummy.matrix);
-        this.dummy.position.set(side * (backX + 0.07), roadY + GUARD_RAIL_HEIGHT, pz);
-        this.dummy.updateMatrix();
-        blocks.setMatrixAt(i, this.dummy.matrix);
-      }
-      posts.castShadow = true;
-      posts.receiveShadow = true;
-      blocks.castShadow = true;
-      add(posts);
-      add(blocks);
-    }
-
-    this.chunks.set(key, {
-      key,
+  private newChunkRecord(): CyberChunk {
+    return {
+      key: '',
       cx: 0,
-      cz,
-      mesh: roadMesh,
-      decorations,
+      cz: 0,
+      mesh: this.roadInst,
+      decorations: [],
       foliageInstances: { orbs: [], floatingIslands: [], updrafts: [], grass: [], trees: [] },
-    });
+    };
   }
 
-  private disposeChunk(chunk: CyberChunk) {
-    // Geometry and materials are shared by all chunks; only instance buffers are per-chunk.
-    this.scene.remove(chunk.mesh);
-    for (const d of chunk.decorations) {
-      this.scene.remove(d);
-      if ((d as THREE.InstancedMesh).isInstancedMesh) (d as THREE.InstancedMesh).dispose();
+  /** Rewrites every highway instance buffer for chunks [from, to]. */
+  private writeInstances(from: number, to: number) {
+    const d = this.dummy;
+    let iDeck = 0;
+    let iCurb = 0;
+    let iBeam = 0;
+    let iPost = 0;
+    const backX = W_BEAM_X + W_BEAM_DEPTH; // beam back plane
+    for (let cz = from; cz <= to; cz++) {
+      const zCenter = (cz + 0.5) * CHUNK_SIZE;
+      const roadY = getTerrainHeight(0, zCenter);
+      d.rotation.set(0, 0, 0);
+      d.position.set(0, roadY, zCenter);
+      d.updateMatrix();
+      this.roadInst.setMatrixAt(iDeck, d.matrix);
+      d.position.set(0, roadY - 0.56, zCenter);
+      d.updateMatrix();
+      this.slabInst.setMatrixAt(iDeck, d.matrix);
+      iDeck++;
+
+      for (let s = 0; s < 2; s++) {
+        const side = s === 0 ? -1 : 1;
+        d.rotation.set(0, 0, 0);
+        d.position.set(side * (RAIL_X + 0.1), roadY + 0.09, zCenter);
+        d.updateMatrix();
+        this.curbInst.setMatrixAt(iCurb++, d.matrix);
+
+        // The beam's local +x faces the road, so the +x rail is turned 180 degrees.
+        d.position.set(side * W_BEAM_X, roadY + GUARD_RAIL_HEIGHT, zCenter);
+        d.rotation.set(0, side > 0 ? Math.PI : 0, 0);
+        d.updateMatrix();
+        this.beamInst.setMatrixAt(iBeam++, d.matrix);
+
+        d.rotation.set(0, 0, 0);
+        for (let i = 0; i < POSTS_PER_SIDE; i++) {
+          const pz = zCenter - CHUNK_SIZE / 2 + (i + 0.5) * GUARD_POST_SPACING;
+          d.position.set(side * (backX + 0.19), roadY + (GUARD_RAIL_HEIGHT + 0.12) / 2 + 0.12, pz);
+          d.updateMatrix();
+          this.postInst.setMatrixAt(iPost, d.matrix);
+          d.position.set(side * (backX + 0.07), roadY + GUARD_RAIL_HEIGHT, pz);
+          d.updateMatrix();
+          this.blockInst.setMatrixAt(iPost, d.matrix);
+          iPost++;
+        }
+      }
     }
+    this.finishInstances(this.roadInst, iDeck);
+    this.finishInstances(this.slabInst, iDeck);
+    this.finishInstances(this.curbInst, iCurb);
+    this.finishInstances(this.beamInst, iBeam);
+    this.finishInstances(this.postInst, iPost);
+    this.finishInstances(this.blockInst, iPost);
+  }
+
+  private finishInstances(m: THREE.InstancedMesh, count: number) {
+    m.count = count;
+    m.instanceMatrix.needsUpdate = true;
+    m.computeBoundingSphere();
   }
 
   dispose() {
-    for (const chunk of this.chunks.values()) {
-      this.disposeChunk(chunk);
-    }
     this.chunks.clear();
+    this.chunkByIndex.clear();
+    this.chunkPool = [];
+    this.scene.remove(this.instGroup);
+    this.roadInst.dispose();
+    this.slabInst.dispose();
+    this.curbInst.dispose();
+    this.beamInst.dispose();
+    this.postInst.dispose();
+    this.blockInst.dispose();
     this.terrainMaterial.dispose();
     this.concreteMat.dispose();
     this.steelMat.dispose();
     this.beamMat.dispose();
-    this.galvTextures?.map.dispose();
-    this.galvTextures?.roughnessMap.dispose();
-    for (const t of Object.values(this.roadTextures)) t.dispose();
+    // Road and galvanising textures are session-cached (shared); not disposed.
     this.roadGeom.dispose();
     this.slabGeom.dispose();
     this.curbGeom.dispose();

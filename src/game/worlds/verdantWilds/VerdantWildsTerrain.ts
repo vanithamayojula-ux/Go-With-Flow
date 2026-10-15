@@ -115,92 +115,16 @@ export function sampleForestFloorHeight(
 }
 
 // ---------------------------------------------------------------------------
-// Shared procedural noise texture
-// ---------------------------------------------------------------------------
-
-/**
- * Tileable 256x256 grey value-noise texture used for albedo / roughness break-up
- * on ground, bark and stone. Returns null outside a DOM (e.g. Node tests).
- */
-export function createVerdantNoiseTexture(): THREE.CanvasTexture | null {
-  if (typeof document === 'undefined') return null;
-  const size = 256;
-  const canvas = document.createElement('canvas');
-  canvas.width = size;
-  canvas.height = size;
-  const ctx = canvas.getContext('2d');
-  if (!ctx) return null;
-
-  let s = 1337;
-  const rnd = () => {
-    s = (s * 16807) % 2147483647;
-    return (s - 1) / 2147483646;
-  };
-
-  const field = new Float32Array(size * size);
-  const octaves = [
-    { cell: 64, amp: 0.45 },
-    { cell: 32, amp: 0.25 },
-    { cell: 16, amp: 0.15 },
-    { cell: 8, amp: 0.1 },
-    { cell: 4, amp: 0.05 },
-  ];
-  for (const { cell, amp } of octaves) {
-    const n = size / cell;
-    const lattice = new Float32Array(n * n);
-    for (let i = 0; i < lattice.length; i++) lattice[i] = rnd();
-    for (let py = 0; py < size; py++) {
-      const gy = py / cell;
-      const y0 = Math.floor(gy);
-      const ty = gy - y0;
-      const sy = ty * ty * (3 - 2 * ty);
-      const ya = y0 % n;
-      const yb = (y0 + 1) % n;
-      for (let px = 0; px < size; px++) {
-        const gx = px / cell;
-        const x0 = Math.floor(gx);
-        const tx = gx - x0;
-        const sx = tx * tx * (3 - 2 * tx);
-        const xa = x0 % n;
-        const xb = (x0 + 1) % n;
-        const top = lattice[ya * n + xa] * (1 - sx) + lattice[ya * n + xb] * sx;
-        const bot = lattice[yb * n + xa] * (1 - sx) + lattice[yb * n + xb] * sx;
-        field[py * size + px] += (top * (1 - sy) + bot * sy) * amp;
-      }
-    }
-  }
-
-  const img = ctx.createImageData(size, size);
-  for (let i = 0; i < field.length; i++) {
-    // Map to 0.66..1.0 so it only darkens / breaks up the base colour
-    const grain = (rnd() - 0.5) * 0.06;
-    const v = Math.min(1, Math.max(0, 0.66 + field[i] * 0.34 + grain));
-    const b = Math.round(v * 255);
-    img.data[i * 4] = b;
-    img.data[i * 4 + 1] = b;
-    img.data[i * 4 + 2] = b;
-    img.data[i * 4 + 3] = 255;
-  }
-  ctx.putImageData(img, 0, 0);
-
-  const tex = new THREE.CanvasTexture(canvas);
-  tex.wrapS = THREE.RepeatWrapping;
-  tex.wrapT = THREE.RepeatWrapping;
-  tex.colorSpace = THREE.NoColorSpace;
-  tex.anisotropy = 4;
-  tex.needsUpdate = true;
-  return tex;
-}
-
-// ---------------------------------------------------------------------------
 // Trees
 // ---------------------------------------------------------------------------
 
 // Natural albedos (converted from sRGB hex into the linear working space)
-const BARK_DARK = new THREE.Color(0x4a3a2a);
-const BARK_LIGHT = new THREE.Color(0x5a4632);
-const BARK_DEAD = new THREE.Color(0x6b6256);
-const BARK_MOSS = new THREE.Color(0x4a5530);
+// Bark vertex colours are relative tints around 1.0: they multiply the bark
+// material (scanned bark, or the procedural fallback colour).
+const BARK_DARK = new THREE.Color(0.86, 0.86, 0.86);
+const BARK_LIGHT = new THREE.Color(1.08, 1.06, 1.02);
+const BARK_DEAD = new THREE.Color(1.25, 1.3, 1.35);
+const BARK_MOSS = new THREE.Color(0.62, 0.82, 0.42);
 const LEAF_DARK = new THREE.Color(0x2f4a1e);
 const LEAF_LIGHT = new THREE.Color(0x4f6b2a);
 const LEAF_SHADE = new THREE.Color(0x1f3214);
@@ -210,11 +134,20 @@ const LEAF_SHADE = new THREE.Color(0x1f3214);
  * soft leafy crown clumps) with natural vertex colours and smooth normals.
  * All foliage sits above TREE_FOLIAGE_MIN_Y (local units).
  */
-export function createProceduralTreeGeometry(
+export function createProceduralTreeGeometry(archetype: TreeArchetype, seed = 101): THREE.BufferGeometry {
+  const it = createProceduralTreeGeometryGen(archetype, seed);
+  let r = it.next();
+  while (!r.done) r = it.next();
+  return r.value;
+}
+
+/** Same as createProceduralTreeGeometry, yielding after each crown clump (for sliced warmup). */
+export function* createProceduralTreeGeometryGen(
   archetype: TreeArchetype,
   seed = 101
-): THREE.BufferGeometry {
-  const geometries: THREE.BufferGeometry[] = [];
+): Generator<void, THREE.BufferGeometry> {
+  const geometries: THREE.BufferGeometry[] = []; // bark: trunk + limbs
+  const clumps: THREE.BufferGeometry[] = []; // leafy crown masses
 
   let s = seed;
   const rnd = () => {
@@ -271,7 +204,7 @@ export function createProceduralTreeGeometry(
     tmpColor.lerp(BARK_MOSS, Math.min(0.85, moss));
     colors.push(tmpColor.r, tmpColor.g, tmpColor.b);
 
-    uv.setXY(i, uv.getX(i) * 3, uv.getY(i) * (trunkHeight / 3));
+    uv.setXY(i, uv.getX(i) * Math.max(2, Math.round((Math.PI * 2 * rBase) / 2.4)), uv.getY(i) * (trunkHeight / 2.4));
   }
   trunkGeom.setAttribute('color', new THREE.Float32BufferAttribute(colors, 3));
   trunkGeom.computeVertexNormals();
@@ -297,7 +230,7 @@ export function createProceduralTreeGeometry(
     for (let j = 0; j < lPos.count; j++) {
       tmpColor.copy(barkBase).lerp(BARK_LIGHT, 0.4);
       lCol.push(tmpColor.r, tmpColor.g, tmpColor.b);
-      lUv.setXY(j, lUv.getX(j) * 2, lUv.getY(j) * (len / 3));
+      lUv.setXY(j, lUv.getX(j) * 2, lUv.getY(j) * (len / 2.4));
     }
     limb.setAttribute('color', new THREE.Float32BufferAttribute(lCol, 3));
     limb.computeVertexNormals();
@@ -325,7 +258,10 @@ export function createProceduralTreeGeometry(
       const tint = 0.88 + rnd() * 0.2;
       const phase = rnd() * 10;
 
-      const clump = new THREE.IcosahedronGeometry(1, 3);
+      // Core mass is smaller than the crown clump: the alpha-tested leaf cards
+      // around it form the silhouette, so the crown never reads as a smooth blob.
+      const core = 0.74;
+      const clump = new THREE.IcosahedronGeometry(1, 2);
       const cPos = clump.attributes.position;
       const cNorm = clump.attributes.normal;
       const cUv = clump.attributes.uv;
@@ -339,9 +275,9 @@ export function createProceduralTreeGeometry(
           0.08 * Math.sin(dir.z * 9.7 + phase * 2) +
           0.05 * Math.sin(dir.x * 15.3 + dir.y * 7.1 + phase * 3) * Math.sin(dir.z * 13.9 - dir.y * 5.3 + seed);
         const yScale = dir.y < 0 ? 0.6 : 0.85; // flatter underside
-        const px = cx + dir.x * radius * bump;
-        const py = cy + dir.y * radius * bump * yScale;
-        const pz = cz + dir.z * radius * bump;
+        const px = cx + dir.x * radius * core * bump;
+        const py = cy + dir.y * radius * core * bump * yScale;
+        const pz = cz + dir.z * radius * core * bump;
         cPos.setXYZ(j, px, py, pz);
 
         // Soft, slightly up-biased normals read as a leafy mass, not a facet
@@ -354,18 +290,18 @@ export function createProceduralTreeGeometry(
         const var01 = 0.5 + 0.5 * Math.sin(dir.x * 7 + dir.z * 5 + phase);
         tmpColor.copy(LEAF_DARK).lerp(LEAF_LIGHT, Math.min(1, hf * 0.75 + var01 * 0.25));
         tmpColor.lerp(LEAF_SHADE, (1 - hf) * 0.55 * (1.2 - outer));
-        tmpColor.multiplyScalar(tint);
+        tmpColor.multiplyScalar(tint * 0.82);
         cColors.push(tmpColor.r, tmpColor.g, tmpColor.b);
 
         cUv.setXY(j, cUv.getX(j) * 3, cUv.getY(j) * 3);
       }
       clump.setAttribute('color', new THREE.Float32BufferAttribute(cColors, 3));
-      geometries.push(clump);
+      clumps.push(clump);
 
       // Leaf cards scattered over the clump surface (upper-biased), each a
       // two-sided quad whose normals point out of the crown so both faces
       // shade like the foliage mass around them.
-      const cardCount = 9;
+      const cardCount = 20;
       const cardPos: number[] = [];
       const cardNrm: number[] = [];
       const cardCol: number[] = [];
@@ -376,8 +312,8 @@ export function createProceduralTreeGeometry(
       const rv = new THREE.Vector3();
       for (let k = 0; k < cardCount; k++) {
         dir.set(rnd() * 2 - 1, rnd() * 1.4 - 0.3, rnd() * 2 - 1).normalize();
-        const centre = new THREE.Vector3(cx, cy, cz).addScaledVector(dir, radius * (0.75 + rnd() * 0.2));
-        const half = radius * (0.42 + rnd() * 0.2);
+        const centre = new THREE.Vector3(cx, cy, cz).addScaledVector(dir, radius * (0.6 + rnd() * 0.45));
+        const half = radius * (0.36 + rnd() * 0.24);
         rv.set(rnd() * 2 - 1, rnd() * 2 - 1, rnd() * 2 - 1).normalize();
         u.crossVectors(dir, rv).normalize();
         if (u.lengthSq() < 1e-6) u.set(1, 0, 0);
@@ -410,18 +346,27 @@ export function createProceduralTreeGeometry(
       cards.setAttribute('uv', new THREE.Float32BufferAttribute(cardUv, 2));
       cards.setIndex(cardIdx);
       leafCards.push(cards);
+      yield;
     }
   }
 
-  let solidIndexCount = 0;
-  for (const g of geometries) solidIndexCount += g.index ? g.index.count : g.attributes.position.count;
-  const merged = mergeBufferGeometriesCustom([...geometries, ...leafCards]);
+  // Groups: 0 = bark (trunk + limbs), 1 = crown clumps, 2 = leaf cards
+  const count = (list: THREE.BufferGeometry[]) => {
+    let n = 0;
+    for (const g of list) n += g.index ? g.index.count : g.attributes.position.count;
+    return n;
+  };
+  const barkCount = count(geometries);
+  const clumpCount = count(clumps);
+  const merged = mergeBufferGeometriesCustom([...geometries, ...clumps, ...leafCards]);
   for (const g of geometries) g.dispose();
+  for (const g of clumps) g.dispose();
   for (const g of leafCards) g.dispose();
   merged.clearGroups();
-  merged.addGroup(0, solidIndexCount, 0);
-  if (merged.index && merged.index.count > solidIndexCount) {
-    merged.addGroup(solidIndexCount, merged.index.count - solidIndexCount, 1);
+  merged.addGroup(0, barkCount, 0);
+  if (clumpCount > 0) merged.addGroup(barkCount, clumpCount, 1);
+  if (merged.index && merged.index.count > barkCount + clumpCount) {
+    merged.addGroup(barkCount + clumpCount, merged.index.count - barkCount - clumpCount, 2);
   }
   merged.computeBoundingSphere();
   merged.computeBoundingBox();
@@ -637,66 +582,17 @@ function mergeBufferGeometriesCustom(geometries: THREE.BufferGeometry[]): THREE.
 }
 
 /**
- * Shared Verdant Wilds terrain materials (physically based, natural albedos).
- * `noiseTexture` is null when no DOM is available.
- */
-export function createVerdantWildsMaterials() {
-  const noiseTexture = createVerdantNoiseTexture();
-
-  const forestFloorMaterial = new THREE.MeshStandardMaterial({
-    vertexColors: true,
-    roughness: 0.95,
-    metalness: 0.0,
-    flatShading: false,
-    map: noiseTexture,
-    roughnessMap: noiseTexture,
-  });
-
-  const treeMaterial = new THREE.MeshStandardMaterial({
-    vertexColors: true,
-    roughness: 0.9,
-    metalness: 0.0,
-    flatShading: false,
-    map: noiseTexture,
-  });
-
-  // Leaf cards: clusters of small leaves on transparent canvas, alpha-tested
-  const leafTexture = createLeafClusterTexture();
-  const leafCardMaterial = new THREE.MeshStandardMaterial({
-    color: 0xffffff,
-    vertexColors: true,
-    map: leafTexture,
-    alphaTest: 0.45,
-    roughness: 0.78,
-    metalness: 0.0,
-    side: THREE.FrontSide,
-    visible: !!leafTexture,
-  });
-
-  // Shallow forest water over a dark silty bed
-  const streamWaterMaterial = new THREE.MeshPhysicalMaterial({
-    color: 0x26332a,
-    roughness: 0.06,
-    metalness: 0.0,
-    ior: 1.33,
-    transparent: true,
-    opacity: 0.88,
-  });
-
-  return {
-    forestFloorMaterial,
-    treeMaterial,
-    leafCardMaterial,
-    leafTexture,
-    streamWaterMaterial,
-    noiseTexture,
-  };
-}
-
-/**
  * 256x256 RGBA sprite of overlapping broadleaf leaves (sRGB albedo, alpha
  * coverage) inside a ragged disc. Returns null without a DOM.
  */
+let leafTextureCache: THREE.CanvasTexture | null | undefined;
+export function getLeafClusterTexture(): THREE.CanvasTexture | null {
+  if (leafTextureCache !== undefined) return leafTextureCache;
+  if (typeof document === 'undefined') return null;
+  leafTextureCache = createLeafClusterTexture();
+  return leafTextureCache;
+}
+
 function createLeafClusterTexture(): THREE.CanvasTexture | null {
   if (typeof document === 'undefined') return null;
   const size = 256;

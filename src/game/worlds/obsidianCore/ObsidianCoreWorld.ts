@@ -5,137 +5,223 @@ import {
   createProceduralVolcanicRockGeometry,
   createVolcanicHighwayChunkGeometry,
   createLavaRiverGeometry,
-  createObsidianCoreMaterials,
+  getVolcanicLavaTexture,
+  buildVolcanicLavaTextureGen,
   OBSIDIAN_LAVA_EMISSIVE,
   volcanicGroundHeight,
 } from './ObsidianCoreTerrain';
 import { ObsidianCoreAtmosphere } from './ObsidianCoreAtmosphere';
-import { ObsidianCoreDecorations } from './ObsidianCoreDecorations';
+import { buildCitadelGeometries, buildBrazierGeometries, buildForgeArchGeometry, buildMagmaFallGeometries } from './ObsidianCoreDecorations';
 import { obsidianCoreConfig } from './obsidianCoreConfig';
-
-export interface ActiveVolcanicChunkItem {
-  id: string;
-  z: number;
-  meshes: THREE.Mesh[];
-  decorations: THREE.Object3D[];
-}
+import { StreamedWorld, StreamChunk, WarmTask } from '../shared/streamedWorld';
+import { InstancePool, trs } from '../shared/instancePool';
+import { createTerrainMaterial, TerrainMaterialHandle } from '../shared/terrainMaterial';
+import { applyStreamFade, getWorldFade } from '../shared/distanceFade';
+import { ENV_MODEL_HEIGHT, RockPools, applyEnvModels, createRockMaterials, createRockPools, rockTint } from '../shared/envRocks';
+import { EnvModelId, getLoadedTextureSet } from '../../../graphics/assetLibrary';
 
 /**
- * Horizontal extent (m, unscaled) of each rock archetype around its origin,
- * measured from the generated geometry (incl. column tilt). Used to keep rocks
- * clear of the road corridor (|x| < 6).
+ * Horizontal extent (m, unscaled) of each procedural archetype around its
+ * origin (incl. column tilt). Used to keep rocks clear of the road (|x| < 6).
  */
 const ROCK_EXTENT: Record<string, number> = {
   'obsidian-spire': 7.7,
   'basalt-cluster': 8.2,
-  'jagged-rock': 3.6,
 };
 const ROCK_MAX_SCALE = 1.2;
 /** Minimum |x| for big rocks: 6 + 8.2 * 1.2 = 15.84 -> 16.5 with margin. */
 const BIG_ROCK_MIN_X = 16.5;
+const CHUNK = 60;
+const ROCK_IDS: readonly EnvModelId[] = ['shard', 'block', 'boulder'];
+/** Lava glow cap (HDR); enough to bloom without blowing the frame out. */
+const LAVA_MAX = 2.5;
+
+interface ObsidianKit {
+  ground: THREE.BufferGeometry;
+  lavaRiver: THREE.BufferGeometry;
+  columns: THREE.BufferGeometry;
+  spire: THREE.BufferGeometry;
+  volcano: THREE.BufferGeometry;
+  citadel: { basalt: THREE.BufferGeometry; obsidian: THREE.BufferGeometry; molten: THREE.BufferGeometry };
+  brazier: { stone: THREE.BufferGeometry; coals: THREE.BufferGeometry };
+  forgeArch: THREE.BufferGeometry;
+  fall: { sheet: THREE.BufferGeometry; cliff: THREE.BufferGeometry };
+  groundMat: TerrainMaterialHandle;
+  basaltCols: TerrainMaterialHandle;
+  basalt: TerrainMaterialHandle;
+  volcanoMat: TerrainMaterialHandle;
+  rockMats: Map<EnvModelId, TerrainMaterialHandle>;
+  obsidianGlass: THREE.MeshPhysicalMaterial;
+  lava: THREE.MeshStandardMaterial;
+  coreLava: THREE.MeshStandardMaterial;
+  coals: THREE.MeshStandardMaterial;
+  fallLava: THREE.MeshStandardMaterial;
+  lavaTex: THREE.Texture | null;
+  coreTex: THREE.Texture | null;
+  fallTex: THREE.Texture | null;
+}
+const K: Partial<ObsidianKit> = {};
+
+const ASH = { tile: 6, tint: 0x8c827c, normalScale: 1.0, roughness: [0.82, 1.0] as [number, number], fallback: 0x45413d };
+const BASALT = { tile: 7, tint: 0x8a8582, normalScale: 1.2, roughness: [0.55, 0.95] as [number, number], fallback: 0x302d2b };
+const LAVA = { color: 0xff5a1a, intensity: 2.2 };
+
+const KIT_STEPS: WarmTask[] = [
+  buildVolcanicLavaTextureGen,
+  () => {
+    K.ground ??= createVolcanicHighwayChunkGeometry(140, CHUNK, 14, 24, 999);
+    K.lavaRiver ??= createLavaRiverGeometry(CHUNK, 8);
+  },
+  () => {
+    if (K.columns) return;
+    const get = (id: string) => createProceduralVolcanicRockGeometry(VOLCANIC_ARCHETYPES.find((a) => a.id === id)!, 888);
+    K.columns = get('basalt-cluster');
+    K.spire = get('obsidian-spire');
+    K.volcano = get('caldera-peak');
+  },
+  () => {
+    K.citadel ??= buildCitadelGeometries();
+    K.brazier ??= buildBrazierGeometries();
+    K.forgeArch ??= buildForgeArchGeometry();
+    K.fall ??= buildMagmaFallGeometries(17.0, 5.0);
+  },
+  () => {
+    if (K.groundMat) return;
+    const fade = getWorldFade('obsidian-core');
+    K.groundMat = createTerrainMaterial({
+      name: 'obsidian-ground',
+      ground: ASH,
+      rock: BASALT,
+      slope: [0.8, 0.93],
+      vertexColors: true,
+      vcRef: 0x3a3633,
+      vcRefRock: 0x343130,
+      vcKeep: 0.5,
+      lava: LAVA,
+      fade,
+    });
+    K.basaltCols = createTerrainMaterial({ name: 'obsidian-basalt-columns', rock: BASALT, flatShading: true, lava: LAVA, macro: 0.12, fade });
+    K.basalt = createTerrainMaterial({ name: 'obsidian-basalt', rock: { ...BASALT, tile: 5 }, lava: LAVA, macro: 0.12, fade });
+    K.volcanoMat = createTerrainMaterial({
+      name: 'obsidian-volcano',
+      ground: { ...ASH, tile: 20 },
+      rock: { ...BASALT, tile: 26 },
+      slope: [0.55, 0.8],
+      vertexColors: true,
+      vcLuma: true,
+      vcRef: 0x4a4744,
+      vcRefRock: 0x2b2a2a,
+      vcKeep: 0.5,
+      band: 'far',
+      fade,
+    });
+    K.rockMats = createRockMaterials('obsidian', ROCK_IDS, {
+      ground: ASH,
+      rock: { ...BASALT, tile: 4, normalScale: 0.7 },
+      slope: [0.82, 0.95],
+      lava: LAVA,
+      fade,
+    });
+    // Volcanic glass: near-black body that reads through glossy reflections
+    K.obsidianGlass = applyStreamFade(
+      new THREE.MeshPhysicalMaterial({
+        vertexColors: true,
+        roughness: 0.14,
+        metalness: 0,
+        flatShading: true,
+        clearcoat: 1,
+        clearcoatRoughness: 0.05,
+        ior: 1.49,
+        envMapIntensity: 1.8,
+      }),
+      fade
+    );
+    const lavaTex = getVolcanicLavaTexture();
+    K.lavaTex = lavaTex;
+    K.coreTex = lavaTex ? lavaTex.clone() : null;
+    if (K.coreTex) K.coreTex.repeat.set(0.5, 0.5);
+    K.fallTex = lavaTex ? lavaTex.clone() : null;
+    if (K.fallTex) K.fallTex.repeat.set(0.6, 1.4);
+    const lavaMat = (tex: THREE.Texture | null, emissive: number, intensity: number, side: THREE.Side = THREE.FrontSide) =>
+      applyStreamFade(
+        new THREE.MeshStandardMaterial({
+          color: 0x2a0a00,
+          emissive,
+          emissiveIntensity: Math.min(LAVA_MAX, tex ? intensity : 1.6),
+          emissiveMap: tex,
+          roughness: 0.6,
+          metalness: 0,
+          side,
+        }),
+        fade
+      );
+    K.lava = lavaMat(lavaTex, 0xff4a10, OBSIDIAN_LAVA_EMISSIVE);
+    K.coreLava = lavaMat(K.coreTex, 0xff4a10, 2.2);
+    K.coals = lavaMat(K.coreTex, 0xff7a20, 2.4);
+    K.fallLava = lavaMat(K.fallTex, 0xff5a14, 2.2, THREE.DoubleSide);
+  },
+];
 
 /**
- * ObsidianCoreWorld coordinates:
- * - Ash / basalt ground bed under the highway with lava channels either side
- * - Basalt column clusters, obsidian shards and crags beyond the channels
- * - Distant ash-covered volcanoes and a basalt citadel on the ridge
- * - Rising embers, falling ash, high smoke layers
- * - Roadside fire bowls, lava falls and stone forge arches over the road
- * - Chunk-based streaming & Graphics quality presets
+ * ObsidianCoreWorld: scanned ash ground and dark basalt (triplanar) with lava
+ * glowing in the crevices, molten channels either side of the road, basalt
+ * column clusters, obsidian glass spires, scanned volcanic boulders, distant
+ * ash volcanoes, a basalt citadel, fire bowls, lava falls and rare forge
+ * arches. Repeated scenery is instanced and recycled.
  */
-export class ObsidianCoreWorld {
-  public scene: THREE.Scene;
-  public group: THREE.Group;
+export class ObsidianCoreWorld extends StreamedWorld {
   public config = obsidianCoreConfig;
+  public atmosphere: ObsidianCoreAtmosphere | null = null;
+  protected readonly chunkLength = CHUNK;
 
-  // Subsystems
-  public atmosphere: ObsidianCoreAtmosphere;
-  public decorations: ObsidianCoreDecorations;
-
-  // Geometries & Materials Cache
-  private rockGeoms: Map<string, THREE.BufferGeometry> = new Map();
-  private highwayChunkGeom: THREE.BufferGeometry | null = null;
-  private lavaRiverGeom: THREE.BufferGeometry | null = null;
-  private materials: ReturnType<typeof createObsidianCoreMaterials>;
-
-  // Streamed Chunks
-  private activeChunks: ActiveVolcanicChunkItem[] = [];
-  private lastChunkZ = -999;
-  private activeBands: Set<number> = new Set();
+  private groundPool: InstancePool | null = null;
+  private lavaPool: InstancePool | null = null;
+  private columnsNear: InstancePool | null = null;
+  private columnsFar: InstancePool | null = null;
+  private spirePool: InstancePool | null = null;
+  private volcanoPool: InstancePool | null = null;
+  private brazierStone: InstancePool | null = null;
+  private brazierCoals: InstancePool | null = null;
+  private rockPools: RockPools | null = null;
 
   constructor(scene: THREE.Scene, graphicsConfig: GraphicsConfig) {
-    this.scene = scene;
-    this.group = new THREE.Group();
-    this.group.name = 'ObsidianCoreWorldRootGroup';
-    this.scene.add(this.group);
-
-    this.materials = createObsidianCoreMaterials();
-    this.initGeometries();
-
-    this.atmosphere = new ObsidianCoreAtmosphere(this.scene, graphicsConfig);
-    this.decorations = new ObsidianCoreDecorations(this.scene);
+    super(scene, graphicsConfig, 'obsidian-core', 'ObsidianCoreWorldRootGroup');
   }
 
-  private initGeometries(): void {
-    // 1. Volcanic Rock Archetypes
-    for (const arch of VOLCANIC_ARCHETYPES) {
-      const geom = createProceduralVolcanicRockGeometry(arch, 888);
-      this.rockGeoms.set(arch.id, geom);
-    }
-
-    // 2. Ground bed (60 m long, 140 m wide) and lava channel surfaces
-    this.highwayChunkGeom = createVolcanicHighwayChunkGeometry(140, 60, 14, 24, 999);
-    this.lavaRiverGeom = createLavaRiverGeometry(60, 8);
+  protected warmTasks(): WarmTask[] {
+    return [
+      ...KIT_STEPS,
+      () => {
+        this.atmosphere = new ObsidianCoreAtmosphere(this.group, this.graphicsConfig);
+        this.atmosphere.group.visible = false;
+      },
+    ];
   }
 
-  public update(playerZ: number, dt: number, time: number, graphicsConfig: GraphicsConfig): void {
-    const chunkZ = Math.floor(playerZ / 60);
-
-    if (chunkZ !== this.lastChunkZ) {
-      this.lastChunkZ = chunkZ;
-      this.streamChunks(playerZ, graphicsConfig);
-    }
-
-    // Slow lava flow + breathing heat
-    const lava = this.materials.moltenLavaMaterial;
-    const base = this.materials.lavaTexture ? OBSIDIAN_LAVA_EMISSIVE : 1.6;
-    lava.emissiveIntensity = base * (1 + Math.sin(time * 0.6) * 0.09 + Math.sin(time * 2.3) * 0.03);
-    if (this.materials.lavaTexture) {
-      this.materials.lavaTexture.offset.y = (time * 0.012) % 1;
-    }
-
-    this.atmosphere.update(dt, playerZ, time);
-    this.decorations.update(time);
+  protected onKitReady(): void {
+    const k = K as ObsidianKit;
+    this.groundPool = this.addPool(new InstancePool('obsidian-ground', k.ground, k.groundMat.material, 16));
+    this.lavaPool = this.addPool(new InstancePool('obsidian-lava', k.lavaRiver, k.lava, 16));
+    this.columnsNear = this.addPool(new InstancePool('obsidian-columns-near', k.columns, k.basaltCols.material, 48, { castShadow: true }));
+    this.columnsFar = this.addPool(new InstancePool('obsidian-columns-far', k.columns, k.basaltCols.material, 48));
+    this.spirePool = this.addPool(new InstancePool('obsidian-spires', k.spire, k.obsidianGlass, 32));
+    this.volcanoPool = this.addPool(new InstancePool('obsidian-volcanoes', k.volcano, k.volcanoMat.material, 12));
+    this.brazierStone = this.addPool(new InstancePool('obsidian-brazier', k.brazier.stone, k.basalt.material, 16, { castShadow: true }));
+    this.brazierCoals = this.addPool(new InstancePool('obsidian-coals', k.brazier.coals, k.coals, 16));
+    this.rockPools = createRockPools('obsidian', ROCK_IDS, k.rockMats, 48, 32);
+    for (const p of this.rockPools.near.values()) this.addPool(p);
+    for (const p of this.rockPools.far.values()) this.addPool(p);
   }
 
-  private streamChunks(playerZ: number, graphicsConfig: GraphicsConfig): void {
-    const cullBehindZ = playerZ - 100;
-    const cullAheadZ = playerZ + 460;
-
-    // 1. Cull old chunks
-    for (let i = this.activeChunks.length - 1; i >= 0; i--) {
-      const item = this.activeChunks[i];
-      if (item.z < cullBehindZ || item.z > cullAheadZ) {
-        for (const m of item.meshes) {
-          this.group.remove(m);
-        }
-        for (const d of item.decorations) {
-          this.decorations.removeObject(d);
-        }
-        this.activeChunks.splice(i, 1);
-      }
+  protected applyScannedAssets(): void {
+    const k = K as ObsidianKit;
+    const ground = getLoadedTextureSet('obsidian-core/ground');
+    const rock = getLoadedTextureSet('obsidian-core/rock');
+    for (const h of [k.groundMat, k.basaltCols, k.basalt, k.volcanoMat, ...k.rockMats.values()]) {
+      h.setGround(ground);
+      h.setRock(rock);
     }
-
-    // 2. Generate chunks ahead
-    this.activeBands.clear();
-    for (const c of this.activeChunks) this.activeBands.add(Math.round(c.z / 60));
-    const firstBand = Math.floor(playerZ / 60);
-    for (let k = 1; k <= 6; k++) {
-      const band = firstBand + k;
-      if (!this.activeBands.has(band)) {
-        this.spawnChunk(band * 60, graphicsConfig);
-      }
-    }
+    if (this.rockPools) applyEnvModels(this.rockPools, k.rockMats);
   }
 
   /** Lowest ground height across a footprint so rocks never float on slopes. */
@@ -149,199 +235,178 @@ export class ObsidianCoreWorld {
     );
   }
 
-  private spawnChunk(centerZ: number, graphicsConfig: GraphicsConfig): void {
+  protected spawnChunk(chunk: StreamChunk): void {
+    const k = K as ObsidianKit;
+    const centerZ = chunk.centerZ;
     const seed = Math.abs(centerZ) * 67 + 91;
     const rnd = (offset = 0) => {
       const x = Math.sin(seed + offset) * 10000;
       return x - Math.floor(x);
     };
-    const shadows = graphicsConfig.enableShadows;
+    const preset = this.preset;
 
-    const spawnedMeshes: THREE.Mesh[] = [];
-    const spawnedDecs: THREE.Object3D[] = [];
+    // 1. Ground bed + lava channels (flat y = -0.06 under the road slab)
+    this.place(chunk, this.groundPool, trs(0, 0, centerZ, 0, 1));
+    this.place(chunk, this.lavaPool, trs(0, 0, centerZ, 0, 1));
 
-    // 1. Ground bed (flat y = -0.06 under the road slab) + lava channels
-    if (this.highwayChunkGeom) {
-      const ground = new THREE.Mesh(this.highwayChunkGeom, this.materials.obsidianGroundMaterial);
-      ground.position.set(0, 0, centerZ);
-      ground.receiveShadow = shadows;
-      this.group.add(ground);
-      spawnedMeshes.push(ground);
-    }
-    if (this.lavaRiverGeom) {
-      const lava = new THREE.Mesh(this.lavaRiverGeom, this.materials.moltenLavaMaterial);
-      lava.position.set(0, 0, centerZ);
-      lava.receiveShadow = shadows;
-      this.group.add(lava);
-      spawnedMeshes.push(lava);
-    }
-
-    // 2. Basalt clusters, obsidian shards and crags: |x| in [16.5, 40]
-    //    (max extent 8.2 m * 1.2 scale => nearest surface |x| >= 6.66)
-    let rockDensity = 5;
-    if (graphicsConfig.preset === 'mobile-opt') rockDensity = 3;
-    if (graphicsConfig.preset === 'webgl-min') rockDensity = 2;
-
+    // 2. Basalt column clusters and obsidian spires: |x| in [16.5, 40]
+    let rockDensity = 4;
+    if (preset === 'mobile-opt') rockDensity = 3;
+    if (preset === 'webgl-min') rockDensity = 2;
     for (let r = 0; r < rockDensity; r++) {
       const side = r % 2 === 0 ? -1 : 1;
       const posX = side * (BIG_ROCK_MIN_X + rnd(r * 4 + 1) * 23.5);
       const posZ = centerZ + (rnd(r * 4 + 2) - 0.5) * 50.0;
+      const spire = rnd(r * 4 + 3) > 0.72;
+      const archId = spire ? 'obsidian-spire' : 'basalt-cluster';
+      const scale = 0.85 + rnd(r * 4 + 5) * (ROCK_MAX_SCALE - 0.85);
+      const reach = (ROCK_EXTENT[archId] ?? 8.2) * scale * 0.6;
+      if (!this.inRange(posZ, reach)) continue;
+      const m = trs(posX, this.footprintBaseY(posX, posZ, reach) - 0.6, posZ, rnd(r * 4 + 4) * Math.PI * 2, scale);
+      if (spire) this.place(chunk, this.spirePool, m);
+      else this.place(chunk, Math.abs(posX) < 32 ? this.columnsNear : this.columnsFar, m);
+    }
 
-      const pick = rnd(r * 4 + 3);
-      let archId = 'basalt-cluster';
-      if (pick > 0.7) archId = 'obsidian-spire';
-      else if (pick < 0.3) archId = 'jagged-rock';
-
-      const geom = this.rockGeoms.get(archId);
-      if (geom) {
-        const isObsidian = archId === 'obsidian-spire';
-        const rockMesh = new THREE.Mesh(
-          geom,
-          isObsidian ? this.materials.obsidianGlassMaterial : this.materials.volcanicRockMaterial
+    // 2b. Scanned volcanic boulders: on the ash shoulder (|x| 7.5..9.5, small)
+    //     and out on the ridges (large)
+    if (this.rockPools) {
+      const near = preset === 'webgl-min' ? 1 : preset === 'mobile-opt' ? 2 : 3;
+      for (let d = 0; d < near; d++) {
+        const id: EnvModelId = rnd(40 + d * 3) > 0.5 ? 'block' : 'shard';
+        const side = rnd(41 + d * 3) > 0.5 ? 1 : -1;
+        const s = 0.35 + rnd(42 + d * 3) * 0.45;
+        const dx = side * (7.6 + s + rnd(43 + d * 3) * 1.2);
+        const dz = centerZ + (rnd(44 + d * 7) - 0.5) * 56.0;
+        if (!this.inRange(dz, s)) continue;
+        this.place(
+          chunk,
+          this.rockPools.near.get(id) ?? null,
+          trs(dx, this.footprintBaseY(dx, dz, s) - ENV_MODEL_HEIGHT[id] * s * 0.2, dz, rnd(45 + d) * 6.28, s, s, s, (rnd(46 + d) - 0.5) * 0.2),
+          rockTint(rnd(47 + d))
         );
-        const scale = 0.85 + rnd(r * 4 + 5) * (ROCK_MAX_SCALE - 0.85);
-        const reach = (ROCK_EXTENT[archId] ?? 8.2) * scale * 0.6;
-        rockMesh.position.set(posX, this.footprintBaseY(posX, posZ, reach) - 0.6, posZ);
-        rockMesh.rotation.y = rnd(r * 4 + 4) * Math.PI * 2;
-        rockMesh.scale.set(scale, scale, scale);
-        rockMesh.castShadow = shadows && Math.abs(posX) < 32;
-        rockMesh.receiveShadow = shadows;
-        this.group.add(rockMesh);
-        spawnedMeshes.push(rockMesh);
+      }
+      const far = preset === 'desktop-full' ? 3 : 1;
+      for (let d = 0; d < far; d++) {
+        const id = ROCK_IDS[Math.floor(rnd(50 + d) * ROCK_IDS.length) % ROCK_IDS.length];
+        const side = rnd(51 + d) > 0.5 ? 1 : -1;
+        const s = 2.5 + rnd(52 + d) * 5.5;
+        const x = side * (22 + s + rnd(53 + d) * 40);
+        const z = centerZ + (rnd(54 + d) - 0.5) * 56;
+        if (!this.inRange(z, s)) continue;
+        const pools = Math.abs(x) < 34 ? this.rockPools.near : this.rockPools.far;
+        this.place(
+          chunk,
+          pools.get(id) ?? null,
+          trs(x, this.footprintBaseY(x, z, s) - ENV_MODEL_HEIGHT[id] * s * 0.25, z, rnd(55 + d) * 6.28, s, s * (id === 'shard' ? 1.6 : 1), s),
+          rockTint(rnd(56 + d), 0.1)
+        );
       }
     }
 
-    // 2b. Small scoria boulders on the ash shoulder: |x| in [8.0, 9.8], scale <= 0.22
-    //     (extent 3.6 * 0.22 * 1.3 = 1.03 m + <= 0.4 m tilt lean => nearest surface |x| >= 6.5)
-    let debrisCount = 3;
-    if (graphicsConfig.preset === 'mobile-opt') debrisCount = 1;
-    if (graphicsConfig.preset === 'webgl-min') debrisCount = 0;
-    const crag = this.rockGeoms.get('jagged-rock');
-    if (crag) {
-      for (let d = 0; d < debrisCount; d++) {
-        const side = rnd(40 + d * 3) > 0.5 ? 1 : -1;
-        const s = 0.12 + rnd(41 + d * 3) * 0.1;
-        const dx = side * (8.0 + rnd(42 + d * 3) * 1.8);
-        const dz = centerZ + (rnd(43 + d * 7) - 0.5) * 56.0;
-        const boulder = new THREE.Mesh(crag, this.materials.volcanicRockMaterial);
-        boulder.position.set(dx, this.footprintBaseY(dx, dz, 0.6) - 0.15, dz);
-        boulder.rotation.set(rnd(44 + d) * 0.15, rnd(45 + d) * Math.PI * 2, rnd(46 + d) * 0.15);
-        boulder.scale.set(s * 1.3, s, s * 1.1);
-        boulder.castShadow = shadows;
-        boulder.receiveShadow = shadows;
-        this.group.add(boulder);
-        spawnedMeshes.push(boulder);
-      }
+    // 3. Distant ash volcano (|x| >= 130, far fade band)
+    if (preset !== 'webgl-min' && rnd(10) > 0.5) {
+      const vX = (rnd(11) > 0.5 ? 1 : -1) * (130.0 + rnd(12) * 60.0);
+      const vZ = centerZ + 180.0 + rnd(13) * 100.0;
+      if (this.inRange(vZ, 45 * 1.4)) this.place(chunk, this.volcanoPool, trs(vX, -6.0, vZ, rnd(23) * Math.PI * 2, 1.4));
     }
 
-    // 3. Towering Horizon Caldera Volcano (distant flank/horizon, |x| >= 130)
-    if (graphicsConfig.preset !== 'webgl-min' && rnd(10) > 0.5) {
-      const cGeom = this.rockGeoms.get('caldera-peak');
-      if (cGeom) {
-        const volcano = new THREE.Mesh(cGeom, this.materials.ashSlopeMaterial);
-        const sideSign = rnd(11) > 0.5 ? 1 : -1;
-        const vX = sideSign * (130.0 + rnd(12) * 60.0);
-        const vZ = centerZ + 180.0 + rnd(13) * 100.0;
-        volcano.position.set(vX, -6.0, vZ);
-        volcano.rotation.y = rnd(23) * Math.PI * 2;
-        volcano.scale.set(1.4, 1.4, 1.4);
-        this.group.add(volcano);
-        spawnedMeshes.push(volcano);
-      }
-    }
-
-    // 4. Basalt citadel on the ridge, to one side: |x| in [32, 52], gate facing the road.
-    //    Rotated footprint half-depth 9.9 m (18 * 1.1 / 2) => nearest wall |x| >= 22.1.
-    if (rnd(14) > 0.68) {
+    // 4. Basalt citadel on the ridge (|x| in [32, 52], gate facing the road),
+    //    else a rare forge arch over the road
+    if (rnd(14) > 0.7 && this.inRange(centerZ + 16, 12)) {
       const cSide = rnd(21) > 0.5 ? 1 : -1;
       const cx = cSide * (32 + rnd(22) * 20);
       const cz = centerZ + 16;
-      const citadel = this.decorations.spawnCitadel(
-        new THREE.Vector3(cx, this.footprintBaseY(cx, cz, 10) - 1.0, cz),
-        1.1
-      );
-      citadel.rotation.y = -cSide * Math.PI * 0.5;
-      spawnedDecs.push(citadel);
-    } else if (rnd(15) > 0.45) {
-      // Stone forge arch spanning the highway: pillar inner faces at |x| = 6.4,
-      // lintel underside at y = 10.4
-      const arch = this.decorations.spawnForgeArch(
-        new THREE.Vector3(0, 0, centerZ + 10),
-        1.0
-      );
-      spawnedDecs.push(arch);
+      this.addObject(chunk, this.makeCitadel(cx, this.footprintBaseY(cx, cz, 10) - 1.0, cz, -cSide * Math.PI * 0.5));
+    } else if (rnd(15) > 0.85 && this.canSpanRoad(centerZ + 10)) {
+      const arch = new THREE.Mesh(k.forgeArch, k.basalt.material);
+      arch.position.set(0, 0, centerZ + 10);
+      arch.castShadow = true;
+      arch.receiveShadow = true;
+      this.addObject(chunk, arch);
     }
 
-    // 5. Roadside fire bowls on the ash shoulder (|x| = 8.2, bowl radius 1.4 => >= 6.8)
-    if (graphicsConfig.preset !== 'webgl-min' && rnd(16) > 0.35) {
+    // 5. Roadside fire bowls on the ash shoulder (|x| = 8.2, bowl radius 1.4)
+    if (preset !== 'webgl-min' && rnd(16) > 0.35) {
       const bSide = rnd(17) > 0.5 ? 1 : -1;
       const bx = bSide * 8.2;
       const bz = centerZ + (rnd(18) - 0.5) * 15;
-      const brazier = this.decorations.spawnBrazier(
-        new THREE.Vector3(bx, volcanicGroundHeight(bx, bz) - 0.1, bz),
-        1.0
-      );
-      spawnedDecs.push(brazier);
+      if (this.inRange(bz, 2)) {
+        const m = trs(bx, volcanicGroundHeight(bx, bz) - 0.1, bz, rnd(19) * 6.28, 1);
+        this.place(chunk, this.brazierStone, m);
+        this.place(chunk, this.brazierCoals, m);
+      }
     }
 
     // 6. Lava falls pouring off a basalt cliff into the far side of the channel (|x| >= 17.3)
-    if (graphicsConfig.preset === 'desktop-full' && rnd(19) > 0.5) {
+    if (preset === 'desktop-full' && rnd(19) > 0.5) {
       const fSide = rnd(20) > 0.5 ? 1 : -1;
-      const fall = this.decorations.createMagmaFall(
-        new THREE.Vector3(fSide * 17.4, -1.5, centerZ + (rnd(24) - 0.5) * 30),
-        17.0,
-        5.0
-      );
-      spawnedDecs.push(fall);
+      const fz = centerZ + (rnd(24) - 0.5) * 30;
+      if (this.inRange(fz, 5)) {
+        const sheet = new THREE.Mesh(k.fall.sheet, k.fallLava);
+        sheet.position.set(fSide * 17.4, -1.5, fz);
+        sheet.rotation.y = -fSide * Math.PI * 0.5; // sheet front faces the road
+        const cliff = new THREE.Mesh(k.fall.cliff, k.basalt.material);
+        cliff.castShadow = true;
+        cliff.receiveShadow = true;
+        sheet.add(cliff);
+        this.addObject(chunk, sheet);
+      }
     }
-
-    this.activeChunks.push({
-      id: `obsidian-chunk-${centerZ}`,
-      z: centerZ,
-      meshes: spawnedMeshes,
-      decorations: spawnedDecs,
-    });
   }
 
-  public dispose(): void {
-    this.scene.remove(this.group);
+  private makeCitadel(x: number, y: number, z: number, rotY: number): THREE.Group {
+    const k = K as ObsidianKit;
+    const g = new THREE.Group();
+    g.position.set(x, y, z);
+    g.rotation.y = rotY;
+    g.scale.setScalar(1.1);
+    const add = (geo: THREE.BufferGeometry, mat: THREE.Material, shadow: boolean) => {
+      const m = new THREE.Mesh(geo, mat);
+      m.castShadow = shadow;
+      m.receiveShadow = true;
+      g.add(m);
+    };
+    add(k.citadel.basalt, k.basalt.material, true);
+    add(k.citadel.obsidian, k.obsidianGlass, true);
+    add(k.citadel.molten, k.coreLava, false);
+    return g;
+  }
 
-    for (const chunk of this.activeChunks) {
-      for (const m of chunk.meshes) {
-        this.group.remove(m);
-      }
-      for (const d of chunk.decorations) {
-        this.decorations.removeObject(d);
-      }
+  protected animate(playerZ: number, dt: number, time: number): void {
+    const k = K as ObsidianKit;
+    // Slow breathing heat on every lava surface (kept <= 2.5)
+    const breath = 1 + Math.sin(time * 0.6) * 0.09 + Math.sin(time * 2.3) * 0.03;
+    for (const h of [k.groundMat, k.basaltCols, k.basalt, k.volcanoMat]) {
+      h.tick(dt);
+      h.lavaPulse.value = breath;
     }
-    this.activeChunks = [];
-
-    // Dispose cached geometries
-    for (const geom of this.rockGeoms.values()) {
-      geom.dispose();
+    for (const h of k.rockMats.values()) {
+      h.tick(dt);
+      h.lavaPulse.value = breath;
     }
-    this.rockGeoms.clear();
-
-    if (this.highwayChunkGeom) {
-      this.highwayChunkGeom.dispose();
-      this.highwayChunkGeom = null;
+    k.lava.emissiveIntensity = Math.min(LAVA_MAX, (k.lavaTex ? OBSIDIAN_LAVA_EMISSIVE : 1.6) * breath);
+    k.coreLava.emissiveIntensity = Math.min(LAVA_MAX, 2.1 + Math.sin(time * 1.5) * 0.25);
+    k.coals.emissiveIntensity = Math.min(LAVA_MAX, 2.2 + Math.sin(time * 9.0) * 0.18 + Math.sin(time * 13.7 + 1.3) * 0.1);
+    if (k.lavaTex) k.lavaTex.offset.y = (time * 0.012) % 1;
+    if (k.fallTex) k.fallTex.offset.y = (time * 0.35) % 1;
+    if (this.atmosphere) {
+      const on = this.playerInRange(playerZ);
+      this.atmosphere.group.visible = on;
+      if (on) this.atmosphere.update(dt, playerZ, time);
     }
-    if (this.lavaRiverGeom) {
-      this.lavaRiverGeom.dispose();
-      this.lavaRiverGeom = null;
-    }
+  }
 
-    // Dispose materials & textures
-    this.materials.obsidianGroundMaterial.dispose();
-    this.materials.volcanicRockMaterial.dispose();
-    this.materials.obsidianGlassMaterial.dispose();
-    this.materials.ashSlopeMaterial.dispose();
-    this.materials.moltenLavaMaterial.dispose();
-    this.materials.citadelIronMaterial.dispose();
-    if (this.materials.noiseTexture) this.materials.noiseTexture.dispose();
-    if (this.materials.lavaTexture) this.materials.lavaTexture.dispose();
-
-    this.atmosphere.dispose();
-    this.decorations.dispose();
+  protected disposeWorld(): void {
+    this.atmosphere?.dispose();
+    this.atmosphere = null;
+    this.groundPool = null;
+    this.lavaPool = null;
+    this.columnsNear = null;
+    this.columnsFar = null;
+    this.spirePool = null;
+    this.volcanoPool = null;
+    this.brazierStone = null;
+    this.brazierCoals = null;
+    this.rockPools = null;
   }
 }

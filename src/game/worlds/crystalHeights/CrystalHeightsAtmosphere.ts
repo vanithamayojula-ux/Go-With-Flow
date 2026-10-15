@@ -28,7 +28,7 @@ function createGlintSprite(): THREE.Texture | null {
  */
 export class CrystalHeightsAtmosphere {
   public group: THREE.Group;
-  private scene: THREE.Scene;
+  private scene: THREE.Object3D;
 
   // Diamond dust / drifting snow glints
   private motePoints: THREE.Points | null = null;
@@ -38,7 +38,7 @@ export class CrystalHeightsAtmosphere {
   private moteBaseData: { phase: number; speed: number; radius: number }[] = [];
   private moteSprite: THREE.Texture | null = null;
 
-  constructor(scene: THREE.Scene, graphicsConfig: GraphicsConfig) {
+  constructor(scene: THREE.Object3D, graphicsConfig: GraphicsConfig) {
     this.scene = scene;
     this.group = new THREE.Group();
     this.group.name = 'CrystalHeightsAtmosphereGroup';
