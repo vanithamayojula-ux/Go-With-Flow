@@ -8,7 +8,7 @@
       "destination": "/hero-lab.html"
     },
     {
-      "source": "/((?!assets|models|hero-lab\\.html|hero-previews|favicon\\.ico|[^/]+\\.(glb|png|jpg|jpeg|webp|svg|mp3|wav|woff2?)).*)",
+      "source": "/((?!assets|models|hero-lab.html|hero-previews|favicon.ico|player_sprite.jpg|model.*|obstacle.*).*)",
       "destination": "/index.html"
     }
   ]
