@@ -16,26 +16,16 @@ import {
   RAIL_X,
   DIVIDER_X,
 } from './trackConfig';
+import { WORLDS, WORLD_ORDER, WORLD_LENGTH_DISTANCE } from './worlds';
 
 export const CHUNK_SIZE = 80;
 export const CHUNK_SEGMENTS = 24;
 
-const BIOME_ROTATION: BiomeType[] = [
-  'neon-undercity',
-  'dune-nomad',
-  'aurora-frost',
-  'bioluminescent-jungle',
-  'ember-core',
-  'nebula-drift',
-  'sky-realm',
-  'quantum-desert',
-  'cyber-forest',
-  'orbital-ring',
-  'the-grid',
-  'volcanic-forge',
-  'crystal-glacier',
-  'derelict-station',
-];
+/** Index into WORLD_ORDER of the campaign world covering distance z. */
+export function getWorldIndexAt(z: number): number {
+  const rawIndex = Math.floor(Math.max(0, z) / WORLD_LENGTH_DISTANCE);
+  return Math.min(rawIndex, WORLD_ORDER.length - 1);
+}
 
 let activeBiomeOverride: BiomeType | null = null;
 let biomeOverrideEndZ = -1;
@@ -76,9 +66,9 @@ export function getBiomeAt(z: number): BiomeType {
       return activeBiomeOverride;
     }
   }
-  const distancePerBiome = 450;
-  const cycleIndex = Math.floor(Math.max(0, z) / distancePerBiome);
-  return BIOME_ROTATION[cycleIndex % BIOME_ROTATION.length];
+  // Legacy roadside biome follows the campaign world, so it changes only at
+  // the world portals (one per WORLD_LENGTH_DISTANCE boundary).
+  return WORLDS[WORLD_ORDER[getWorldIndexAt(z)]].compatibleBiomes[0];
 }
 
 export function getBiomeFriction(biome: BiomeType): number {
@@ -847,34 +837,34 @@ export class TerrainManager {
 
     // Near Band (x = +-11..16, height 45..75) - clear 6+ unit gap from rail (4.5)
     const hL_near = 48 + Math.abs(cz * 13) % 28;
-    const bL_near = this.createGroundedStructure(-12.5, baseRoadY, zCenter - 18, 14, hL_near, 20, 'left', biome, Math.abs(cz) % 4);
+    const bL_near = this.createGroundedStructure(-12.5, baseRoadY, zCenter - 18, 14, hL_near, 20, 'left', getBiomeAt(zCenter - 18), Math.abs(cz) % 4);
     this.scene.add(bL_near);
     decorations.push(bL_near);
 
     const hR_near = 52 + Math.abs(cz * 17) % 26;
-    const bR_near = this.createGroundedStructure(12.5, baseRoadY, zCenter + 16, 14, hR_near, 20, 'right', biome, (Math.abs(cz) + 2) % 4);
+    const bR_near = this.createGroundedStructure(12.5, baseRoadY, zCenter + 16, 14, hR_near, 20, 'right', getBiomeAt(zCenter + 16), (Math.abs(cz) + 2) % 4);
     this.scene.add(bR_near);
     decorations.push(bR_near);
 
     // Mid Band (x = +-28..38, height 75..120)
     const hL_mid = 82 + Math.abs(cz * 23) % 38;
-    const bL_mid = this.createGroundedStructure(-30, baseRoadY, zCenter + 14, 20, hL_mid, 26, 'left', biome);
+    const bL_mid = this.createGroundedStructure(-30, baseRoadY, zCenter + 14, 20, hL_mid, 26, 'left', getBiomeAt(zCenter + 14));
     this.scene.add(bL_mid);
     decorations.push(bL_mid);
 
     const hR_mid = 86 + Math.abs(cz * 29) % 36;
-    const bR_mid = this.createGroundedStructure(30, baseRoadY, zCenter - 14, 20, hR_mid, 26, 'right', biome);
+    const bR_mid = this.createGroundedStructure(30, baseRoadY, zCenter - 14, 20, hR_mid, 26, 'right', getBiomeAt(zCenter - 14));
     this.scene.add(bR_mid);
     decorations.push(bR_mid);
 
     // Far Band (x = +-60..85, height 120..190)
     const hL_far = 135 + Math.abs(cz * 37) % 55;
-    const bL_far = this.createGroundedStructure(-65, baseRoadY, zCenter - 4, 32, hL_far, 40, 'left', biome);
+    const bL_far = this.createGroundedStructure(-65, baseRoadY, zCenter - 4, 32, hL_far, 40, 'left', getBiomeAt(zCenter - 4));
     this.scene.add(bL_far);
     decorations.push(bL_far);
 
     const hR_far = 140 + Math.abs(cz * 41) % 50;
-    const bR_far = this.createGroundedStructure(65, baseRoadY, zCenter + 6, 32, hR_far, 40, 'right', biome);
+    const bR_far = this.createGroundedStructure(65, baseRoadY, zCenter + 6, 32, hR_far, 40, 'right', getBiomeAt(zCenter + 6));
     this.scene.add(bR_far);
     decorations.push(bR_far);
 

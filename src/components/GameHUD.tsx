@@ -2,8 +2,9 @@ import React, { useState } from 'react';
 import { Volume2, VolumeX, Sliders, Eye, Palette, Smartphone, Monitor, Shield, Trophy, Zap, Radio, Terminal, Pause, Camera } from 'lucide-react';
 import { BiomeType, LightingMode, PlayerStats } from '../types';
 import { WorldIntroBanner } from './WorldIntroBanner';
+import { WORLDS, WORLD_ORDER, WorldId } from '../game/worlds';
 
-const WORLD_SECTOR_INFO: Record<string, { sector: number; name: string; icon: string; border: string; text: string; bg: string }> = {
+const WORLD_SECTOR_INFO: Record<string, { sector: number; name: string; icon: string; border: string; text: string; bg: string; swatch: string }> = {
   'sky-isles': {
     sector: 1,
     name: 'SKY ISLES',
@@ -11,6 +12,7 @@ const WORLD_SECTOR_INFO: Record<string, { sector: number; name: string; icon: st
     border: 'border-cyan-400/60 shadow-cyan-950/30',
     text: 'text-cyan-300',
     bg: 'bg-cyan-950/40',
+    swatch: 'bg-cyan-400',
   },
   'verdant-wilds': {
     sector: 2,
@@ -19,6 +21,7 @@ const WORLD_SECTOR_INFO: Record<string, { sector: number; name: string; icon: st
     border: 'border-emerald-400/60 shadow-emerald-950/30',
     text: 'text-emerald-300',
     bg: 'bg-emerald-950/40',
+    swatch: 'bg-emerald-400',
   },
   'crimson-dunes': {
     sector: 3,
@@ -27,6 +30,7 @@ const WORLD_SECTOR_INFO: Record<string, { sector: number; name: string; icon: st
     border: 'border-amber-400/60 shadow-amber-950/30',
     text: 'text-amber-300',
     bg: 'bg-amber-950/40',
+    swatch: 'bg-amber-400',
   },
   'crystal-heights': {
     sector: 4,
@@ -35,6 +39,7 @@ const WORLD_SECTOR_INFO: Record<string, { sector: number; name: string; icon: st
     border: 'border-purple-400/60 shadow-purple-950/30',
     text: 'text-purple-300',
     bg: 'bg-purple-950/40',
+    swatch: 'bg-purple-400',
   },
   'obsidian-core': {
     sector: 5,
@@ -43,6 +48,7 @@ const WORLD_SECTOR_INFO: Record<string, { sector: number; name: string; icon: st
     border: 'border-rose-500/60 shadow-rose-950/30',
     text: 'text-rose-300',
     bg: 'bg-rose-950/40',
+    swatch: 'bg-rose-500',
   },
 };
 
@@ -157,51 +163,14 @@ export const GameHUD: React.FC<GameHUDProps> = ({
     }
   };
 
-  const getNextThemeInfo = (current: BiomeType) => {
-    const list: BiomeType[] = [
-      'neon-undercity', 'dune-nomad', 'aurora-frost', 'bioluminescent-jungle', 'ember-core',
-      'nebula-drift', 'sky-realm', 'quantum-desert', 'cyber-forest', 'orbital-ring',
-      'the-grid', 'volcanic-forge', 'crystal-glacier', 'derelict-station'
-    ];
-    const idx = list.indexOf(current);
-    const nextId = idx === -1 ? 'dune-nomad' : list[(idx + 1) % list.length];
-    const swatchColors: Record<string, string> = {
-      'neon-undercity': 'bg-fuchsia-500',
-      'dune-nomad': 'bg-amber-500',
-      'aurora-frost': 'bg-cyan-400',
-      'bioluminescent-jungle': 'bg-emerald-400',
-      'ember-core': 'bg-red-500',
-      'nebula-drift': 'bg-purple-500',
-      'sky-realm': 'bg-sky-400',
-      'quantum-desert': 'bg-amber-600',
-      'cyber-forest': 'bg-emerald-500',
-      'orbital-ring': 'bg-fuchsia-400',
-      'the-grid': 'bg-green-400',
-      'volcanic-forge': 'bg-orange-600',
-      'crystal-glacier': 'bg-cyan-300',
-      'derelict-station': 'bg-yellow-500',
-    };
-    const names: Record<string, string> = {
-      'neon-undercity': 'Neon Undercity',
-      'dune-nomad': 'Dune Nomad',
-      'aurora-frost': 'Aurora Frost',
-      'bioluminescent-jungle': 'Bio Jungle',
-      'ember-core': 'Ember Core',
-      'nebula-drift': 'Nebula Drift',
-      'sky-realm': 'Sky Realm',
-      'quantum-desert': 'Quantum Desert',
-      'cyber-forest': 'Cyber Forest',
-      'orbital-ring': 'Orbital Ring',
-      'the-grid': 'The Grid',
-      'volcanic-forge': 'Volcanic Forge',
-      'crystal-glacier': 'Crystal Glacier',
-      'derelict-station': 'Derelict Station',
-    };
-    return { name: names[nextId] || 'Next World', swatch: swatchColors[nextId] || 'bg-cyan-400' };
+  // World behind the next portal; null in the final world (no portal after it).
+  const getNextWorldInfo = (current: WorldId) => {
+    const nextId = WORLD_ORDER[WORLD_ORDER.indexOf(current) + 1];
+    return nextId ? { name: WORLDS[nextId].name, swatch: WORLD_SECTOR_INFO[nextId].swatch } : null;
   };
 
   const biomeBadge = getBiomeBadge(stats.currentBiome);
-  const nextThemeInfo = getNextThemeInfo(stats.currentBiome);
+  const nextThemeInfo = getNextWorldInfo(stats.currentWorldId || 'sky-isles');
   const overdrivePercent = Math.round(stats.overdriveMeter || stats.styleMeter || 0);
 
   return (
@@ -241,11 +210,13 @@ export const GameHUD: React.FC<GameHUDProps> = ({
             )}
 
             {/* Next World Preview Swatch */}
-            <div className="px-2.5 py-1.5 rounded-lg bg-black/75 backdrop-blur-md border border-slate-700 text-xs font-bold flex items-center space-x-1.5 shadow-md">
-              <span className="text-[9px] text-slate-400 font-bold uppercase">NEXT:</span>
-              <div className={`w-2.5 h-2.5 rounded-full ${nextThemeInfo.swatch} animate-pulse`} />
-              <span className="text-slate-200">{nextThemeInfo.name}</span>
-            </div>
+            {nextThemeInfo && (
+              <div className="px-2.5 py-1.5 rounded-lg bg-black/75 backdrop-blur-md border border-slate-700 text-xs font-bold flex items-center space-x-1.5 shadow-md">
+                <span className="text-[9px] text-slate-400 font-bold uppercase">NEXT:</span>
+                <div className={`w-2.5 h-2.5 rounded-full ${nextThemeInfo.swatch} animate-pulse`} />
+                <span className="text-slate-200">{nextThemeInfo.name}</span>
+              </div>
+            )}
 
             {/* Active Game Mode Badge */}
             {gameModeMgr && gameModeMgr.activeModeId !== 'standard-run' && (

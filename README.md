@@ -56,7 +56,7 @@ The campaign has **five worlds**, each 2,250 m long, with their own lighting, fo
 | 4 | Crystal Heights | 6,750 – 8,999 m |
 | 5 | Obsidian Core | 9,000 m + |
 
-Within a world, the track surface and skyline rotate through **14 zones** every 450 m (or when you ride through a warp portal): Neon Undercity, Dune Nomad, Aurora Frost, Bioluminescent Jungle, Ember Core, Nebula Drift, Sky Realm, Quantum Desert, Cyber Forest, Orbital Ring, The Grid, Volcanic Forge, Crystal Glacier and Derelict Station.
+A warp portal spans the road at each world boundary, tinted with the next world's color. The next world's scenery appears only once you ride through it; the sky and fog start blending toward it over the last 300 m. Obsidian Core is the final world, with no portal after it. The track surface, skyline and friction follow the current world's zone (Sky Realm, Bioluminescent Jungle, Dune Nomad, Aurora Frost, Ember Core).
 
 ---
 

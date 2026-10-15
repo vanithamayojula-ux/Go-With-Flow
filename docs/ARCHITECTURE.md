@@ -152,8 +152,8 @@ To maintain 60 FPS performance on Intel Iris Xe / integrated GPUs:
 
 Two layers drive what the player sees:
 
-- **Worlds** (`WorldManager`, `src/game/worlds/`): five campaign sectors of `WORLD_LENGTH_DISTANCE` (2,250 m). They own sky, fog and lighting (blended across a transition corridor), decorations, atmosphere particles and audio signature. The HUD banner shows them as `SECTOR n OF 5`.
-- **Zones** (`getBiomeAt()` in `terrain.ts`): 14 track themes that rotate every 450 m, or immediately via a warp portal. They own the road surface, skyline, friction and obstacle styling. The HUD badge shows them as `ZONE n`.
+- **Worlds** (`WorldManager`, `src/game/worlds/`): five campaign sectors of `WORLD_LENGTH_DISTANCE` (2,250 m). They own sky, fog and lighting (blended across a transition corridor), decorations, atmosphere particles and audio signature. The HUD banner shows them as `SECTOR n OF 5`. `ObstacleManager` places a warp portal exactly on each world boundary; only the current world is instantiated, so the next world's scenery spawns when the player rides through the portal.
+- **Zones** (`getBiomeAt()` in `terrain.ts`): the legacy track theme, which follows the current world (its `compatibleBiomes[0]`). They own the road surface, skyline, friction and obstacle styling. `?biome=` / `__setActiveBiome` can still pin one zone for QA.
 
 `compatibleBiomes` in each world config is currently unused; zones rotate independently of the world.
 

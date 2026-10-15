@@ -2,7 +2,11 @@ import * as THREE from 'three';
 import { GLTFLoader } from 'three/examples/jsm/loaders/GLTFLoader.js';
 import { BiomeType, LaneIndex, PowerUpType } from '../types';
 import { getTerrainHeight, getBiomeAt } from './terrain';
+import { WORLD_LENGTH_DISTANCE, getWorldForBiome } from './worlds';
 import { laneToWorldX } from './trackConfig';
+
+// Minimum open road in front of a world portal before the previous obstacle row.
+const PORTAL_CLEARANCE = 12;
 
 export interface Obstacle3DTemplate {
   id: string;
@@ -487,6 +491,8 @@ export class ObstacleManager {
     opacity: 0.45,
     side: THREE.DoubleSide,
   });
+  // Portals are tinted with their destination world's energy color, one pair per world.
+  private portalMats = new Map<BiomeType, { ring: THREE.MeshBasicMaterial; disc: THREE.MeshBasicMaterial }>();
 
   // Reusable Shared Geometries (Zero allocation on hot spawn path)
   private solidMainGeom = new THREE.BoxGeometry(2.45, 2.2, 0.8);
@@ -724,15 +730,19 @@ export class ObstacleManager {
     const rowGap = Math.max(minGap, (1 - difficulty) * 40 + difficulty * 20);
 
     const spawnZ = this.lastSpawnZ + rowGap;
-    this.lastSpawnZ = spawnZ;
 
-    // Check for biome transition portal (every 450m)
-    const biomeAtZ = getBiomeAt(spawnZ);
-    const biomeBeforeZ = getBiomeAt(spawnZ - rowGap);
-    if (biomeAtZ !== biomeBeforeZ) {
-      this.createPortalArch(spawnZ, biomeAtZ);
-      return;
+    // World portal: sits exactly on the next world boundary and replaces the
+    // row that would land on or just before it, so the gateway has open road.
+    const boundaryZ = (Math.floor(this.lastSpawnZ / WORLD_LENGTH_DISTANCE) + 1) * WORLD_LENGTH_DISTANCE;
+    if (spawnZ >= boundaryZ - PORTAL_CLEARANCE) {
+      const nextBiome = getBiomeAt(boundaryZ);
+      if (nextBiome !== getBiomeAt(boundaryZ - 1)) {
+        this.lastSpawnZ = boundaryZ;
+        this.createPortalArch(boundaryZ, nextBiome);
+        return;
+      }
     }
+    this.lastSpawnZ = spawnZ;
 
     const row = this.genState.nextRow(difficulty, playerSpeed, spawnZ);
 
@@ -1029,12 +1039,14 @@ export class ObstacleManager {
     const portalGroup = new THREE.Group();
     portalGroup.position.set(0, groundH + 2.4, z);
 
+    const mats = this.getPortalMats(targetBiome);
+
     // Dimensional rift ring
-    const ringMesh = new THREE.Mesh(this.portalRingGeom, this.cyanNeonMat);
+    const ringMesh = new THREE.Mesh(this.portalRingGeom, mats.ring);
     portalGroup.add(ringMesh);
 
     // Translucent membrane
-    const discMesh = new THREE.Mesh(this.portalDiscGeom, this.portalDiscMat);
+    const discMesh = new THREE.Mesh(this.portalDiscGeom, mats.disc);
     portalGroup.add(discMesh);
 
     portalGroup.frustumCulled = false;
@@ -1055,6 +1067,20 @@ export class ObstacleManager {
       isPortal: true,
       targetBiome,
     });
+  }
+
+  private getPortalMats(targetBiome: BiomeType) {
+    let mats = this.portalMats.get(targetBiome);
+    if (!mats) {
+      const color = getWorldForBiome(targetBiome).palette.energy;
+      mats = {
+        ring: new THREE.MeshBasicMaterial({ color }),
+        disc: this.portalDiscMat.clone(),
+      };
+      mats.disc.color.set(color);
+      this.portalMats.set(targetBiome, mats);
+    }
+    return mats;
   }
 
   private spawnCoin(x: number, yRel: number, z: number): void {
@@ -1311,7 +1337,8 @@ export class ObstacleManager {
 
   clearAhead(playerZ: number, distance: number): void {
     this.obstacles = this.obstacles.filter(obs => {
-      if (obs.z >= playerZ && obs.z <= playerZ + distance) {
+      // Portals are world boundaries, not hazards; never clear them away.
+      if (!obs.isPortal && obs.z >= playerZ && obs.z <= playerZ + distance) {
         this.group.remove(obs.mesh);
         return false;
       }
@@ -1393,6 +1420,11 @@ export class ObstacleManager {
     this.goldMat.dispose();
     this.telegraphMat.dispose();
     this.portalDiscMat.dispose();
+    for (const mats of this.portalMats.values()) {
+      mats.ring.dispose();
+      mats.disc.dispose();
+    }
+    this.portalMats.clear();
     this.railMat.dispose();
     this.railPostMat.dispose();
     this.boostMat.dispose();

@@ -1,5 +1,5 @@
 import * as THREE from 'three';
-import { TerrainManager, setActiveBiome, resetBiomeState, clearBiomeOverride } from './terrain';
+import { TerrainManager, getBiomeAt, resetBiomeState, clearBiomeOverride } from './terrain';
 import { FoliageManager } from './foliage';
 import { SkyManager, LIGHTING_PRESETS } from './sky';
 import { PlayerManager } from './player';
@@ -132,7 +132,7 @@ export class GameEngine {
   private statsUpdateTimer: number = 0;
   private lastFrameDt: number = 0;
   private lastSentGameState: string = 'playing';
-  private lastBiome: BiomeType = 'neon-undercity';
+  private lastBiome: BiomeType = getBiomeAt(0);
   private lastTier: string = 'Chill';
   private lastTransitionState: string = 'STABLE';
 
@@ -485,32 +485,14 @@ export class GameEngine {
 
         const collision = this.obstacleMgr.checkCollisions(this.playerMgr.position, this.playerMgr.isSliding);
 
-        // World Portal Warp: transition & rebuild
+        // World Portal Warp: portals sit on world boundaries, so crossing one
+        // switches the campaign world below (and its "ENTERING" banner).
         if (collision.hitPortal) {
           const target = collision.hitPortal.targetBiome;
-          setActiveBiome(target, this.playerMgr.position.z, 450);
           this.playerMgr.triggerPortalWarp(target, this.audio);
           this.themeMgr.triggerPortalWarp(target, this.playerMgr.position);
           this.obstacleMgr.clearAhead(this.playerMgr.position.z, 90);
-          this.terrainMgr.rebuildAroundPlayer(this.playerMgr.position.z, this.playerMgr.position.x, 3);
           this.boostGlitchTimer = 0.85;
-          const bNameMap: Record<string, string> = {
-            'neon-undercity': 'NEON UNDERCITY // SECTOR 01',
-            'dune-nomad': 'DUNE NOMAD // AMBER MESAS',
-            'aurora-frost': 'AURORA FROST // GLACIER TUNDRA',
-            'bioluminescent-jungle': 'BIOLUMINESCENT JUNGLE',
-            'ember-core': 'EMBER CORE // MAGMA OBSIDIAN',
-            'nebula-drift': 'NEBULA DRIFT // STELLAR VOID',
-            'sky-realm': 'SKY REALM // CLOUD ISLES',
-            'quantum-desert': 'QUANTUM DESERT // AMBER MESAS',
-            'cyber-forest': 'CYBER FOREST // BIOLUMINESCENT CANOPY',
-            'orbital-ring': 'ORBITAL RING // STELLAR VOID',
-            'the-grid': 'THE GRID // VECTOR CYBERSPACE',
-            'volcanic-forge': 'VOLCANIC FORGE // MAGMA OBSIDIAN',
-            'crystal-glacier': 'CRYSTAL GLACIER // FROST REALM',
-            'derelict-station': 'DERELICT STATION // HAZARD ZONE',
-          };
-          this.onNotification(`🌀 PORTAL WARP! ENTERING ${bNameMap[target] || this.themeMgr.currentTheme.name.toUpperCase()}!`);
         }
 
         // Boost Gate Encounter
@@ -933,15 +915,16 @@ export class GameEngine {
 
   private syncActiveWorld(metrics?: { currentWorldId: string; nextWorldId: string; state: string }): void {
     const currentWorld = metrics ? metrics.currentWorldId : this.worldMgr.currentWorldId;
-    const nextWorld = metrics ? metrics.nextWorldId : this.worldMgr.nextWorldId;
-    const shouldPreloadNext = metrics ? (metrics.state === 'PREPARING' || metrics.state === 'TRANSITIONING') : false;
+    // Only the current world is instantiated. The next world is not preloaded:
+    // its scenery streams in ahead of the player and would show before the
+    // portal, so it spawns when the player crosses the boundary.
 
     // Check which worlds are required without allocating sets or arrays
-    const needSkyIsles = currentWorld === 'sky-isles' || (shouldPreloadNext && nextWorld === 'sky-isles');
-    const needVerdantWilds = currentWorld === 'verdant-wilds' || (shouldPreloadNext && nextWorld === 'verdant-wilds');
-    const needCrimsonDunes = currentWorld === 'crimson-dunes' || (shouldPreloadNext && nextWorld === 'crimson-dunes');
-    const needCrystalHeights = currentWorld === 'crystal-heights' || (shouldPreloadNext && nextWorld === 'crystal-heights');
-    const needObsidianCore = currentWorld === 'obsidian-core' || (shouldPreloadNext && nextWorld === 'obsidian-core');
+    const needSkyIsles = currentWorld === 'sky-isles';
+    const needVerdantWilds = currentWorld === 'verdant-wilds';
+    const needCrimsonDunes = currentWorld === 'crimson-dunes';
+    const needCrystalHeights = currentWorld === 'crystal-heights';
+    const needObsidianCore = currentWorld === 'obsidian-core';
 
     // 1. Dispose worlds that are no longer needed (releasing all GPU/CPU memory)
     if (!needSkyIsles && this.skyIslesWorld) {
@@ -1023,7 +1006,7 @@ export class GameEngine {
     this.boostGlitchTimer = 0;
     this.stumbleGlitchTimer = 0;
     this.nearMissSlowMoTimer = 0;
-    this.lastBiome = 'neon-undercity';
+    this.lastBiome = getBiomeAt(0);
     this.worldMgr.setWorld('sky-isles');
     this.playerMgr.resetRun();
     this.obstacleMgr.reset();

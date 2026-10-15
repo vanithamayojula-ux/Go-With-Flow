@@ -664,7 +664,6 @@ export class PlayerManager {
   triggerPortalWarp(targetBiome: BiomeType, audioManager?: AudioManager | null) {
     this.warpTimer = 1.4;
     this.stats.warpTimer = 1.4;
-    this.stats.currentBiome = targetBiome;
     this.stats.score += 1500;
     this.overdriveMeter = Math.min(100, this.overdriveMeter + 30);
     this.velocity.z = Math.min(this.velocity.z + 10.0, 65.0);
