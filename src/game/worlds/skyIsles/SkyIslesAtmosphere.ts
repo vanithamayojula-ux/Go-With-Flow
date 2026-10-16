@@ -1,6 +1,8 @@
 import * as THREE from 'three';
 import { GraphicsConfig } from '../../../types';
 import { createBillboardClouds, BillboardCloudSet } from './billboardClouds';
+import { createCloudDeck, CloudDeck } from './cloudDeck';
+import { skyIslesConfig } from './skyIslesConfig';
 
 interface CloudCard {
   cluster: number;
@@ -18,7 +20,8 @@ const CLOUD_ROAD_CLEARANCE = 14;
 /**
  * SkyIslesAtmosphere manages:
  * 1. Upper drifting cumulus (soft billboard clouds, one instanced draw)
- * 2. Lower sea-of-clouds bed far beneath the floating islands
+ * 2. Lower sea of clouds far beneath the floating islands: a shaded cloud
+ *    deck (one plane, layered noise) with a few cumulus heads rising out of it
  * 3. Faint sunlit dust motes
  */
 export class SkyIslesAtmosphere {
@@ -27,6 +30,7 @@ export class SkyIslesAtmosphere {
 
   private clouds: BillboardCloudSet | null = null;
   private cloudSea: BillboardCloudSet | null = null;
+  private deck: CloudDeck | null = null;
 
   // Dust motes
   private particles: THREE.Points | null = null;
@@ -101,26 +105,41 @@ export class SkyIslesAtmosphere {
     this.group.add(this.clouds.mesh);
 
     // --- Lower Cloud Ocean Layer ---
-    // Sits around Y = -52 so the islands read as floating very high up.
-    let seaCount = 56;
-    if (graphicsConfig.preset === 'mobile-opt') seaCount = 30;
-    if (graphicsConfig.preset === 'webgl-min') seaCount = 14;
+    // A continuous deck around Y = -64 so the islands read as floating very
+    // high up, with a few cumulus heads (sunlit tops, grey bases) poking out.
+    const sp = skyIslesConfig.lighting.sunPosition ?? [30, 80, -120];
+    this.deck = createCloudDeck({
+      y: -64,
+      radius: 1300,
+      sun: new THREE.Vector3(sp[0], sp[1], sp[2]),
+      lit: 0xfff8ee,
+      litIntensity: 3.4,
+      shade: 0x93a4bb,
+      shadeIntensity: 1.9,
+      deep: 0x7f92ad,
+    });
+    this.group.add(this.deck.mesh);
+
+    let seaCount = 22;
+    if (graphicsConfig.preset === 'mobile-opt') seaCount = 14;
+    if (graphicsConfig.preset === 'webgl-min') seaCount = 8;
     for (let i = 0; i < seaCount; i++) {
-      const w = 90 + Math.random() * 70;
+      const w = 60 + Math.random() * 50;
+      const side = i % 2 === 0 ? -1 : 1;
       this.cloudSeaPositions.push({
-        x: (Math.random() - 0.5) * 460,
-        y: -58.0 + (Math.random() - 0.5) * 8.0,
+        x: side * (60 + Math.random() * 220),
+        y: -62.0 + Math.random() * 5.0,
         z: (i / seaCount) * 800 - 150,
         w,
-        h: w * 0.5,
+        h: w * 0.42,
       });
     }
     this.cloudSea = createBillboardClouds(seaCount, {
-      litColor: 0xf7f4ee,
-      litIntensity: 3.6,
-      shadowColor: 0xa9b6c6,
-      shadowIntensity: 1.9,
-      opacity: 0.97,
+      litColor: 0xfff8ee,
+      litIntensity: 3.4,
+      shadowColor: 0x9eadc1,
+      shadowIntensity: 1.8,
+      opacity: 0.95,
     });
     this.group.add(this.cloudSea.mesh);
 
@@ -181,6 +200,7 @@ export class SkyIslesAtmosphere {
     }
 
     // 2. Stream lower cloud sea
+    this.deck?.update(0, playerZ, time);
     if (this.cloudSea) {
       for (let i = 0; i < this.cloudSeaPositions.length; i++) {
         const sp = this.cloudSeaPositions[i];
@@ -213,6 +233,7 @@ export class SkyIslesAtmosphere {
     this.scene.remove(this.group);
     this.clouds?.dispose();
     this.cloudSea?.dispose();
+    this.deck?.dispose();
     if (this.particles) {
       this.particleGeom?.dispose();
       this.particleMaterial?.dispose();

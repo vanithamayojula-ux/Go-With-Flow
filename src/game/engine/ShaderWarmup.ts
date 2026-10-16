@@ -1,4 +1,5 @@
 import * as THREE from 'three';
+import { NEXT_WORLD_LAYER } from './WorldStreamer';
 
 // Mirrors WebGLShadowMap's side flip for shadow casters.
 const SHADOW_SIDE: Record<number, THREE.Side> = {
@@ -71,6 +72,9 @@ export class ShaderWarmup {
     this.camera = camera;
     this.scene = scene;
     this.getTarget = getTarget;
+    // The next world lives on its own layer (seen only through its gateway):
+    // the off-screen first draws must include it, main and shadow pass.
+    this.warmCamera.layers.enable(NEXT_WORLD_LAYER);
   }
 
   /** Programs are linking in the background: synchronous GL calls would wait for them. */

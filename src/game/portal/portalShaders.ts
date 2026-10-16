@@ -85,40 +85,64 @@ export const MEMBRANE_FRAGMENT = /* glsl */ `
   }
 `;
 
+/**
+ * The beam is a vertical billboard (turned about its own axis to face the
+ * camera), widened to a minimum on-screen width so that from 600-800 m it is
+ * a soft glowing shaft instead of a 1-px line. Widening keeps most of the
+ * brightness (it is meant to be seen), slightly reduced so the far shaft
+ * doesn't read as a solid bar.
+ */
 export const BEAM_VERTEX = /* glsl */ `
-  varying vec3 vWorldPos;
-  varying vec3 vWorldNormal;
+  uniform float uBaseHalfW;
+  uniform float uTopHalfW;
+  uniform float uMinPx;
+  uniform float uViewH;
+  varying float vX;
   varying float vH;
+  varying float vWiden;
+  varying vec3 vWorldPos;
   void main() {
-    vec4 wp = modelMatrix * vec4(position, 1.0);
-    vWorldPos = wp.xyz;
-    vWorldNormal = normalize(mat3(modelMatrix) * normal);
+    vec3 axis = (modelMatrix * vec4(0.0, position.y, 0.0, 1.0)).xyz;
+    vec3 toCam = cameraPosition - axis;
+    vec2 hz = vec2(toCam.x, toCam.z);
+    float fl = length(hz);
+    vec3 side = fl > 1e-4 ? vec3(hz.y, 0.0, -hz.x) / fl : vec3(1.0, 0.0, 0.0);
+    float dist = max(length(toCam), 1.0);
     vH = uv.y;
-    gl_Position = projectionMatrix * viewMatrix * wp;
+    float halfW = mix(uBaseHalfW, uTopHalfW, vH);
+    // Metres per pixel at this distance (vertical FOV from the projection).
+    float mpp = 2.0 * dist / (max(projectionMatrix[1][1], 1e-3) * max(uViewH, 1.0));
+    float w = max(halfW, 0.5 * uMinPx * mpp);
+    vWiden = halfW / w;
+    vX = position.x;
+    vec3 wp = axis + side * (position.x * w);
+    vWorldPos = wp;
+    gl_Position = projectionMatrix * viewMatrix * vec4(wp, 1.0);
   }
 `;
 
 /**
- * Soft additive shaft of light rising from the arch: brightest where the
- * cylinder faces the viewer (so its silhouette edges dissolve), fading in
- * from the arch and out with height. Unfogged, so it marks the gateway from
- * far away even in a hazy world; slow drifting variation keeps it from
- * looking like a solid tube.
+ * Soft additive shaft of light rising from the arch: a gaussian profile
+ * across (no hard silhouette), fading in from the arch and out with height.
+ * Unfogged, so it marks the gateway from far away even in a hazy world;
+ * slow drifting variation keeps it from looking like a solid tube.
  */
 export const BEAM_FRAGMENT = /* glsl */ `
   uniform vec3 uColor;
   uniform float uIntensity;
   uniform float uTime;
-  varying vec3 vWorldPos;
-  varying vec3 vWorldNormal;
+  varying float vX;
   varying float vH;
+  varying float vWiden;
+  varying vec3 vWorldPos;
   void main() {
-    vec3 V = normalize(cameraPosition - vWorldPos);
-    float facing = abs(dot(normalize(vWorldNormal), V));
-    float soft = facing * facing * facing;
-    float vert = smoothstep(0.0, 0.05, vH) * pow(1.0 - vH, 1.8);
-    float drift = 0.78 + 0.22 * sin(uTime * 0.55 + vWorldPos.y * 0.012 + vWorldPos.x * 0.25);
-    gl_FragColor = vec4(uColor * (soft * vert * drift * uIntensity), 1.0);
+    float across = exp(-vX * vX * 2.2) - 0.11;
+    if (across <= 0.0) discard;
+    float core = 1.0 + 0.8 * exp(-vX * vX * 14.0);
+    float vert = smoothstep(0.0, 0.04, vH) * pow(1.0 - vH, 1.6);
+    float drift = 0.8 + 0.2 * sin(uTime * 0.55 + vWorldPos.y * 0.012 + vX * 1.7);
+    float widen = clamp(sqrt(vWiden), 0.55, 1.0);
+    gl_FragColor = vec4(uColor * (across * core * vert * drift * widen * uIntensity), 1.0);
     #include <tonemapping_fragment>
     #include <colorspace_fragment>
   }

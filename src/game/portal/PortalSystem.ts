@@ -2,7 +2,7 @@ import * as THREE from 'three';
 import { WorldId, WORLD_ORDER, WORLD_LENGTH_DISTANCE } from '../WorldConfig';
 import { SkyManager, getAtmosphereInfo } from '../sky';
 import { StreamFade, FAR_FADE_END } from '../worlds/shared/distanceFade';
-import { NEXT_WORLD_LEAD } from '../engine/WorldStreamer';
+import { NEXT_WORLD_LEAD, NEXT_WORLD_LAYER } from '../engine/WorldStreamer';
 import { GATEWAY, GATEWAY_CROWN_Y } from './gatewayStyles';
 import { PortalGateway } from './PortalGateway';
 import { PortalWindow } from './PortalWindow';
@@ -36,8 +36,12 @@ export interface PortalWindowOptions {
   height: number;
   /** Live window pass (post-processing on, not the lowest tier). */
   live: boolean;
-  /** Window resolution relative to the main target (0.5 or 0.25). */
-  scale: number;
+  /**
+   * Pixels the window pass may render (drawing-buffer pixels). The window's
+   * scale is sqrt(budget / opening area), clamped to [0.25, 1]: full
+   * resolution while the opening is small on screen.
+   */
+  pixelBudget: number;
   /** Extra objects hidden in the window pass (the rider, warp FX). */
   hide: readonly THREE.Object3D[];
 }
@@ -56,9 +60,19 @@ interface GatewaySlot {
 // The gateway (and its beam) start fading in this far out; the stone and
 // membrane follow the far scenery band (fully visible inside ~640 m).
 const BEAM_FADE_START = NEXT_WORLD_LEAD - 40;
-const BEAM_FADE_LENGTH = 220;
-const BEAM_INTENSITY = 0.8;
-const WINDOW_CLIP_MARGIN = 3;
+// Fully on by ~750 m, so the shaft marks the gateway from 600-800 m.
+const BEAM_FADE_LENGTH = 110;
+const BEAM_INTENSITY = 0.9;
+// The window pass clips just in front of the membrane (the road under its
+// bottom edge comes from the main pass now: see ROAD_STENCIL_REF).
+const WINDOW_CLIP_MARGIN = 1;
+// Window exposure boost cap (destination / current exposure ratio).
+const WINDOW_EXPOSURE_MAX = 1.1;
+// Within this distance of the gateway the next world's shadow casters can be
+// inside the sun's shadow frustum (it covers ~-16..+40 m around the rider):
+// the window pass then renders its own shadow map (destination sun, next
+// world's casters, current world hidden); the main pass redraws its own.
+const WINDOW_SHADOW_RANGE = 60;
 // Crossed gateways are removed once the rider is this far past them.
 const REMOVE_BEHIND = 70;
 // Don't wait for scanned textures past this distance to the gateway (they
@@ -97,6 +111,7 @@ export class PortalSystem {
   // Main target size seen by the last renderWindow() (to allocate ahead).
   private lastWidth = 0;
   private lastHeight = 0;
+  private lastBudget = 0;
   private disposed = false;
   private uploader: TextureUploader;
 
@@ -194,6 +209,10 @@ export class PortalSystem {
       beam.uTime.value = timeSeconds;
       const f = THREE.MathUtils.clamp((BEAM_FADE_START - (s.gate.boundaryZ - z)) / BEAM_FADE_LENGTH, 0, 1);
       beam.uIntensity.value = BEAM_INTENSITY * f * f * (3 - 2 * f);
+      if (this.lastHeight > 0) {
+        beam.uViewH.value = this.lastHeight;
+        beam.uMinPx.value = Math.max(14, this.lastHeight * 0.024);
+      }
     }
     return crossing;
   }
@@ -256,7 +275,7 @@ export class PortalSystem {
         // First real draw off screen (some programs finish linking on it),
         // and the window target allocated, before any of it is visible.
         this.deps.warmDraw([g.group]);
-        if (this.lastWidth > 0) this.window.ensureTarget(this.deps.renderer, this.lastWidth, this.lastHeight);
+        if (this.lastWidth > 0) this.window.ensureTarget(this.deps.renderer, this.lastWidth, this.lastHeight, this.lastBudget);
         s.phase = 'ready';
         g.group.visible = true;
         return;
@@ -273,6 +292,7 @@ export class PortalSystem {
     const u = this.window.uniforms;
     this.lastWidth = o.width;
     this.lastHeight = o.height;
+    this.lastBudget = o.pixelBudget;
     const s = this.upcoming;
     if (!s || s.phase !== 'ready' || s.crossed || !s.gate.membrane) {
       u.uLive.value = 0;
@@ -284,7 +304,10 @@ export class PortalSystem {
       u.uLive.value = 0;
       return;
     }
-    u.uExposure.value = getAtmosphereInfo(s.gate.worldId).exposure / Math.max(1e-3, getAtmosphereInfo(this.currentWorld).exposure);
+    // Exposure match (the final pass applies the CURRENT world's exposure),
+    // capped: a much brighter destination blew the opening out to white.
+    const ratio = getAtmosphereInfo(s.gate.worldId).exposure / Math.max(1e-3, getAtmosphereInfo(this.currentWorld).exposure);
+    u.uExposure.value = Math.min(WINDOW_EXPOSURE_MAX, ratio);
 
     const own = this.ownHidden;
     own.length = 0;
@@ -302,7 +325,10 @@ export class PortalSystem {
       camera: o.camera,
       width: o.width,
       height: o.height,
-      scale: o.scale,
+      pixelBudget: o.pixelBudget,
+      // The next world lives on its own layer: only this pass draws it.
+      extraLayers: 1 << NEXT_WORLD_LAYER,
+      shadows: this.deps.renderer.shadowMap.enabled && dist < WINDOW_SHADOW_RANGE,
       // Clip a few metres in front of the membrane: the window then always has
       // road (identical in both worlds) under its bottom edge, instead of the
       // open road slab cut by the clip plane bleeding in through filtering.
@@ -321,32 +347,37 @@ export class PortalSystem {
   // ice, sand, snow variants) are linked and first-drawn before the run.
   private prewarmGates: PortalGateway[] = [];
 
-  /** Build (hidden, in the scene) one gateway per boundary; returns their groups. */
-  buildPrewarmGateways(): THREE.Object3D[] {
-    const groups: THREE.Object3D[] = [];
-    const L = WORLD_LENGTH_DISTANCE;
-    for (let k = 1; k < WORLD_ORDER.length; k++) {
-      try {
-        const gate = new PortalGateway(WORLD_ORDER[k], k * L, { fade: this.fade, membrane: this.window.uniforms });
-        const it = gate.build();
-        while (!it.next().done) {
-          /* all of it now */
-        }
-        gate.group.visible = false;
-        this.deps.scene.add(gate.group);
-        gate.group.updateMatrixWorld(true);
-        this.prewarmGates.push(gate);
-        groups.push(gate.group);
-      } catch (err) {
-        console.warn('[PortalSystem] warm-up gateway failed:', err);
-      }
-    }
-    return groups;
+  /** Number of gateway styles the warm-up builds (one per boundary). */
+  get prewarmGatewayCount(): number {
+    return WORLD_ORDER.length - 1;
   }
 
-  /** Warm-up gateways have their scanned textures (or gave up loading them). */
-  get prewarmAssetsSettled(): boolean {
-    return this.prewarmGates.every(g => g.texturesSettled);
+  /**
+   * Build (hidden, in the scene) the gateway of boundary `k` (1-based) for the
+   * warm-up, with placeholder textures only (nothing is downloaded: the scans
+   * use the same slots, so the programs are the same). Returns its group.
+   */
+  buildPrewarmGateway(k: number): THREE.Object3D | null {
+    if (k < 1 || k >= WORLD_ORDER.length) return null;
+    try {
+      const gate = new PortalGateway(WORLD_ORDER[k], k * WORLD_LENGTH_DISTANCE, {
+        fade: this.fade,
+        membrane: this.window.uniforms,
+        fetchTextures: false,
+      });
+      const it = gate.build();
+      while (!it.next().done) {
+        /* all of it now (a few ms) */
+      }
+      gate.group.visible = false;
+      this.deps.scene.add(gate.group);
+      gate.group.updateMatrixWorld(true);
+      this.prewarmGates.push(gate);
+      return gate.group;
+    } catch (err) {
+      console.warn('[PortalSystem] warm-up gateway failed:', err);
+      return null;
+    }
   }
 
   disposePrewarmGateways(): void {

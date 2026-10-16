@@ -159,6 +159,9 @@ export type ComboTier = 'blue' | 'cyan' | 'magenta' | 'white-hot';
 
 export interface PlayerStats {
   speed: number;
+  // True while the rider is held at the start line (start-up warm-up): the
+  // HUD shows 0 km/h and a "Preparing worlds" pill instead of the cruise speed.
+  isHolding?: boolean;
   // Seconds until the double-tap shield can be deployed again (0 = ready)
   shieldCooldown?: number;
   maxSpeed: number;

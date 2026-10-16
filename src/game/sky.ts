@@ -439,13 +439,17 @@ const WORLD_ATMOSPHERES: Record<WorldId, WorldAtmosphere> = {
     sunColor: '#fffaf2', sunIntensity: 3.4, hemiSky: '#cfe1ff', hemiGround: '#9aa7b6', hemiIntensity: 0.12,
     envIntensity: 1.05, fogColor: '#bcd0e6', fogDensity: 0.0009,
   },
-  // Volcanic dusk: ash haze and a low orange sun. Kept moderate so the sky
-  // light (and the IBL baked from it) is not flooded to white.
+  // Volcanic dusk under an ash pall: the sun sits just above the horizon off
+  // to the right (not dead ahead, where it flooded the view), heavy ash haze
+  // (high turbidity / mie, little rayleigh) gives a deep red-orange horizon
+  // under a dark, desaturated zenith. The fog is the same ember-brown as the
+  // low sky so silhouettes sink into the haze instead of standing against a
+  // pale daytime sky.
   'obsidian-core': {
-    sunElevation: 9, sunAzimuth: 25, turbidity: 6.0, rayleigh: 2.4, mieCoefficient: 0.005, mieDirectionalG: 0.8,
-    cloudCoverage: 0.6, cloudDensity: 0.7, exposure: 0.66,
-    sunColor: '#ff8a55', sunIntensity: 3.0, hemiSky: '#6b4a48', hemiGround: '#24120c', hemiIntensity: 0.15,
-    envIntensity: 0.55, fogColor: '#3a2622', fogDensity: 0.006,
+    sunElevation: 4, sunAzimuth: 120, turbidity: 10.0, rayleigh: 0.32, mieCoefficient: 0.012, mieDirectionalG: 0.86,
+    cloudCoverage: 0.9, cloudDensity: 0.82, exposure: 0.72,
+    sunColor: '#ff6a2e', sunIntensity: 2.8, hemiSky: '#9a5c48', hemiGround: '#3a1a0e', hemiIntensity: 0.3,
+    envIntensity: 0.85, fogColor: '#5a2a1a', fogDensity: 0.0055,
   },
 };
 
@@ -528,6 +532,9 @@ export class SkyManager {
   private envCache = new Map<WorldId, THREE.WebGLRenderTarget>();
   // Set by prebakeAllEnvironments(): every world's bake is kept (no pruning).
   private keepAllEnvironments = false;
+  // Start-up: environments are baked by bakeNextEnvironment(), one per
+  // frame, never implicitly (a PMREM bake + its first compile is ~0.5 s).
+  private deferEnvironment = false;
   private envWorld: WorldId | null = null;
 
   // Last applied blend, so an unchanged frame is skipped entirely.
@@ -557,9 +564,10 @@ export class SkyManager {
   };
   private snapshotDepth = 0;
 
-  constructor(scene: THREE.Scene, renderer?: THREE.WebGLRenderer) {
+  constructor(scene: THREE.Scene, renderer?: THREE.WebGLRenderer, options: { deferEnvironment?: boolean } = {}) {
     this.scene = scene;
     this.renderer = renderer ?? null;
+    this.deferEnvironment = !!options.deferEnvironment;
 
     // 1. Preetham atmospheric sky with procedural clouds (renders at the far plane)
     this.skyMesh = new Sky();
@@ -672,6 +680,86 @@ export class SkyManager {
     if (!this.pmrem) return;
     this.keepAllEnvironments = true;
     for (const id of WORLD_ORDER) this.prebakeEnvironment(id);
+    this.deferEnvironment = false;
+    if (this.lastCurrent) this.useEnvironment(this.lastCurrent, false);
+  }
+
+  /**
+   * Start-up, one call per frame: bake the next missing world environment
+   * (the current world's first, which is then applied) and keep them all.
+   * Returns true once every world is baked.
+   */
+  bakeNextEnvironment(): boolean {
+    if (!this.pmrem) {
+      this.deferEnvironment = false;
+      return true;
+    }
+    this.keepAllEnvironments = true;
+    const order = this.lastCurrent ? [this.lastCurrent, ...WORLD_ORDER.filter(id => id !== this.lastCurrent)] : WORLD_ORDER;
+    const id = order.find(w => !this.envCache.has(w));
+    if (id) {
+      this.prebakeEnvironment(id);
+      if (id === this.lastCurrent) this.useEnvironment(id, false);
+      if (order.some(w => !this.envCache.has(w))) return false;
+    }
+    this.deferEnvironment = false;
+    if (this.lastCurrent) this.useEnvironment(this.lastCurrent, false);
+    return true;
+  }
+
+  /**
+   * Compile the PMREM bake's programs (sky + ground into a linear half-float
+   * cube target, and the GGX prefilter) in the background, so the bakes that
+   * follow are pure GPU work. Resolves once linked (or at once on failure:
+   * the bake then compiles them itself, synchronously).
+   */
+  compileEnvironmentAsync(): Promise<void> {
+    const r = this.renderer;
+    const pm = this.pmrem as unknown as {
+      _setSize?(size: number): void;
+      _allocateTargets?(): THREE.WebGLRenderTarget;
+      _ggxMaterial?: THREE.Material | null;
+      _pingPongRenderTarget?: THREE.WebGLRenderTarget | null;
+    } | null;
+    if (!r || !pm) return Promise.resolve();
+    const jobs: Promise<unknown>[] = [];
+    const prev = r.getRenderTarget();
+    let tmp: THREE.WebGLRenderTarget | null = null;
+    try {
+      tmp = new THREE.WebGLRenderTarget(4, 4, { type: THREE.HalfFloatType, format: THREE.RGBAFormat, depthBuffer: true });
+      r.setRenderTarget(tmp);
+      jobs.push(r.compileAsync(this.envScene, new THREE.PerspectiveCamera(90, 1, 0.1, 100)));
+      // PMREMGenerator internals (three r186): allocate its GGX material the
+      // way fromScene() would (same size), then compile it against its target.
+      if (typeof pm._setSize === 'function' && typeof pm._allocateTargets === 'function') {
+        pm._setSize(256);
+        const cube = pm._allocateTargets();
+        cube.dispose();
+        const ggx = pm._ggxMaterial;
+        if (ggx && pm._pingPongRenderTarget) {
+          r.setRenderTarget(pm._pingPongRenderTarget);
+          // Same attributes as its LOD planes (attribute presence is part of the program key).
+          const g = new THREE.BufferGeometry();
+          g.setAttribute('position', new THREE.BufferAttribute(new Float32Array(3), 3));
+          g.setAttribute('uv', new THREE.BufferAttribute(new Float32Array(2), 2));
+          g.setAttribute('faceIndex', new THREE.BufferAttribute(new Float32Array(1), 1));
+          const mesh = new THREE.Mesh(g, ggx);
+          jobs.push(r.compileAsync(mesh, new THREE.OrthographicCamera()).finally(() => mesh.geometry.dispose()));
+        }
+      }
+    } catch (err) {
+      console.warn('[SkyManager] environment compile failed:', err);
+    } finally {
+      r.setRenderTarget(prev);
+    }
+    return Promise.all(jobs).then(
+      () => {
+        tmp?.dispose();
+      },
+      () => {
+        tmp?.dispose();
+      }
+    );
   }
 
   hasEnvironment(worldId: WorldId): boolean {
@@ -735,6 +823,7 @@ export class SkyManager {
   private useEnvironment(worldId: WorldId, prune: boolean) {
     if (!this.pmrem) return;
     if (this.envWorld === worldId && this.scene.environment) return;
+    if (this.deferEnvironment && !this.envCache.has(worldId)) return;
     this.prebakeEnvironment(worldId);
     const target = this.envCache.get(worldId);
     if (!target) return;

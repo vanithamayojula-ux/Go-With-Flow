@@ -16,8 +16,12 @@ export interface WindowPassParams {
   /** Size of the main scene target (drawing-buffer pixels). */
   width: number;
   height: number;
-  /** Resolution of the window relative to the main target (0.5 / 0.25). */
-  scale: number;
+  /** Pixels this pass may render (sets its resolution, see renderWindow). */
+  pixelBudget: number;
+  /** Layers drawn here on top of the main camera's (the next world's). */
+  extraLayers: number;
+  /** Render a shadow map for this pass (else the main pass's is reused). */
+  shadows: boolean;
   /** World z of the portal plane; geometry in front of it is clipped. */
   planeZ: number;
   /** Opening bounds in world space (for the screen rectangle). */
@@ -46,8 +50,9 @@ const _plane = new THREE.Plane();
  * drops everything outside the opening). Its near plane is replaced by the
  * portal plane (oblique near-plane clipping, which only changes the depth row
  * of the projection), so nothing on this side of the gateway - the rider,
- * obstacles, the current world - can leak into the window. No shadow-map
- * update in this pass: the main pass's map is reused.
+ * obstacles, the current world - can leak into the window. The next world is
+ * on its own layer, which only this camera enables. Far from the gateway the
+ * main pass's shadow map is reused; close to it this pass draws its own.
  */
 export class PortalWindow {
   readonly uniforms: MembraneSharedUniforms = {
@@ -71,16 +76,23 @@ export class PortalWindow {
   };
   /** Milliseconds (CPU) of the last pass, for the debug readout. */
   lastMs = 0;
+  /** Resolution scale of the last pass (debug readout). */
+  lastScale = 0;
 
   constructor() {
     this.camera.matrixAutoUpdate = true;
   }
 
-  /** Allocate (or resize) the target for a main target of width x height. */
-  ensureTarget(renderer: THREE.WebGLRenderer, width: number, height: number): THREE.WebGLRenderTarget {
-    // Sized for the half-resolution case; lower scales use a sub-viewport.
-    const w = Math.max(1, Math.ceil(width * 0.5));
-    const h = Math.max(1, Math.ceil(height * 0.5));
+  /**
+   * Allocate (or resize) the target for a main target of width x height and
+   * a pixel budget. Sized so a budget-filling opening fits (an opening is
+   * roughly as tall as it is wide; a little taller); smaller openings use a
+   * sub-viewport. Never larger than the main target.
+   */
+  ensureTarget(renderer: THREE.WebGLRenderer, width: number, height: number, pixelBudget: number): THREE.WebGLRenderTarget {
+    const budget = Math.max(1, pixelBudget);
+    const w = Math.max(1, Math.min(width, Math.ceil(Math.sqrt(budget * 1.3))));
+    const h = Math.max(1, Math.min(height, Math.ceil(Math.sqrt(budget * 1.9))));
     if (!this.target) {
       this.target = new THREE.WebGLRenderTarget(w, h, {
         type: THREE.HalfFloatType,
@@ -186,7 +198,7 @@ export class PortalWindow {
     main.updateMatrixWorld();
     const rect = this.computeRect(main, p);
     if (!rect) return false;
-    const target = this.ensureTarget(p.renderer, p.width, p.height);
+    const target = this.ensureTarget(p.renderer, p.width, p.height, p.pixelBudget);
 
     // Same pose and lens as the main camera, restricted to the rectangle.
     const cam = this.camera;
@@ -200,13 +212,18 @@ export class PortalWindow {
     cam.zoom = main.zoom;
     cam.filmGauge = main.filmGauge;
     cam.filmOffset = main.filmOffset;
-    cam.layers.mask = main.layers.mask;
+    cam.layers.mask = main.layers.mask | p.extraLayers;
     cam.setViewOffset(p.width, p.height, rect.x, rect.y, rect.w, rect.h); // updates the projection
     cam.updateMatrixWorld();
     this.applyObliqueNearPlane(cam, p.planeZ);
 
-    const vw = Math.max(1, Math.min(target.width, Math.round(rect.w * p.scale)));
-    const vh = Math.max(1, Math.min(target.height, Math.round(rect.h * p.scale)));
+    // Resolution from the pixel budget: full while the opening is small on
+    // screen, down to a quarter as it fills the view (and within the target).
+    let scale = THREE.MathUtils.clamp(Math.sqrt(p.pixelBudget / Math.max(1, rect.w * rect.h)), 0.25, 1);
+    scale = Math.min(scale, target.width / rect.w, target.height / rect.h);
+    this.lastScale = scale;
+    const vw = Math.max(1, Math.min(target.width, Math.round(rect.w * scale)));
+    const vh = Math.max(1, Math.min(target.height, Math.round(rect.h * scale)));
     target.viewport.set(0, 0, vw, vh);
     target.scissor.set(0, 0, vw, vh);
     target.scissorTest = true;
@@ -222,7 +239,10 @@ export class PortalWindow {
     const prevAuto = shadow.autoUpdate;
     const prevNeeds = shadow.needsUpdate;
     shadow.autoUpdate = false;
-    shadow.needsUpdate = false;
+    // Near the gateway the next world's casters can be in the shadow frustum:
+    // draw this pass's own map (destination sun, current world hidden). The
+    // main pass redraws its map right after (autoUpdate is restored).
+    shadow.needsUpdate = p.shadows;
 
     // Hide (and later restore) everything that must not appear in the window.
     const hidden = this.hiddenState;

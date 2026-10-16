@@ -14,7 +14,7 @@ import { SettingsModal } from './components/SettingsModal';
 import { ProgressionModal } from './components/ProgressionModal';
 import { GameModesModal } from './components/GameModesModal';
 import { CompetitiveModal } from './components/CompetitiveModal';
-import { ToastStack, ToastItem } from './components/ToastStack';
+import { ToastStack, ToastItem, useCompactHud } from './components/ToastStack';
 import { AudioManager } from './game/audio';
 import { HEROES } from './game/heroes';
 import { ProgressionManager } from './game/progression';
@@ -22,6 +22,7 @@ import { CosmeticManager } from './game/cosmetics';
 import { GameModeManager } from './game/modes';
 import { SocialManager } from './game/social';
 import { liveStats, useLiveStats, useLiveStatsOnly } from './state/liveStats';
+import { StorageSanitizer } from './game/security/storageSanitizer';
 import { detectDeviceTier, graphicsConfigForTier } from './game/perf/deviceTier';
 import { preloadGameAssets } from './game/perf/preload';
 import {
@@ -75,10 +76,12 @@ const DEFAULT_SHADER_PARAMS: ShaderParams = {
   glitchIntensity: 0.0,
 };
 
-// Toasts: up to 3 on screen at once, extras wait their turn (bounded).
-const MAX_VISIBLE_TOASTS = 3;
+// Toasts: up to 2 on screen at once (1 on phones), extras wait their turn (bounded).
+const MAX_VISIBLE_TOASTS = 2;
+const MAX_VISIBLE_TOASTS_COMPACT = 1;
 const MAX_TOASTS_TOTAL = 8;
-const TOAST_DURATION_MS = 2400;
+const TOAST_DURATION_MS = 1800;
+const MUTED_STORAGE_KEY = 'skyflow_muted';
 // Resume countdown shown after closing a modal that was opened mid-run.
 const RESUME_COUNTDOWN_FROM = 3;
 const RESUME_COUNTDOWN_STEP_MS = 650;
@@ -273,7 +276,11 @@ export default function App() {
     }
   });
   const [isCinematicCam, setIsCinematicCam] = useState(false);
-  const [isMuted, setIsMuted] = useState(false);
+  const [isMuted, setIsMuted] = useState<boolean>(
+    () => StorageSanitizer.safeGetItem<boolean>(MUTED_STORAGE_KEY, false) === true
+  );
+  // The HUD's "More options" menu: pauses the run like any modal.
+  const [isHudMenuOpen, setIsHudMenuOpen] = useState(false);
   const [isPaused, setIsPaused] = useState(false);
   const [isGraphicsDrawerOpen, setIsGraphicsDrawerOpen] = useState(false);
   const [isDeliverablesOpen, setIsDeliverablesOpen] = useState(false);
@@ -358,11 +365,19 @@ export default function App() {
   const toastIdRef = useRef(0);
   const toastTimersRef = useRef<Map<number, number>>(new Map());
 
+  // True while the opening screen, pause/game-over screen, a modal or the HUD
+  // menu is up (assigned below, once those flags are known). Toasts fired
+  // during play are "run" toasts and wait while an overlay is up.
+  const overlayUpRef = useRef(true);
+  const isCompactHud = useCompactHud();
+  const maxVisibleToasts = isCompactHud ? MAX_VISIBLE_TOASTS_COMPACT : MAX_VISIBLE_TOASTS;
+
   // Queue a toast. A repeat of a message already shown/queued bumps its
   // counter and restarts its timer instead of taking another slot.
-  const triggerNotification = useCallback((msg: string) => {
+  const triggerNotification = useCallback((msg: string, fromRun?: boolean) => {
+    const run = fromRun ?? !overlayUpRef.current;
     setToasts(prev => {
-      const existing = prev.find(t => t.msg === msg);
+      const existing = prev.find(t => t.msg === msg && t.run === run);
       if (existing) {
         const timer = toastTimersRef.current.get(existing.id);
         if (timer !== undefined) {
@@ -371,27 +386,39 @@ export default function App() {
         }
         return prev.map(t => (t.id === existing.id ? { ...t, count: t.count + 1 } : t));
       }
-      const next = [...prev, { id: ++toastIdRef.current, msg, count: 1 }];
+      const next = [...prev, { id: ++toastIdRef.current, msg, count: 1, run }];
       // Drop the oldest *waiting* toast if the backlog grows too long.
       if (next.length > MAX_TOASTS_TOTAL) next.splice(MAX_VISIBLE_TOASTS, 1);
       return next;
     });
   }, []);
 
-  // Each toast's lifetime starts when it becomes visible.
-  useEffect(() => {
+  // Engine messages are always gameplay ("run") toasts, and the engine can
+  // still emit a few frames after the crash: none of those reach the
+  // game-over screen.
+  const isGameOverRef = useRef(false);
+  const handleEngineNotification = useCallback(
+    (msg: string) => {
+      if (isGameOverRef.current) return;
+      triggerNotification(msg, true);
+    },
+    [triggerNotification]
+  );
+
+  /** Drop toasts (all, or just the run ones) and their timers. */
+  const clearToasts = useCallback((runOnly: boolean) => {
     const timers = toastTimersRef.current;
-    for (const t of toasts.slice(0, MAX_VISIBLE_TOASTS)) {
-      if (timers.has(t.id)) continue;
-      timers.set(
-        t.id,
-        window.setTimeout(() => {
-          timers.delete(t.id);
-          setToasts(prev => prev.filter(x => x.id !== t.id));
-        }, TOAST_DURATION_MS)
-      );
-    }
-  }, [toasts]);
+    setToasts(prev => {
+      const keep = runOnly ? prev.filter(t => !t.run) : [];
+      for (const t of prev) {
+        if (keep.includes(t)) continue;
+        const timer = timers.get(t.id);
+        if (timer !== undefined) clearTimeout(timer);
+        timers.delete(t.id);
+      }
+      return keep.length === prev.length ? prev : keep;
+    });
+  }, []);
 
   useEffect(() => {
     const timers = toastTimersRef.current;
@@ -517,14 +544,15 @@ export default function App() {
 
 
   const handleToggleMute = useCallback(() => {
-    setIsMuted(prev => {
-      const next = !prev;
-      if (audioManagerRef.current) {
-        audioManagerRef.current.setMuted(next);
-      }
-      return next;
-    });
+    setIsMuted(prev => !prev);
   }, []);
+
+  // Keep the AudioManager (GameCanvas also syncs it on creation) and the saved
+  // preference in step with the toggle; the stored value is read on load.
+  useEffect(() => {
+    audioManagerRef.current?.setMuted(isMuted);
+    StorageSanitizer.safeSetItem(MUTED_STORAGE_KEY, isMuted);
+  }, [isMuted]);
 
   const handleUpdateConfig = useCallback((newConfig: Partial<GraphicsConfig>) => {
     setGraphicsConfig(prev => {
@@ -632,6 +660,12 @@ export default function App() {
   const handleGameOver = useCallback(() => {
     setIsGameOver(true);
     setResumeCountdown(0);
+    // The run summary takes over: drop the run's queued toasts (WIPEOUT,
+    // level-ups from the final XP...) so none draws over it; anything fired
+    // from here on is feedback for the game-over screen.
+    overlayUpRef.current = true;
+    isGameOverRef.current = true;
+    clearToasts(false);
     const finalStats = liveStats.getLiveStats();
     flushRunProgress();
     const runShards = finalStats.dataShardsCollected || 0;
@@ -656,7 +690,7 @@ export default function App() {
         } catch {}
         return next;
       });
-      triggerNotification(`💾 +${unbankedShards} Data Shards Banked!`);
+      // (No toast: the game-over screen shows the run's shards and the bank.)
     }
 
     // Submit to Social & Competitive Leaderboards
@@ -667,7 +701,7 @@ export default function App() {
       }
     }
     progressionMgrRef.current?.flushSave();
-  }, [triggerNotification, flushRunProgress]);
+  }, [clearToasts, flushRunProgress]);
 
   // Emergency Revive Handler: Deducts exactly 15 units of persistent currency
   const handleRevive = useCallback(() => {
@@ -713,11 +747,44 @@ export default function App() {
     isSettingsOpen ||
     isDatasetOpen ||
     isModesOpen ||
-    isCompetitiveOpen;
+    isCompetitiveOpen ||
+    isHudMenuOpen;
 
   // The 3D run is frozen whenever the pause menu, any modal or the resume
   // countdown is up; GameCanvas receives this as its isPaused flag.
   const isRunFrozen = isPaused || isAnyModalOpen || resumeCountdown > 0;
+
+  // Any full screen or menu over the run: run toasts wait, others show at the top edge.
+  const isOverlayUp = !hasStarted || isGameOver || isPaused || isAnyModalOpen;
+  overlayUpRef.current = isOverlayUp;
+  isGameOverRef.current = isGameOver;
+  const shownToasts = (isOverlayUp ? toasts.filter(t => !t.run) : toasts).slice(0, maxVisibleToasts);
+  const shownToastKey = shownToasts.map(t => t.id + ':' + t.count).join(',');
+
+  // Each toast's lifetime starts when it becomes visible; one that gets
+  // hidden (a menu opened over the run) gets a fresh lifetime when it returns.
+  useEffect(() => {
+    const timers = toastTimersRef.current;
+    const shownIds = new Set(shownToasts.map(t => t.id));
+    for (const [id, timer] of timers) {
+      if (!shownIds.has(id)) {
+        clearTimeout(timer);
+        timers.delete(id);
+      }
+    }
+    for (const t of shownToasts) {
+      if (timers.has(t.id)) continue;
+      timers.set(
+        t.id,
+        window.setTimeout(() => {
+          timers.delete(t.id);
+          setToasts(prev => prev.filter(x => x.id !== t.id));
+        }, TOAST_DURATION_MS)
+      );
+    }
+    // shownToastKey captures every change to shownToasts that matters here.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [shownToastKey]);
 
   const handleCloseProgression = useCallback(() => {
     setIsProgressionOpen(false);
@@ -735,6 +802,7 @@ export default function App() {
     setIsDatasetOpen(false);
     setIsModesOpen(false);
     setIsCompetitiveOpen(false);
+    setIsHudMenuOpen(false);
     handleCloseProgression();
   }, [handleCloseProgression]);
 
@@ -814,18 +882,28 @@ export default function App() {
     }
   }, []);
 
-  const handleStartGame = useCallback(() => {
+  /** Bookkeeping for a brand-new run (start, restart; not a revive). */
+  const beginNewRun = useCallback(() => {
     bankedThisRunRef.current = 0;
+    progressionMgrRef.current?.markRunStart();
+    clearToasts(true);
+    setIsHudMenuOpen(false);
+    setResumeCountdown(0);
+    setRestartCount(c => c + 1);
+  }, [clearToasts]);
+
+  const handleStartGame = useCallback(() => {
     setHasStarted(true);
     setIsGameOver(false);
     setIsPaused(false);
-    setResumeCountdown(0);
-    setRestartCount((c) => c + 1);
-  }, []);
+    beginNewRun();
+  }, [beginNewRun]);
 
   const handleQuitToMenu = useCallback(() => {
     flushRunProgress();
     progressionMgrRef.current?.flushSave();
+    clearToasts(true);
+    setIsHudMenuOpen(false);
     bankedThisRunRef.current = 0;
     setIsPaused(false);
     setResumeCountdown(0);
@@ -906,7 +984,7 @@ export default function App() {
             isUpright={isUprightMode}
             isPaused={isRunFrozen}
             isMuted={isMuted}
-            onNotification={triggerNotification}
+            onNotification={handleEngineNotification}
             onGameOver={handleGameOver}
             onRequestPause={pauseRun}
             restartTrigger={restartCount}
@@ -940,6 +1018,8 @@ export default function App() {
             onPause={() => (isPaused ? resumeRun() : pauseRun())}
             gameModeMgr={gameModeMgrRef.current || undefined}
             notification={null /* toasts render in <ToastStack> */}
+            isMenuOpen={isHudMenuOpen}
+            onMenuOpenChange={setIsHudMenuOpen}
           />
 
           {/* On-Screen Touch & Keybind Controls */}
@@ -1017,10 +1097,8 @@ export default function App() {
           isOpen={isPaused}
           onResume={resumeRun}
           onRestart={() => {
-            bankedThisRunRef.current = 0;
             setIsPaused(false);
-            setResumeCountdown(0);
-            setRestartCount(c => c + 1);
+            beginNewRun();
           }}
           onOpenCosmetics={() => handleOpenShop('boards')}
           onOpenGraphics={() => setIsSettingsOpen(true)}
@@ -1045,9 +1123,8 @@ export default function App() {
           onOpenCompetitive={() => setIsCompetitiveOpen(true)}
           onClaimMission={handleClaimMission}
           onRestart={() => {
-            bankedThisRunRef.current = 0;
             setIsGameOver(false);
-            setRestartCount(c => c + 1);
+            beginNewRun();
           }}
           onRevive={handleRevive}
           onOpenShop={() => handleOpenShop('boards')}
@@ -1123,7 +1200,7 @@ export default function App() {
       )}
 
       {/* Stacked notification toasts */}
-      <ToastStack toasts={toasts.slice(0, MAX_VISIBLE_TOASTS)} />
+      <ToastStack toasts={shownToasts} placement={isOverlayUp ? 'overlay' : 'run'} />
     </div>
   );
 }

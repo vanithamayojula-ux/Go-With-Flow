@@ -23,13 +23,17 @@ const SMALL_BUDGET_MS = 2;
 const inFlight = new WeakSet<THREE.Texture>();
 
 // Token bucket shared by all uploaders (world and gateway upload together).
-const rate = { allowance: BURST_BYTES, last: 0, backoffUntil: 0 };
+// `boost` multiplies rate, burst and slices per frame while the start-up
+// warm-up holds the rider (nothing else is drawn then; the run's opening
+// world must be on the GPU within ~1-2 s, not trickle up over 5 s).
+const rate = { allowance: BURST_BYTES, last: 0, backoffUntil: 0, boost: 1 };
 
 function takeBytes(bytes: number, now: number): boolean {
   if (now < rate.backoffUntil) return false;
-  rate.allowance = Math.min(BURST_BYTES, rate.allowance + ((now - rate.last) * BYTES_PER_SECOND) / 1000);
+  const burst = BURST_BYTES * rate.boost;
+  rate.allowance = Math.min(burst, rate.allowance + ((now - rate.last) * BYTES_PER_SECOND * rate.boost) / 1000);
   rate.last = now;
-  if (rate.allowance < Math.min(bytes, BURST_BYTES)) return false;
+  if (rate.allowance < Math.min(bytes, burst)) return false;
   rate.allowance -= bytes;
   return true;
 }
@@ -68,6 +72,11 @@ export class TextureUploader {
     this.renderer = renderer;
     const gl = renderer.getContext();
     this.gl = typeof WebGL2RenderingContext !== 'undefined' && gl instanceof WebGL2RenderingContext ? gl : null;
+  }
+
+  /** Start-up: upload faster (see `rate.boost`); 1 restores the in-run rate. */
+  static setBoost(factor: number): void {
+    rate.boost = Math.max(1, factor);
   }
 
   get pending(): number {
@@ -137,7 +146,7 @@ export class TextureUploader {
       noteCall(after - now, after);
       if (bytes > 64 * 64 * 4) return; // one large whole upload per frame
     }
-    let budget = SLICES_PER_FRAME;
+    let budget = SLICES_PER_FRAME * rate.boost;
     while (budget > 0 && this.slices.length > 0) {
       const now = performance.now();
       if (!takeBytes(SLICE_BYTES, now)) return;

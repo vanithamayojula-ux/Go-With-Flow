@@ -77,8 +77,27 @@ function selectPortalCountdown(snap: LiveStatsSnapshot): string {
  * "PORTAL -> <next world> . 350 m" on every screen size in the last ~600 m
  * before a portal gateway; otherwise (desktop only) the next world's name.
  */
-const PortalCountdownChip: React.FC<{ currentWorldId: WorldId }> = ({ currentWorldId }) => {
+const PortalCountdownChip: React.FC<{ currentWorldId: WorldId; compact?: boolean }> = ({ currentWorldId, compact = false }) => {
   const countdown = useLiveStatsSelector(selectPortalCountdown);
+  if (compact) {
+    // Phone row: "◖ 350 m" in the next world's colour.
+    if (!countdown) return null;
+    const [idx, metres] = countdown.split('|');
+    const nextId = WORLD_ORDER[Number(idx)];
+    const info = WORLD_SECTOR_INFO[nextId];
+    return (
+      <div
+        role="status"
+        aria-live="off"
+        aria-label={`Portal to ${WORLDS[nextId].name} in ${metres} metres`}
+        title={`Portal to ${WORLDS[nextId].name}`}
+        className={`shrink-0 flex px-1.5 py-1 rounded-md bg-black/80 border text-xs font-bold items-center gap-1 whitespace-nowrap ${info.border}`}
+      >
+        <span className={`w-2 h-2 rounded-full ${info.swatch}`} aria-hidden="true" />
+        <span className="text-white tabular-nums">{metres} m</span>
+      </div>
+    );
+  }
   if (countdown) {
     const [idx, metres] = countdown.split('|');
     const nextId = WORLD_ORDER[Number(idx)];
@@ -101,7 +120,7 @@ const PortalCountdownChip: React.FC<{ currentWorldId: WorldId }> = ({ currentWor
   const nextId = WORLD_ORDER[WORLD_ORDER.indexOf(currentWorldId) + 1];
   if (!nextId) return null;
   return (
-    <div className="hidden sm:flex px-2.5 py-1.5 rounded-lg bg-black/75 border border-slate-700 text-xs font-bold items-center gap-1.5 shadow-md whitespace-nowrap">
+    <div className="hidden sm:flex compact:hidden px-2.5 py-1.5 rounded-lg bg-black/75 border border-slate-700 text-xs font-bold items-center gap-1.5 shadow-md whitespace-nowrap">
       <span className="text-[9px] text-slate-400 font-bold uppercase">NEXT:</span>
       <div className={`w-2.5 h-2.5 rounded-full ${WORLD_SECTOR_INFO[nextId].swatch}`} />
       <span className="text-slate-200">{WORLDS[nextId].name}</span>
@@ -137,6 +156,12 @@ interface GameHUDProps {
   onPause?: () => void;
   gameModeMgr?: import('../game/modes').GameModeManager;
   notification: string | null;
+  /**
+   * "More options" menu state, owned by App so an open menu pauses the run
+   * (and closing it resumes with the countdown). Local state when omitted.
+   */
+  isMenuOpen?: boolean;
+  onMenuOpenChange?: (open: boolean) => void;
 }
 
 const GameHUDView: React.FC<GameHUDProps> = ({
@@ -162,6 +187,8 @@ const GameHUDView: React.FC<GameHUDProps> = ({
   onPause,
   gameModeMgr,
   notification,
+  isMenuOpen: isMenuOpenProp,
+  onMenuOpenChange,
 }) => {
   const live = useLiveStats();
   const stats = statsProp ?? live.stats;
@@ -169,7 +196,17 @@ const GameHUDView: React.FC<GameHUDProps> = ({
   const drawCalls = drawCallsProp ?? live.drawCalls;
   const instanceCount = instanceCountProp ?? live.instances;
   const [showDevInspector, setShowDevInspector] = useState(false);
-  const [isMenuOpen, setIsMenuOpen] = useState(false);
+  const [localMenuOpen, setLocalMenuOpen] = useState(false);
+  const isMenuOpen = isMenuOpenProp ?? localMenuOpen;
+  const setIsMenuOpen = (open: boolean) => {
+    if (onMenuOpenChange) onMenuOpenChange(open);
+    else setLocalMenuOpen(open);
+  };
+  // Standing at the start line (start-up warm-up): not moving yet.
+  const isHolding = !!stats.isHolding;
+  const displaySpeed = isHolding ? 0 : stats.speed;
+  const runShards = stats.dataShardsCollected || stats.windOrbsCollected || 0;
+  const sectorInfo = stats.currentWorldId ? WORLD_SECTOR_INFO[stats.currentWorldId] : undefined;
 
   const getOverdriveTierColor = (tier: string) => {
     switch (tier) {
@@ -239,27 +276,45 @@ const GameHUDView: React.FC<GameHUDProps> = ({
     action?.();
   };
 
-  const toolButton = 'min-h-[40px] min-w-[40px] p-2 flex items-center justify-center rounded-lg border transition-all active:scale-95 shadow-md';
+  const toolButton =
+    'min-h-[40px] min-w-[40px] p-2 compact:min-h-[36px] compact:min-w-[36px] compact:p-1.5 flex items-center justify-center rounded-lg border transition-all active:scale-95 shadow-md';
+  // Phone HUD tiles: one row of 12 px values with 9 px labels.
+  const tile = 'shrink-0 rounded-lg bg-slate-950/90 border flex items-center shadow-sm whitespace-nowrap';
   const menuItem = 'w-full min-h-[40px] px-2.5 py-2 flex items-center gap-2 rounded-lg text-left text-xs font-bold transition-all active:scale-[0.98]';
+  // Menu entries only phones need (their toolbar buttons are hidden there).
+  const compactMenuItem = menuItem.replace(' flex ', ' hidden compact:flex ');
 
   return (
     <div
       id="game-hud-root"
-      className="pointer-events-none absolute inset-0 z-20 flex flex-col justify-between pt-[max(0.75rem,env(safe-area-inset-top))] pl-[max(0.75rem,env(safe-area-inset-left))] pr-[max(0.75rem,env(safe-area-inset-right))] pb-3 sm:pt-[max(1.25rem,env(safe-area-inset-top))] sm:pl-[max(1.25rem,env(safe-area-inset-left))] sm:pr-[max(1.25rem,env(safe-area-inset-right))] select-none font-mono"
+      className="pointer-events-none absolute inset-0 z-20 flex flex-col justify-between pt-[max(0.75rem,env(safe-area-inset-top))] pl-[max(0.75rem,env(safe-area-inset-left))] pr-[max(0.75rem,env(safe-area-inset-right))] pb-3 sm:pt-[max(1.25rem,env(safe-area-inset-top))] sm:pl-[max(1.25rem,env(safe-area-inset-left))] sm:pr-[max(1.25rem,env(safe-area-inset-right))] compact:pt-[max(0.5rem,env(safe-area-inset-top))] compact:pl-[max(0.5rem,env(safe-area-inset-left))] compact:pr-[max(0.5rem,env(safe-area-inset-right))] select-none font-mono"
     >
       {/* Subtle Cinematic World Introduction Banner */}
       <MemoWorldIntroBanner worldId={stats.currentWorldId || 'sky-isles'} />
 
+      {/* Start-line hold: compact top-centre pill (fades in late, so a
+          one-frame hold on a restart never flashes). */}
+      {isHolding && (
+        <div
+          role="status"
+          className="gwf-pill-in-delayed absolute left-1/2 -translate-x-1/2 z-10 top-[calc(max(1.25rem,env(safe-area-inset-top))+3.25rem)] compact:top-[calc(max(0.5rem,env(safe-area-inset-top))+4.75rem)] px-3 py-px rounded-full bg-black/70 border border-white/15 text-[11px] font-semibold text-slate-100 tracking-wide whitespace-nowrap shadow-md"
+        >
+          Preparing worlds…
+        </div>
+      )}
+
       {/*
-        Top bar. Phones/tablets: the overdrive meter spans the first row, then
-        stats on the left and a compact toolbar on the right. Desktop (lg+):
-        stats | overdrive | toolbar in one row.
+        Top bar. Tablets: the overdrive meter spans the first row, then stats
+        on the left and the toolbar on the right. Desktop (lg+): stats |
+        overdrive | toolbar in one row. Phones (compact): one row of score,
+        distance, speed and portal chip next to Pause/More, with a slim
+        overdrive bar under it; everything else lives in the More menu.
       */}
-      <div className="flex flex-wrap items-start justify-between gap-x-3 gap-y-2 w-full lg:grid lg:grid-cols-[minmax(0,1fr)_20rem_minmax(0,1fr)] xl:grid-cols-[minmax(0,1fr)_24rem_minmax(0,1fr)]">
+      <div className="flex flex-wrap items-start justify-between gap-x-3 gap-y-2 compact:gap-x-1 compact:gap-y-1 w-full lg:grid lg:grid-cols-[minmax(0,1fr)_20rem_minmax(0,1fr)] xl:grid-cols-[minmax(0,1fr)_24rem_minmax(0,1fr)] compact:flex">
         {/* Left: Run Telemetry */}
-        <div className="order-2 lg:order-1 flex flex-col gap-2 min-w-0 flex-1">
+        <div className="order-2 lg:order-1 compact:order-1 flex flex-col gap-2 compact:gap-1 min-w-0 flex-1">
           {/* Logo & Zone Indicator */}
-          <div className="flex items-center gap-2 pointer-events-auto flex-wrap">
+          <div className="flex items-center gap-2 pointer-events-auto flex-wrap compact:hidden">
             <div className="hidden sm:flex items-center gap-2 px-3 py-1.5 rounded-lg bg-black/80 border border-cyan-500/50 shadow-lg shadow-cyan-950/40">
               <div className="w-2.5 h-2.5 rounded-sm bg-cyan-400 animate-pulse shadow-md shadow-cyan-400" />
               <span className="font-black text-sm tracking-widest text-cyan-300 whitespace-nowrap">GO WITH FLOW</span>
@@ -311,7 +366,7 @@ const GameHUDView: React.FC<GameHUDProps> = ({
           {gameModeMgr && gameModeMgr.activeModeId !== 'standard-run' && (() => {
             const m = gameModeMgr.activeMode.getHudMetrics();
             return (
-              <div className="flex items-center gap-2 pointer-events-auto flex-wrap">
+              <div className="flex items-center gap-2 compact:gap-1 pointer-events-auto flex-wrap compact:order-last compact:[&>div]:py-0.5 compact:[&>div]:px-1.5">
                 <div className="px-3 py-1.5 rounded-lg bg-slate-950/90 border border-amber-500/40 text-amber-300 flex items-center gap-2 shadow-sm">
                   <span className="text-[9px] text-amber-400 font-bold uppercase tracking-wider">{m.primaryLabel}</span>
                   <span className="text-base font-black font-mono tracking-tight text-white">{m.primaryValue}</span>
@@ -330,13 +385,33 @@ const GameHUDView: React.FC<GameHUDProps> = ({
             );
           })()}
 
+          {/* Phones: one row of essentials (score, distance, speed, portal) */}
+          <div className="hidden compact:flex items-center gap-1 min-w-0 overflow-hidden pointer-events-auto">
+            <div className={`${tile} px-1.5 py-1 gap-1 border-fuchsia-500/40`} title="Score">
+              <span className="text-[9px] text-fuchsia-300 font-bold uppercase">SCORE</span>
+              <span className="text-xs font-bold tabular-nums text-white">{Math.floor(stats.score).toLocaleString()}</span>
+              {stats.scoreMultiplier > 1 && (
+                <span className="px-1 rounded bg-fuchsia-600 text-white text-[9px] font-bold">x{stats.scoreMultiplier}</span>
+              )}
+            </div>
+            <div className={`${tile} px-1.5 py-1 border-slate-600`} title="Distance">
+              <span className="text-xs font-bold tabular-nums text-slate-100">{Math.floor(stats.distance)}</span>
+              <span className="ml-0.5 text-[9px] text-slate-400 font-bold">m</span>
+            </div>
+            <div className={`${tile} px-1.5 py-1 border-cyan-500/40`} title="Speed">
+              <span className="text-xs font-bold tabular-nums text-white">{displaySpeed}</span>
+              <span className="ml-0.5 text-[9px] text-cyan-300 font-bold">km/h</span>
+            </div>
+            <PortalCountdownChip currentWorldId={stats.currentWorldId || 'sky-isles'} compact />
+          </div>
+
           {/* Core Metrics: Speed, Score, Shards, Distance */}
-          <div className="flex items-center gap-1.5 sm:gap-2 pointer-events-auto flex-wrap">
+          <div className="flex items-center gap-1.5 sm:gap-2 pointer-events-auto flex-wrap compact:hidden">
             {/* Speedometer */}
             <div className="px-2.5 sm:px-3 py-1.5 rounded-lg bg-slate-950/90 border border-cyan-500/30 text-cyan-300 flex items-center gap-1.5 sm:gap-2 shadow-sm whitespace-nowrap">
               <span className="text-[9px] text-cyan-300 font-bold uppercase tracking-wider">SPEED</span>
               <span className="text-sm sm:text-base font-black font-mono tracking-tight text-white">
-                {stats.speed} <span className="text-[10px] text-cyan-300 font-normal">KM/H</span>
+                {displaySpeed} <span className="text-[10px] text-cyan-300 font-normal">KM/H</span>
               </span>
             </div>
 
@@ -365,7 +440,7 @@ const GameHUDView: React.FC<GameHUDProps> = ({
             <div className="px-2.5 py-1.5 rounded-lg bg-slate-950/90 border border-cyan-500/30 text-cyan-300 flex items-center gap-1.5 shadow-sm" title="Shards collected this run">
               <span className="text-xs">💎</span>
               <span className="text-xs font-bold text-cyan-100">
-                +{stats.dataShardsCollected || stats.windOrbsCollected || 0}
+                +{runShards}
               </span>
             </div>
 
@@ -384,16 +459,16 @@ const GameHUDView: React.FC<GameHUDProps> = ({
             </div>
           </div>
 
-          {/* Active Power-Ups Strip with Live Countdown Gauges */}
-          <div className="flex items-center gap-2 pointer-events-auto flex-wrap">
+          {/* Active Power-Ups Strip with Live Countdown Gauges (icons + seconds on phones) */}
+          <div className="flex items-center gap-2 compact:gap-1 pointer-events-auto flex-wrap empty:hidden">
             {stats.activePowerUps?.magnetTimer > 0 && (() => {
               const maxDur = stats.activePowerUps.magnetMaxDuration || 10;
               const pct = Math.min(100, Math.max(0, (stats.activePowerUps.magnetTimer / maxDur) * 100));
               return (
-                <div className="flex flex-col px-2.5 py-1 rounded-lg bg-black/85 border border-cyan-400 text-white text-[10px] shadow-lg shadow-cyan-950/40">
+                <div className="flex flex-col px-2.5 py-1 compact:px-1.5 compact:py-0.5 rounded-lg bg-black/85 border border-cyan-400 text-white text-[10px] shadow-lg shadow-cyan-950/40">
                   <div className="flex items-center gap-1.5 font-bold">
                     <span className="animate-pulse">🧲</span>
-                    <span className="text-cyan-300">MAGNET</span>
+                    <span className="text-cyan-300 compact:hidden">MAGNET</span>
                     <span className="font-mono text-white ml-auto">{stats.activePowerUps.magnetTimer.toFixed(1)}s</span>
                   </div>
                   <div className="w-full h-1 bg-slate-800 rounded-full mt-1 overflow-hidden">
@@ -407,10 +482,10 @@ const GameHUDView: React.FC<GameHUDProps> = ({
               const maxDur = stats.activePowerUps.jetpackMaxDuration || 7;
               const pct = Math.min(100, Math.max(0, (stats.activePowerUps.jetpackTimer / maxDur) * 100));
               return (
-                <div className="flex flex-col px-2.5 py-1 rounded-lg bg-black/85 border border-fuchsia-400 text-white text-[10px] shadow-lg shadow-fuchsia-950/40">
+                <div className="flex flex-col px-2.5 py-1 compact:px-1.5 compact:py-0.5 rounded-lg bg-black/85 border border-fuchsia-400 text-white text-[10px] shadow-lg shadow-fuchsia-950/40">
                   <div className="flex items-center gap-1.5 font-bold">
                     <span className="animate-bounce">🚀</span>
-                    <span className="text-fuchsia-300">JETPACK</span>
+                    <span className="text-fuchsia-300 compact:hidden">JETPACK</span>
                     <span className="font-mono text-white ml-auto">{stats.activePowerUps.jetpackTimer.toFixed(1)}s</span>
                   </div>
                   <div className="w-full h-1 bg-slate-800 rounded-full mt-1 overflow-hidden">
@@ -424,10 +499,10 @@ const GameHUDView: React.FC<GameHUDProps> = ({
               const maxDur = stats.activePowerUps.multiplierMaxDuration || 12;
               const pct = Math.min(100, Math.max(0, (stats.activePowerUps.multiplierTimer / maxDur) * 100));
               return (
-                <div className="flex flex-col px-2.5 py-1 rounded-lg bg-black/85 border border-amber-400 text-white text-[10px] shadow-lg shadow-amber-950/40">
+                <div className="flex flex-col px-2.5 py-1 compact:px-1.5 compact:py-0.5 rounded-lg bg-black/85 border border-amber-400 text-white text-[10px] shadow-lg shadow-amber-950/40">
                   <div className="flex items-center gap-1.5 font-bold">
                     <span className="animate-spin">⚡</span>
-                    <span className="text-amber-300">2X BOOST</span>
+                    <span className="text-amber-300 compact:hidden">2X BOOST</span>
                     <span className="font-mono text-white ml-auto">{stats.activePowerUps.multiplierTimer.toFixed(1)}s</span>
                   </div>
                   <div className="w-full h-1 bg-slate-800 rounded-full mt-1 overflow-hidden">
@@ -438,19 +513,19 @@ const GameHUDView: React.FC<GameHUDProps> = ({
             })()}
 
             {stats.activePowerUps?.hoverboardShield && (
-              <div className="flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-emerald-950/80 border border-emerald-400 text-white text-[10px] font-bold shadow-md shadow-emerald-950/40 animate-pulse">
+              <div title="Shield on" className="flex items-center gap-1.5 px-2.5 py-1 compact:px-1.5 compact:py-0.5 rounded-lg bg-emerald-950/80 border border-emerald-400 text-white text-[10px] font-bold shadow-md shadow-emerald-950/40 animate-pulse">
                 <span>🛡️</span>
-                <span className="text-emerald-300 uppercase tracking-wide">SHIELD ON</span>
+                <span className="text-emerald-300 uppercase tracking-wide compact:hidden">SHIELD ON</span>
               </div>
             )}
           </div>
         </div>
 
         {/* Center: Overdrive Gauge & Trick Banner (full-width first row on small screens) */}
-        <div className="order-1 lg:order-2 basis-full lg:basis-auto shrink-0 flex flex-col items-center">
+        <div className="order-1 lg:order-2 compact:order-3 basis-full lg:basis-auto shrink-0 flex flex-col items-center compact:relative">
           {/* Active Trick / Combo Banner */}
           {stats.activeTrickName && (
-            <div className={`mb-2 px-3.5 py-1 rounded-full border text-xs font-black flex items-center gap-2 transition-all ${getComboBadgeColor(stats.combo)}`}>
+            <div className={`mb-2 px-3.5 py-1 rounded-full border text-xs font-black flex items-center gap-2 transition-all whitespace-nowrap compact:absolute compact:mb-0 compact:top-[calc(100%+2.5rem)] compact:left-1/2 compact:-translate-x-1/2 ${getComboBadgeColor(stats.combo)}`}>
               <Zap className="w-3.5 h-3.5 animate-spin" />
               <span>{stats.activeTrickName}</span>
               {stats.combo > 1 && (
@@ -469,8 +544,11 @@ const GameHUDView: React.FC<GameHUDProps> = ({
           )}
 
           {/* OVERDRIVE Segmented Meter */}
-          <div className="w-full pointer-events-auto bg-black/85 border border-cyan-500/40 rounded-xl p-2 shadow-lg shadow-cyan-950/30">
-            <div className="flex items-center justify-between text-xs mb-1 px-1">
+          <div
+            className="w-full pointer-events-auto bg-black/85 border border-cyan-500/40 rounded-xl p-2 shadow-lg shadow-cyan-950/30 compact:p-0 compact:bg-transparent compact:border-0 compact:shadow-none"
+            title={`Overdrive ${overdrivePercent}% (${stats.overdriveTier || "Charged"})`}
+          >
+            <div className="flex items-center justify-between text-xs mb-1 px-1 compact:hidden">
               <div className="flex items-center gap-1.5">
                 <span className="text-cyan-300 font-bold text-[10px] tracking-wider">OVERDRIVE</span>
                 <span className={`text-[9px] px-1.5 py-0.5 rounded font-black uppercase border ${getOverdriveTierColor(stats.overdriveTier || 'Charged')}`}>
@@ -483,7 +561,7 @@ const GameHUDView: React.FC<GameHUDProps> = ({
             </div>
 
             {/* Segmented Bar */}
-            <div className="w-full h-2 bg-slate-900 rounded-full overflow-hidden p-0.5 border border-cyan-500/30">
+            <div className="w-full h-2 bg-slate-900 rounded-full overflow-hidden p-0.5 border border-cyan-500/30 compact:h-1 compact:p-0 compact:border-0 compact:bg-black/60">
               <div
                 className={`h-full rounded-full transition-all duration-200 ${getOverdriveTierColor(stats.overdriveTier || 'Charged')}`}
                 style={{ width: `${Math.max(4, overdrivePercent)}%` }}
@@ -493,7 +571,7 @@ const GameHUDView: React.FC<GameHUDProps> = ({
         </div>
 
         {/* Right: compact toolbar (Pause, Shield, Mute) + menu with the rest */}
-        <div className="order-3 shrink-0 relative flex items-start gap-1.5 pointer-events-auto lg:justify-self-end">
+        <div className="order-3 compact:order-2 shrink-0 relative flex items-start gap-1.5 compact:gap-1 pointer-events-auto lg:justify-self-end">
           {/* Pause / Standby Button */}
           {onPause && (
             <button
@@ -509,7 +587,7 @@ const GameHUDView: React.FC<GameHUDProps> = ({
           {/* Shield Deploy Button */}
           <button
             onClick={onActivateShield}
-            className={`${toolButton} ${
+            className={`${toolButton} compact:hidden ${
               stats.activePowerUps?.hoverboardShield
                 ? 'bg-emerald-500/20 border-emerald-400 text-emerald-300 shadow-emerald-500/20'
                 : 'bg-black/70 border-slate-700 text-slate-300 hover:text-white'
@@ -523,7 +601,7 @@ const GameHUDView: React.FC<GameHUDProps> = ({
           {/* Mute Audio */}
           <button
             onClick={onToggleMute}
-            className={`${toolButton} ${
+            className={`${toolButton} compact:hidden ${
               isMuted
                 ? 'bg-red-500/20 border-red-500 text-red-400'
                 : 'bg-black/70 border-slate-700 text-slate-300 hover:text-white'
@@ -536,7 +614,7 @@ const GameHUDView: React.FC<GameHUDProps> = ({
 
           {/* More: camera, lighting, bays and debug tools */}
           <button
-            onClick={() => setIsMenuOpen(open => !open)}
+            onClick={() => setIsMenuOpen(!isMenuOpen)}
             className={`${toolButton} ${
               isMenuOpen
                 ? 'bg-cyan-500/20 border-cyan-400 text-cyan-200'
@@ -556,8 +634,40 @@ const GameHUDView: React.FC<GameHUDProps> = ({
               <div className="fixed inset-0 z-30" onClick={() => setIsMenuOpen(false)} aria-hidden="true" />
               <div
                 role="menu"
-                className="absolute right-0 top-full mt-2 z-40 w-60 max-w-[calc(100vw-1.5rem)] max-h-[calc(100dvh-6rem)] overflow-y-auto p-2 rounded-xl bg-black/95 border border-cyan-500/40 shadow-xl shadow-cyan-950/40 flex flex-col gap-1"
+                className="absolute right-0 top-full mt-2 z-40 w-60 max-w-[calc(100vw-1.5rem)] max-h-[calc(100dvh-6rem)] compact:max-h-[calc(100dvh-4rem)] overflow-y-auto p-2 rounded-xl bg-black/95 border border-cyan-500/40 shadow-xl shadow-cyan-950/40 flex flex-col gap-1"
               >
+                {/* Phones: the run details and buttons the one-row HUD leaves out */}
+                <div className="hidden compact:flex flex-col gap-1 px-2.5 pt-1 pb-1.5 text-[11px] text-slate-300 border-b border-white/10 mb-1">
+                  {sectorInfo && (
+                    <div className={`font-bold ${sectorInfo.text}`}>
+                      {sectorInfo.icon} Sector {sectorInfo.sector}/5 · {WORLDS[stats.currentWorldId as WorldId]?.name ?? sectorInfo.name}
+                    </div>
+                  )}
+                  <div className="flex flex-wrap gap-x-3 gap-y-0.5 tabular-nums">
+                    <span>💎 +{runShards} run</span>
+                    <span>Bank {bankedShards.toLocaleString()}</span>
+                    <span>Best {stats.highScore > 0 ? Math.floor(stats.highScore).toLocaleString() : '0'}</span>
+                    <span>Overdrive {overdrivePercent}%</span>
+                  </div>
+                </div>
+                <button
+                  role="menuitem"
+                  onClick={closeMenuAnd(onToggleMute)}
+                  className={`${compactMenuItem} ${isMuted ? 'bg-red-500/15 text-red-300' : 'text-slate-200 hover:bg-white/10'}`}
+                >
+                  {isMuted ? <VolumeX className="w-4 h-4 shrink-0" /> : <Volume2 className="w-4 h-4 shrink-0" />}
+                  <span>{isMuted ? 'Sound off (tap to unmute)' : 'Sound on (tap to mute)'}</span>
+                </button>
+                {onActivateShield && (
+                  <button
+                    role="menuitem"
+                    onClick={closeMenuAnd(onActivateShield)}
+                    className={`${compactMenuItem} ${stats.activePowerUps?.hoverboardShield ? 'bg-emerald-500/15 text-emerald-200' : 'text-slate-200 hover:bg-white/10'}`}
+                  >
+                    <Shield className="w-4 h-4 shrink-0" />
+                    <span>{stats.activePowerUps?.hoverboardShield ? 'Shield on' : 'Deploy shield (or double-tap Jump)'}</span>
+                  </button>
+                )}
                 <button
                   role="menuitem"
                   onClick={closeMenuAnd(onToggleCam)}

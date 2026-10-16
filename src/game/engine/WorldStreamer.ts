@@ -55,6 +55,12 @@ interface WorldSlot {
   world: StreamableWorld;
   /** Objects the constructor added straight to the scene (world roots). */
   roots: THREE.Object3D[];
+  /**
+   * One Layers object shared by every object of the world (assigned as the
+   * objects are added, see tagLayers): moving the whole world to another
+   * layer is a single mask change, never a traversal.
+   */
+  layers: THREE.Layers;
   /** Implements setStreamRange: may be updated (and seen) before its boundary. */
   streaming: boolean;
   /** Not drawn (roots invisible). */
@@ -79,10 +85,30 @@ interface RetiredWorld {
 // so building, compiling and uploading it finish long before any of it can
 // be seen (scenery only fades in within ~430 m of the rider).
 export const NEXT_WORLD_LEAD = 900;
+/**
+ * Layer of the next world: the main camera never enables it, only the portal
+ * window's camera does, so the next world is seen THROUGH its gateway only
+ * (and in its own light), never around the arch in the current world's.
+ * The current world is on layer 0; on the crossing frame the next world's
+ * layer becomes 0 and the old world's RETIRED_LAYER (drawn by no camera).
+ */
+export const NEXT_WORLD_LAYER = 2;
+const RETIRED_LAYER = 3;
+/**
+ * The current world keeps streaming its scenery this far past its gateway
+ * (main pass only): around the arch the view continues in the current world
+ * while the opening shows the next one. Covers the far fade band (~760 m
+ * ahead) from ~150 m before the gateway.
+ */
+export const CURRENT_WORLD_OVERRUN = 650;
 // Below this distance to the gateway the next world's scenery may be on
 // screen, so it can no longer be hidden to recompile it.
 const VISIBLE_RANGE = 480;
 const WARMUP_BUDGET_MS = 4;
+// Frames the next world waits for its scanned assets before compiling anyway.
+const ASSET_WAIT_FRAMES = 240;
+// Scenery the start-up warm-up spawns for each throw-away world (from its start).
+const PREWARM_SPAN = 120;
 const TEXTURE_KEYS = [
   'map', 'normalMap', 'roughnessMap', 'metalnessMap', 'aoMap', 'emissiveMap', 'alphaMap',
   'bumpMap', 'displacementMap', 'lightMap', 'specularMap', 'clearcoatNormalMap',
@@ -105,6 +131,33 @@ function worldEnd(index: number): number {
 
 function setRootsVisible(slot: WorldSlot, visible: boolean): void {
   for (const r of slot.roots) r.visible = visible;
+}
+
+/** Stream range of a world: its own span, plus the overrun while it is current. */
+function streamRange(index: number, current: boolean): [number, number] {
+  const end = worldEnd(index);
+  return [worldStart(index), current && Number.isFinite(end) ? end + CURRENT_WORLD_OVERRUN : end];
+}
+
+const LAYER_LISTENER = Symbol('gwfLayerListener');
+type ChildAddedListener = (e: { child: THREE.Object3D }) => void;
+
+/**
+ * Give `root` and all its descendants the world's shared Layers object, now
+ * and for anything added under them later (pools, chunks, atmosphere...).
+ */
+function tagLayers(root: THREE.Object3D, layers: THREE.Layers): void {
+  const onAdded: ChildAddedListener = e => {
+    if (e.child) tagLayers(e.child, layers);
+  };
+  root.traverse(o => {
+    o.layers = layers;
+    const anyO = o as unknown as Record<symbol, ChildAddedListener | undefined>;
+    if (!anyO[LAYER_LISTENER]) {
+      anyO[LAYER_LISTENER] = onAdded;
+      (o as unknown as { addEventListener(t: string, l: ChildAddedListener): void }).addEventListener('childadded', onAdded);
+    }
+  });
 }
 
 /**
@@ -188,7 +241,41 @@ export class WorldStreamer {
     this.current = this.create(worldId, graphicsConfig, false);
   }
 
-  private create(id: WorldId, graphicsConfig: GraphicsConfig, ahead: boolean): WorldSlot {
+  /**
+   * Run a slice of the current world's deferred construction (start-up, so
+   * the first frames never build a whole world at once). True once built.
+   */
+  warmCurrent(budgetMs: number): boolean {
+    const c = this.current;
+    if (!c || !c.world.warmup) return true;
+    try {
+      return c.world.warmup(budgetMs);
+    } catch (err) {
+      console.warn(`[WorldStreamer] warm-up failed for ${c.id}:`, err);
+      return true;
+    }
+  }
+
+  /** The current world's scanned assets are in (or it gave up / has none). */
+  get currentAssetsSettled(): boolean {
+    return !this.current || this.current.prepared;
+  }
+
+  /**
+   * Queue the current world's textures for (sliced, rate limited) upload and
+   * upload a few; returns how many are still pending. Start-up only: without
+   * it the first draw of the world uploads them all synchronously at once.
+   */
+  pumpCurrentUploads(): number {
+    const c = this.current;
+    const up = this.uploader;
+    if (!c || !up) return 0;
+    this.queueTextures(c);
+    up.pump();
+    return up.pending;
+  }
+
+  private create(id: WorldId, graphicsConfig: GraphicsConfig, ahead: boolean, fetchAssets = true): WorldSlot {
     const index = Math.max(0, WORLD_ORDER.indexOf(id));
     const before = this.scene.children.length;
     const world = new this.ctors[id](this.scene, graphicsConfig);
@@ -196,17 +283,22 @@ export class WorldStreamer {
     if (world.group && roots.indexOf(world.group) === -1) roots.push(world.group);
 
     const streaming = typeof world.setStreamRange === 'function';
-    if (streaming) world.setStreamRange!(worldStart(index), worldEnd(index));
+    if (streaming) world.setStreamRange!(...streamRange(index, !ahead));
+
+    const layers = new THREE.Layers();
+    layers.set(ahead ? NEXT_WORLD_LAYER : 0);
+    for (const r of roots) tagLayers(r, layers);
 
     const slot: WorldSlot = {
       id,
       index,
       world,
       roots,
+      layers,
       streaming,
       hidden: false,
       phase: ahead ? 'env' : 'ready',
-      prepared: typeof world.prepare !== 'function',
+      prepared: typeof world.prepare !== 'function' || !fetchAssets,
       dirty: false,
       phaseFrame: this.frame,
       warmList: [],
@@ -218,7 +310,7 @@ export class WorldStreamer {
       setRootsVisible(slot, false);
     }
 
-    if (typeof world.prepare === 'function') {
+    if (typeof world.prepare === 'function' && fetchAssets) {
       world
         .prepare()
         .catch(err => console.warn(`[WorldStreamer] prepare() failed for ${id}:`, err))
@@ -234,9 +326,10 @@ export class WorldStreamer {
 
   private retire(slot: WorldSlot | null): void {
     if (!slot) return;
-    // A world without a stream range also spawned scenery past its boundary,
-    // over the new world: hide it at once (a visibility flip is free).
-    if (!slot.streaming || slot.hidden) setRootsVisible(slot, false);
+    // The old world streamed past its gateway (and a dropped next world may
+    // be half built): drawn by no camera from now on (one mask change).
+    slot.layers.set(RETIRED_LAYER);
+    setRootsVisible(slot, false);
     // Disposal (GL deletes) happens a bit later, off the crossing frame.
     this.retired.push({ slot, disposeAtFrame: this.frame + RETIRE_DELAY_FRAMES });
   }
@@ -262,6 +355,10 @@ export class WorldStreamer {
           this.current.hidden = false;
           setRootsVisible(this.current, true);
         }
+        // Into the main pass (it was only seen through the window so far),
+        // and from now on it streams past its own gateway too.
+        this.current.layers.set(0);
+        if (this.current.streaming) this.current.world.setStreamRange!(...streamRange(this.current.index, true));
         this.current.phase = 'ready';
       } else if (this.ctors[wantId]) {
         this.retire(this.current);
@@ -350,6 +447,10 @@ export class WorldStreamer {
         return;
       case 'compile':
         if (age < 1) return;
+        // Its scanned assets are being fetched (they are no longer loaded at
+        // start-up): wait for them while there is time, so the world is
+        // compiled, uploaded and first-drawn once, with its real textures.
+        if (!n.prepared && age < ASSET_WAIT_FRAMES && gateway - playerZ > VISIBLE_RANGE + 150) return;
         this.setPhase(n, 'compiling');
         n.dirty = false;
         this.compileRoots(n.roots).then(() => {
@@ -363,6 +464,12 @@ export class WorldStreamer {
         return;
       case 'upload':
         if ((this.uploader && this.uploader.pending > 0) || this.isBusy()) return;
+        // Assets arrived meanwhile: their textures were not queued (a first
+        // draw would upload them synchronously): compile + queue again.
+        if (n.dirty) {
+          this.setPhase(n, 'compile');
+          return;
+        }
         n.warmList = this.collectWarmList(n.roots);
         this.setPhase(n, 'warmdraw');
         return;
@@ -372,6 +479,10 @@ export class WorldStreamer {
         // per configuration off screen, a few per frame, long before the
         // rider can see any of it.
         if (this.isBusy()) return;
+        if (n.dirty) {
+          this.setPhase(n, 'compile');
+          return;
+        }
         if (this.hooks.warmDraw && n.warmList.length > 0) {
           const batch = new Set<THREE.Object3D>();
           for (const unit of n.warmList.splice(0, WARM_DRAWS_PER_FRAME)) unit.traverse(o => { batch.add(o); });
@@ -480,40 +591,48 @@ export class WorldStreamer {
   // -------------------------------------------------------------------------
 
   private prewarmSlots: WorldSlot[] = [];
+  private prewarmBuilding: WorldSlot | null = null;
+  private prewarmSteps = 0;
 
   /**
-   * Build one world for the warm-up, fully (deferred construction included)
-   * and hidden. Returns its roots (to compile and warm draw), or null.
+   * Build one world for the warm-up (deferred construction included), hidden,
+   * WITHOUT fetching its scanned assets: its materials keep the placeholder
+   * textures, which have the same slots/format as the scans, so the programs
+   * it links are exactly the ones the real world uses later (its assets load
+   * during its own preparation window ahead of the gateway). Call once per
+   * frame with a time budget: returns 'busy' until the world is built, then
+   * its roots (to compile and warm draw), or null if it can't be built.
    */
-  buildPrewarmWorld(id: WorldId, graphicsConfig: GraphicsConfig): THREE.Object3D[] | null {
+  buildPrewarmWorld(id: WorldId, graphicsConfig: GraphicsConfig, budgetMs = 8): THREE.Object3D[] | null | 'busy' {
     if (!this.ctors[id] || (this.current && this.current.id === id)) return null;
-    let slot: WorldSlot;
+    let slot = this.prewarmBuilding;
     try {
-      slot = this.create(id, graphicsConfig, true);
-      if (slot.world.warmup) {
-        let guard = 0;
-        while (!slot.world.warmup(50) && guard++ < 200) {
-          /* deferred construction, all of it now */
-        }
+      if (!slot || slot.id !== id) {
+        slot = this.create(id, graphicsConfig, true, false);
+        // Only the first chunk(s): every pool and material exists regardless
+        // of how much scenery is spawned, and that is all the warm-up needs.
+        if (slot.streaming) slot.world.setStreamRange!(worldStart(slot.index), worldStart(slot.index) + PREWARM_SPAN);
+        this.prewarmBuilding = slot;
+        this.prewarmSteps = 0;
+        this.prewarmSlots.push(slot);
+        return 'busy';
       }
+      if (slot.world.warmup && !slot.world.warmup(budgetMs) && this.prewarmSteps++ < 2000) return 'busy';
       if (!slot.streaming) slot.world.update(worldStart(slot.index) + 1, 0, 0, graphicsConfig);
     } catch (err) {
       console.warn(`[WorldStreamer] warm-up build failed for ${id}:`, err);
+      this.prewarmBuilding = null;
       return null;
     }
-    this.prewarmSlots.push(slot);
+    this.prewarmBuilding = null;
     return slot.roots;
-  }
-
-  /** Every warm-up world has its scanned assets (or gave up loading them). */
-  get prewarmAssetsSettled(): boolean {
-    return this.prewarmSlots.every(s => s.prepared);
   }
 
   /** Dispose one warm-up world per call; false once none are left. */
   disposeNextPrewarmWorld(): boolean {
     const slot = this.prewarmSlots.shift();
     if (!slot) return false;
+    if (slot === this.prewarmBuilding) this.prewarmBuilding = null;
     this.disposeSlot(slot);
     return this.prewarmSlots.length > 0;
   }

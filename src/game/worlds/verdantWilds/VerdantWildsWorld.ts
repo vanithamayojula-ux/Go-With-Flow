@@ -7,6 +7,8 @@ import {
   createForestFloorEmbankmentGeometry,
   sampleForestFloorHeight,
   getLeafClusterTexture,
+  getLeafMassTexture,
+  buildLeafClusterTextureGen,
   FOREST_DITCH_Y,
 } from './VerdantWildsTerrain';
 import { VerdantWildsAtmosphere } from './VerdantWildsAtmosphere';
@@ -104,7 +106,7 @@ const KIT_STEPS: WarmTask[] = [
     K.treeMinAbsX.set(arch.id, computeTreeMinAbsX(arch, g));
   }),
   () => void getGreyNoiseTexture(1337, 0.66, 4),
-  () => void getLeafClusterTexture(),
+  () => buildLeafClusterTextureGen(),
   () => {
     K.ground ??= createForestFloorEmbankmentGeometry(GROUND_WIDTH, CHUNK_LENGTH, 48, 24, GROUND_SEED);
   },
@@ -122,6 +124,8 @@ const KIT_STEPS: WarmTask[] = [
       vcRefRock: 0x4a5129,
       vcKeep: 0.55,
       roughness: 0.95,
+      // The forest floor sinks softly at the world's range ends (no hard edge)
+      skirt: { length: 20, depth: 3, innerX: 8 },
       fade,
     });
     K.stoneMat = createTerrainMaterial({
@@ -152,7 +156,7 @@ const KIT_STEPS: WarmTask[] = [
       fade,
     });
     K.crown = applyStreamFade(
-      new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 1, metalness: 0, map: noise, envMapIntensity: 0.35 }),
+      new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 1, metalness: 0, map: getLeafMassTexture(), envMapIntensity: 0.1 }),
       fade
     );
     const leafTex = getLeafClusterTexture();
@@ -291,7 +295,12 @@ export class VerdantWildsWorld extends StreamedWorld {
     }
     if (bark) k.bark.apply(bark);
     if (this.rockPools) applyEnvModels(this.rockPools, k.rockMats);
+    // Not drawn yet: show the scans from the first frame (no fallback fade-in)
+    if (!this.animated) for (const h of [k.groundMat, k.stoneMat, ...k.rockMats.values()]) h.snap();
   }
+
+  /** Set once animate() has run (the world has been on screen). */
+  private animated = false;
 
   /** Lowest ground height under a footprint, so props never float on slopes. */
   private groundUnder(x: number, zLocal: number, radius: number): number {
@@ -412,6 +421,7 @@ export class VerdantWildsWorld extends StreamedWorld {
 
   protected animate(playerZ: number, dt: number, time: number): void {
     const k = K as VerdantKit;
+    this.animated = true;
     k.groundMat.tick(dt);
     k.stoneMat.tick(dt);
     for (const h of k.rockMats.values()) h.tick(dt);

@@ -285,7 +285,7 @@ export function* createProceduralTreeGeometryGen(
           0.14 * Math.sin(dir.x * 5.1 + phase) * Math.sin(dir.y * 4.3 + seed) +
           0.08 * Math.sin(dir.z * 9.7 + phase * 2) +
           0.05 * Math.sin(dir.x * 15.3 + dir.y * 7.1 + phase * 3) * Math.sin(dir.z * 13.9 - dir.y * 5.3 + seed);
-        const yScale = dir.y < 0 ? 0.6 : 0.85; // flatter underside
+        const yScale = dir.y < 0 ? 0.32 : 0.85; // flat underside, tucked above the lower leaf cards
         const px = cx + dir.x * radius * core * bump;
         const py = cy + dir.y * radius * core * bump * yScale;
         const pz = cz + dir.z * radius * core * bump;
@@ -301,8 +301,9 @@ export function* createProceduralTreeGeometryGen(
         const var01 = 0.5 + 0.5 * Math.sin(dir.x * 7 + dir.z * 5 + phase);
         tmpColor.copy(LEAF_DARK).lerp(LEAF_LIGHT, Math.min(1, hf * 0.75 + var01 * 0.25));
         tmpColor.lerp(LEAF_SHADE, (1 - hf) * 0.55 * (1.2 - outer));
-        // The core is the shaded interior seen between the leaf cards: keep it dark
-        tmpColor.multiplyScalar(tint * 0.3);
+        // The core is the shaded interior seen between the leaf cards: darker
+        // than the outer leaves (it is textured with the same leaf sprite)
+        tmpColor.multiplyScalar(tint * 0.62);
         cColors.push(tmpColor.r * hueR, tmpColor.g, tmpColor.b * hueB);
 
         cUv.setXY(j, cUv.getX(j) * 3, cUv.getY(j) * 3);
@@ -324,7 +325,7 @@ export function* createProceduralTreeGeometryGen(
       const w = new THREE.Vector3();
       const rv = new THREE.Vector3();
       for (let k = 0; k < cardCount; k++) {
-        dir.set(rnd() * 2 - 1, rnd() * 1.4 - 0.3, rnd() * 2 - 1).normalize();
+        dir.set(rnd() * 2 - 1, rnd() * 1.7 - 0.6, rnd() * 2 - 1).normalize();
         // Cards fill the clump volume (interior ones smaller and darker)
         const depth = 0.45 + Math.sqrt(rnd()) * 0.62;
         const centre = new THREE.Vector3(cx, cy, cz).addScaledVector(dir, radius * depth);
@@ -605,22 +606,68 @@ function mergeBufferGeometriesCustom(geometries: THREE.BufferGeometry[]): THREE.
 /**
  * 256x256 RGBA sprite of overlapping broadleaf leaves (sRGB albedo, alpha
  * coverage) inside a ragged disc. Returns null without a DOM.
+ *
+ * Built for alpha-tested cards that stay clean at every distance:
+ * - leaf colour is dilated into the transparent texels, so filtering and
+ *   mipmaps never drag dark (premultiplied-black) fringes into the edges;
+ * - the mip chain is generated here with coverage-preserving alpha (each
+ *   level's alpha is rescaled so the fraction of texels passing the alpha
+ *   test matches the full-resolution sprite), so distant crowns keep their
+ *   fullness and soft silhouette instead of thinning into sparse pixels.
  */
-let leafTextureCache: THREE.CanvasTexture | null | undefined;
-export function getLeafClusterTexture(): THREE.CanvasTexture | null {
+export const LEAF_ALPHA_TEST = 0.3;
+let leafTextureCache: THREE.Texture | null | undefined;
+export function getLeafClusterTexture(): THREE.Texture | null {
   if (leafTextureCache !== undefined) return leafTextureCache;
   if (typeof document === 'undefined') return null;
-  leafTextureCache = createLeafClusterTexture();
-  return leafTextureCache;
+  const it = buildLeafClusterTextureGen();
+  while (!it.next().done) {
+    /* run to completion */
+  }
+  return leafTextureCache ?? null;
 }
 
-function createLeafClusterTexture(): THREE.CanvasTexture | null {
+/** Builds the shared leaf sprite in slices (yields between phases, for sliced warmup). */
+export function* buildLeafClusterTextureGen(): Generator<void, void> {
+  if (leafTextureCache !== undefined) return;
+  if (typeof document === 'undefined') return;
+  leafTextureCache = yield* createLeafClusterTexture();
+}
+
+let leafMassCache: THREE.Texture | null | undefined;
+/**
+ * The leaf sprite as an opaque, repeating texture (same pixels and mip chain,
+ * shared CPU data): painted on the crown core volumes it reads as deeper
+ * foliage between the leaf cards instead of a smooth dark blob. The sprite's
+ * empty texels already carry the dilated mean leaf colour, so tiling is soft.
+ */
+export function getLeafMassTexture(): THREE.Texture | null {
+  if (leafMassCache !== undefined) return leafMassCache;
+  const base = getLeafClusterTexture() as THREE.DataTexture | null;
+  if (!base) return (leafMassCache = null);
+  const img = base.image as { data: Uint8Array; width: number; height: number };
+  const tex = new THREE.DataTexture(img.data, img.width, img.height, THREE.RGBAFormat);
+  tex.mipmaps = base.mipmaps;
+  tex.generateMipmaps = false;
+  tex.minFilter = THREE.LinearMipmapLinearFilter;
+  tex.magFilter = THREE.LinearFilter;
+  tex.wrapS = THREE.RepeatWrapping;
+  tex.wrapT = THREE.RepeatWrapping;
+  tex.colorSpace = THREE.SRGBColorSpace;
+  tex.anisotropy = 4;
+  tex.name = 'gwf-leaf-mass';
+  tex.needsUpdate = true;
+  leafMassCache = tex;
+  return tex;
+}
+
+function* createLeafClusterTexture(): Generator<void, THREE.Texture | null> {
   if (typeof document === 'undefined') return null;
   const size = 256;
   const canvas = document.createElement('canvas');
   canvas.width = size;
   canvas.height = size;
-  const ctx = canvas.getContext('2d');
+  const ctx = canvas.getContext('2d', { willReadFrequently: true }) as CanvasRenderingContext2D | null;
   if (!ctx) return null;
   let s = 24601;
   const rnd = () => {
@@ -631,11 +678,12 @@ function createLeafClusterTexture(): THREE.CanvasTexture | null {
   // Drawn back to front: early (deep) leaves are darker, so each card reads
   // as a spray with self-shadowed depth instead of a flat decal. Twig-like
   // clusters (leaves around a few sprigs) give a ragged, organic outline.
-  const leaves = 1500;
+  // Leaves are drawn fairly large so their shapes survive a few mip levels.
+  const leaves = 1050;
   const sprigs: Array<[number, number, number]> = [];
-  for (let k = 0; k < 26; k++) {
+  for (let k = 0; k < 24; k++) {
     const ang = rnd() * Math.PI * 2;
-    const rad = Math.pow(rnd(), 0.7) * size * 0.34;
+    const rad = Math.pow(rnd(), 0.7) * size * 0.33;
     sprigs.push([size / 2 + Math.cos(ang) * rad, size / 2 + Math.sin(ang) * rad, ang]);
   }
   for (let i = 0; i < leaves; i++) {
@@ -645,8 +693,8 @@ function createLeafClusterTexture(): THREE.CanvasTexture | null {
     const rad = Math.pow(rnd(), 0.8) * size * 0.16;
     const x = sp[0] + Math.cos(ang) * rad;
     const y = sp[1] + Math.sin(ang) * rad;
-    if (Math.hypot(x - size / 2, y - size / 2) > size * 0.47) continue;
-    const len = 9 + rnd() * 9;
+    if (Math.hypot(x - size / 2, y - size / 2) > size * 0.46) continue;
+    const len = 12 + rnd() * 11;
     const wid = len * (0.4 + rnd() * 0.16);
     const rot = ang + (rnd() - 0.5) * 1.2;
     // Olive / mid / yellow-green leaves; deeper layers darker
@@ -666,15 +714,144 @@ function createLeafClusterTexture(): THREE.CanvasTexture | null {
     ctx.fill();
     // Midrib
     ctx.strokeStyle = 'rgba(' + Math.round(r * 0.75) + ',' + Math.round(g * 0.8) + ',' + Math.round(b * 0.7) + ',0.9)';
-    ctx.lineWidth = 0.8;
+    ctx.lineWidth = 0.9;
     ctx.beginPath();
     ctx.moveTo(-len / 2, 0);
     ctx.lineTo(len / 2, 0);
     ctx.stroke();
     ctx.restore();
+    if (i % 350 === 349) yield;
   }
-  const tex = new THREE.CanvasTexture(canvas);
+  yield;
+
+  // Read back (flipped so v = 1 is the top of the canvas, as CanvasTexture did)
+  const src = ctx.getImageData(0, 0, size, size).data;
+  const base = new Uint8Array(size * size * 4);
+  for (let y = 0; y < size; y++) {
+    const sy = size - 1 - y;
+    base.set(src.subarray(sy * size * 4, (sy + 1) * size * 4), y * size * 4);
+  }
+  yield* dilateLeafColour(base, size);
+
+  const mipmaps: Array<{ data: Uint8Array; width: number; height: number }> = [{ data: base, width: size, height: size }];
+  const coverage0 = alphaCoverage(base, LEAF_ALPHA_TEST);
+  let prev = base;
+  let w = size;
+  while (w > 1) {
+    const nw = w >> 1;
+    const next = new Uint8Array(nw * nw * 4);
+    for (let y = 0; y < nw; y++) {
+      for (let x = 0; x < nw; x++) {
+        const o = (y * nw + x) * 4;
+        const a = (y * 2 * w + x * 2) * 4;
+        const b = a + 4;
+        const c = a + w * 4;
+        const d = c + 4;
+        for (let ch = 0; ch < 4; ch++) next[o + ch] = (prev[a + ch] + prev[b + ch] + prev[c + ch] + prev[d + ch] + 2) >> 2;
+      }
+    }
+    preserveCoverage(next, coverage0, LEAF_ALPHA_TEST);
+    mipmaps.push({ data: next, width: nw, height: nw });
+    if (nw === 128) yield;
+    prev = next;
+    w = nw;
+  }
+
+  const tex = new THREE.DataTexture(base, size, size, THREE.RGBAFormat);
+  tex.mipmaps = mipmaps as unknown as THREE.DataTexture['mipmaps'];
+  tex.generateMipmaps = false;
+  tex.minFilter = THREE.LinearMipmapLinearFilter;
+  tex.magFilter = THREE.LinearFilter;
+  tex.wrapS = THREE.ClampToEdgeWrapping;
+  tex.wrapT = THREE.ClampToEdgeWrapping;
   tex.colorSpace = THREE.SRGBColorSpace;
   tex.anisotropy = 4;
+  tex.name = 'gwf-leaf-cluster';
+  tex.needsUpdate = true;
   return tex;
+}
+
+/** Pushes leaf colour outward into transparent texels (alpha left untouched). */
+function* dilateLeafColour(px: Uint8Array, size: number): Generator<void, void> {
+  let sr = 0;
+  let sg = 0;
+  let sb = 0;
+  let n = 0;
+  for (let i = 0; i < px.length; i += 4) {
+    if (px[i + 3] > 200) {
+      sr += px[i];
+      sg += px[i + 1];
+      sb += px[i + 2];
+      n++;
+    }
+  }
+  const mr = n ? sr / n : 60;
+  const mg = n ? sg / n : 80;
+  const mb = n ? sb / n : 30;
+  // Edge texels (partial alpha) keep their own colour; empty ones grow from neighbours
+  const filled = new Uint8Array(size * size);
+  for (let i = 0; i < size * size; i++) filled[i] = px[i * 4 + 3] > 8 ? 1 : 0;
+  for (let pass = 0; pass < 6; pass++) {
+    const grow: number[] = [];
+    for (let y = 0; y < size; y++) {
+      for (let x = 0; x < size; x++) {
+        const i = y * size + x;
+        if (filled[i]) continue;
+        let r = 0;
+        let g = 0;
+        let b = 0;
+        let c = 0;
+        for (let dy = -1; dy <= 1; dy++) {
+          const yy = y + dy;
+          if (yy < 0 || yy >= size) continue;
+          for (let dx = -1; dx <= 1; dx++) {
+            const xx = x + dx;
+            if (xx < 0 || xx >= size) continue;
+            const j = yy * size + xx;
+            if (!filled[j]) continue;
+            r += px[j * 4];
+            g += px[j * 4 + 1];
+            b += px[j * 4 + 2];
+            c++;
+          }
+        }
+        if (c) grow.push(i, Math.round(r / c), Math.round(g / c), Math.round(b / c));
+      }
+    }
+    for (let k = 0; k < grow.length; k += 4) {
+      const i = grow[k];
+      px[i * 4] = grow[k + 1];
+      px[i * 4 + 1] = grow[k + 2];
+      px[i * 4 + 2] = grow[k + 3];
+      filled[i] = 1;
+    }
+    yield;
+  }
+  for (let i = 0; i < size * size; i++) {
+    if (filled[i]) continue;
+    px[i * 4] = mr;
+    px[i * 4 + 1] = mg;
+    px[i * 4 + 2] = mb;
+  }
+}
+
+function alphaCoverage(px: Uint8Array, cutoff: number, scale = 1): number {
+  const c = cutoff * 255;
+  let pass = 0;
+  const n = px.length / 4;
+  for (let i = 3; i < px.length; i += 4) if (px[i] * scale > c) pass++;
+  return pass / n;
+}
+
+/** Rescales a mip level's alpha so its alpha-test coverage matches `target`. */
+function preserveCoverage(px: Uint8Array, target: number, cutoff: number): void {
+  let lo = 0.5;
+  let hi = 4;
+  for (let it = 0; it < 14; it++) {
+    const mid = (lo + hi) * 0.5;
+    if (alphaCoverage(px, cutoff, mid) < target) lo = mid;
+    else hi = mid;
+  }
+  const k = (lo + hi) * 0.5;
+  for (let i = 3; i < px.length; i += 4) px[i] = Math.min(255, Math.round(px[i] * k));
 }

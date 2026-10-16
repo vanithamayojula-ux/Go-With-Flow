@@ -10,6 +10,7 @@ import {
   createProceduralMesaGeometry,
   createDesertHighwayChunkGeometry,
   desertGroundHeight,
+  DESERT_GROUND_GLSL,
 } from './CrimsonDunesTerrain';
 import { CrimsonDunesAtmosphere } from './CrimsonDunesAtmosphere';
 import {
@@ -48,6 +49,7 @@ interface CrimsonKit {
   mesas: Map<string, THREE.BufferGeometry>;
   mesaProfiles: Map<string, MesaArchetype>;
   sand: TerrainMaterialHandle;
+  sandGround: TerrainMaterialHandle;
   mesa: TerrainMaterialHandle;
   mesaFar: TerrainMaterialHandle;
   stone: TerrainMaterialHandle;
@@ -98,8 +100,7 @@ const KIT_STEPS: WarmTask[] = [
   () => {
     if (K.sand) return;
     const fade = getWorldFade('crimson-dunes');
-    K.sand = createTerrainMaterial({
-      name: 'crimson-sand',
+    const sandOpts = {
       ground: SAND,
       vertexColors: true,
       vcRef: 0xcfa872,
@@ -107,16 +108,23 @@ const KIT_STEPS: WarmTask[] = [
       roughness: 0.96,
       macro: 0.12,
       fade,
-    });
+    };
+    K.sand = createTerrainMaterial({ ...sandOpts, name: 'crimson-sand' });
+    // The bed itself also sinks softly at the world's range ends
+    K.sandGround = createTerrainMaterial({ ...sandOpts, name: 'crimson-sand-bed', skirt: { length: 20, depth: 3, innerX: 8 } });
     const mesaOpts = {
       ground: SAND,
       rock: SANDSTONE,
       slope: [0.72, 0.9] as [number, number],
       vertexColors: true,
-      vcLuma: true,
+      // Full-colour strata (red beds and pale sand-coloured beds)
       vcRef: 0xcfa872,
-      vcRefRock: 0xa06b49,
-      vcKeep: 0.45,
+      vcRefRock: 0xa87250,
+      vcKeep: 0.55,
+      // Wind-blown sand banks against the foot of every butte and blends it
+      // into the dune bed (measured above the actual ground height)
+      baseBlend: [0.4, 3.2] as [number, number],
+      groundHeightGlsl: DESERT_GROUND_GLSL,
       fade,
     };
     K.mesa = createTerrainMaterial({ ...mesaOpts, name: 'crimson-mesa' });
@@ -207,7 +215,7 @@ export class CrimsonDunesWorld extends StreamedWorld {
 
   protected onKitReady(): void {
     const k = K as CrimsonKit;
-    this.groundPool = this.addPool(new InstancePool('crimson-ground', k.ground, k.sand.material, 16));
+    this.groundPool = this.addPool(new InstancePool('crimson-ground', k.ground, k.sandGround.material, 16));
     for (const id of DUNE_IDS) {
       const g = k.dunes.get(id)!;
       this.dunePools.set(id, this.addPool(new InstancePool(`crimson-dune-${id}`, g, k.sand.material, 24, { castShadow: id === 'large-crescent' })));
@@ -233,6 +241,7 @@ export class CrimsonDunesWorld extends StreamedWorld {
     const sand = getLoadedTextureSet('crimson-dunes/sand');
     const rock = getLoadedTextureSet('crimson-dunes/rock');
     k.sand.setGround(sand);
+    k.sandGround.setGround(sand);
     for (const h of [k.mesa, k.mesaFar, ...k.rockMats.values()]) {
       h.setGround(sand);
       h.setRock(rock);
@@ -240,7 +249,12 @@ export class CrimsonDunesWorld extends StreamedWorld {
     k.stone.setRock(rock);
     k.stoneRed.setRock(rock);
     if (this.rockPools) applyEnvModels(this.rockPools, k.rockMats);
+    // Not drawn yet: show the scans from the first frame (no fallback fade-in)
+    if (!this.animated) for (const h of [k.sand, k.sandGround, k.mesa, k.mesaFar, k.stone, k.stoneRed, ...k.rockMats.values()]) h.snap();
   }
+
+  /** Set once animate() has run (the world has been on screen). */
+  private animated = false;
 
   protected spawnChunk(chunk: StreamChunk): void {
     const k = K as CrimsonKit;
@@ -340,7 +354,9 @@ export class CrimsonDunesWorld extends StreamedWorld {
 
   protected animate(playerZ: number, dt: number, time: number): void {
     const k = K as CrimsonKit;
+    this.animated = true;
     k.sand.tick(dt);
+    k.sandGround.tick(dt);
     k.mesa.tick(dt);
     k.mesaFar.tick(dt);
     k.stone.tick(dt);

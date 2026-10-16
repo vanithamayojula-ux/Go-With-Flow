@@ -52,6 +52,11 @@ export class ProgressionManager {
   // Track session milestones in-run to prevent double-crediting
   private _sessionWorldsVisited = new Set<string>();
   private _sessionXpEarned = 0;
+  /**
+   * Run distance (m) already paid out as distance XP this run. A revive keeps
+   * the run going, so the next crash only pays the metres since the last one.
+   */
+  private _runDistanceCredited = 0;
 
   constructor(events: ProgressionEvents = {}) {
     this._state = loadProgressionState();
@@ -133,11 +138,27 @@ export class ProgressionManager {
   }
 
   /**
+   * A new run (not a revive) begins: distance XP is credited from 0 m again.
+   * Lighter than startRun(), which also resets the world-reached bonuses.
+   */
+  public markRunStart(): void {
+    this._runDistanceCredited = 0;
+    // The game-over "run XP" and world-reached bonuses are per run, not per
+    // page session. Every run starts in Sky Isles, so mark it reached
+    // without paying its bonus again.
+    this._sessionXpEarned = 0;
+    this._sessionWorldsVisited.clear();
+    this._sessionWorldsVisited.add('sky-isles');
+    this.unlockAchievement('ach_first_flight');
+  }
+
+  /**
    * Reset session-specific counters at the start of a fresh run.
    */
   public startRun(): void {
     this._sessionWorldsVisited.clear();
     this._sessionXpEarned = 0;
+    this._runDistanceCredited = 0;
     this.recordWorldReached('sky-isles');
   }
 
@@ -394,8 +415,15 @@ export class ProgressionManager {
     nearMisses: number;
     stumbles: number;
   }): { runXp: number; level: number; levelsGained: number } {
-    // 1. Distance XP: 1 XP per 10m
-    const distanceXp = Math.floor(stats.distance / XP_SOURCES.METERS_PER_XP);
+    // 1. Distance XP: 1 XP per 10m, only for metres not yet credited this run
+    // (a revived run crashes again with the same, longer distance).
+    const distance = Number.isFinite(stats.distance) ? Math.max(0, stats.distance) : 0;
+    // Shorter than what was already credited: a new run that wasn't reported
+    // through startRun(), so credit it from zero.
+    if (distance < this._runDistanceCredited) this._runDistanceCredited = 0;
+    const alreadyPaid = Math.floor(this._runDistanceCredited / XP_SOURCES.METERS_PER_XP);
+    const distanceXp = Math.floor(distance / XP_SOURCES.METERS_PER_XP) - alreadyPaid;
+    this._runDistanceCredited = distance;
     if (distanceXp > 0) {
       this.addXp(distanceXp, 'Run Distance Telemetry');
     }

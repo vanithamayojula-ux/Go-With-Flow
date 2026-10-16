@@ -32,6 +32,9 @@ function makeHdrTarget(w: number, h: number, depth: boolean, samples = 0): THREE
     format: THREE.RGBAFormat,
     type: THREE.HalfFloatType,
     depthBuffer: depth,
+    // The scene target keeps a stencil: the road marks its pixels so a portal
+    // window never covers it (the main pass draws the road through the opening).
+    stencilBuffer: depth,
     samples,
   });
 }
@@ -96,6 +99,7 @@ export class PostPipeline {
       uniforms: {
         tDiffuse: { value: this.sceneTarget.texture },
         uTexel: { value: new THREE.Vector2(1 / this.width, 1 / this.height) },
+        uExposure: { value: 1 },
       },
       depthWrite: false,
       depthTest: false,
@@ -177,6 +181,8 @@ export class PostPipeline {
 
     const u = this.postMaterial.uniforms;
     if ((u.uBloom.value as number) > 0.02) {
+      // The bright-pass threshold applies to exposed colour (see BloomBrightPassShader).
+      this.brightMaterial.uniforms.uExposure.value = r.toneMappingExposure;
       calls += this.drawQuad(this.brightMaterial, this.bloomA);
       const bu = this.blurMaterial.uniforms;
       bu.tInput.value = this.bloomA.texture;
@@ -211,6 +217,32 @@ export class PostPipeline {
     }
     this.renderer.setRenderTarget(prev);
     this.quad.material = this.postMaterial;
+  }
+
+  /** Same as compile(), linking in the background; resolves once every pass is ready. */
+  compileAsync(): Promise<void> {
+    const prev = this.renderer.getRenderTarget();
+    const passes: [THREE.Material, THREE.WebGLRenderTarget | null][] = [
+      [this.postMaterial, null],
+      [this.brightMaterial, this.bloomA],
+      [this.blurMaterial, this.bloomB],
+    ];
+    const jobs: Promise<unknown>[] = [];
+    try {
+      for (const [m, target] of passes) {
+        this.quad.material = m;
+        this.renderer.setRenderTarget(target);
+        // The program is created right here; the promise only waits for the link.
+        jobs.push(this.renderer.compileAsync(this.quadScene, this.quadCamera));
+      }
+    } finally {
+      this.renderer.setRenderTarget(prev);
+      this.quad.material = this.postMaterial;
+    }
+    return Promise.all(jobs).then(
+      () => undefined,
+      () => undefined
+    );
   }
 
   dispose(): void {

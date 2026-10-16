@@ -18,6 +18,7 @@ import { createTerrainMaterial, TerrainMaterialHandle } from '../shared/terrainM
 import { createScanStandardMaterial, ScanStandardHandle } from '../shared/scanMaterial';
 import { applyStreamFade, getWorldFade } from '../shared/distanceFade';
 import { getGreyNoiseTexture } from '../shared/noiseTextures';
+import { applyIceShading } from './iceMaterial';
 import { ENV_MODEL_HEIGHT, RockPools, applyEnvModels, createRockMaterials, createRockPools, rockTint } from '../shared/envRocks';
 import { EnvModelId, getLoadedTextureSet } from '../../../graphics/assetLibrary';
 
@@ -107,6 +108,7 @@ const KIT_STEPS: WarmTask[] = [
       vcRefRock: 0x7d8287,
       vcKeep: 0.45,
       roughness: 0.92,
+      skirt: { length: 20, depth: 3, innerX: 8 },
       fade,
     });
     K.peakMat = createTerrainMaterial({
@@ -135,41 +137,51 @@ const KIT_STEPS: WarmTask[] = [
     K.rockMats = createRockMaterials('crystal', ROCK_IDS, {
       ground: { ...SNOW, tile: 5 },
       rock: { ...GRANITE, tile: 5, normalScale: 0.6 },
-      slope: [0.62, 0.8],
+      // Snow settles on anything flatter than ~45 deg, so outcrops read as
+      // snow-capped rock rather than dark blocks
+      slope: [0.5, 0.72],
       snow: true,
       fade,
     });
     // Glacial ice / quartz: opaque glossy dielectrics lit by the sky reflection
     // (MeshPhysical clearcoat + IOR). No transmission: it forced an extra full
-    // scene render every frame.
-    K.ice = applyStreamFade(
-      new THREE.MeshPhysicalMaterial({
-        vertexColors: true,
-        color: 0xffffff,
-        roughness: 0.1,
-        metalness: 0,
-        ior: 1.31,
-        clearcoat: 1,
-        clearcoatRoughness: 0.06,
-        sheen: 0,
-        envMapIntensity: 1.35,
-        flatShading: true,
-      }),
-      fade
+    // scene render every frame. Albedo stays well below white (ice scatters
+    // light into its depth instead of reflecting it diffusely), with patchy
+    // thickness colour and polished-to-frosted gloss from world-space noise.
+    K.ice = applyIceShading(
+      applyStreamFade(
+        new THREE.MeshPhysicalMaterial({
+          vertexColors: true,
+          color: 0xb9d3e0,
+          roughness: 0.18,
+          metalness: 0,
+          ior: 1.31,
+          clearcoat: 0.6,
+          clearcoatRoughness: 0.14,
+          sheen: 0,
+          envMapIntensity: 0.8,
+          flatShading: true,
+        }),
+        fade
+      ),
+      { deep: 0x5f9dbd, roughness: [0.07, 0.42], scale: 0.05 }
     );
-    K.quartzMat = applyStreamFade(
-      new THREE.MeshPhysicalMaterial({
-        vertexColors: true,
-        color: 0xf4f8fa,
-        roughness: 0.05,
-        metalness: 0,
-        ior: 1.55,
-        clearcoat: 1,
-        clearcoatRoughness: 0.03,
-        envMapIntensity: 1.5,
-        flatShading: true,
-      }),
-      fade
+    K.quartzMat = applyIceShading(
+      applyStreamFade(
+        new THREE.MeshPhysicalMaterial({
+          vertexColors: true,
+          color: 0xc9d6dc,
+          roughness: 0.12,
+          metalness: 0,
+          ior: 1.55,
+          clearcoat: 0.8,
+          clearcoatRoughness: 0.08,
+          envMapIntensity: 0.9,
+          flatShading: true,
+        }),
+        fade
+      ),
+      { deep: 0x9fb4bf, roughness: [0.05, 0.3], scale: 0.11 }
     );
     const noise = getGreyNoiseTexture(1337, 0.8, 4);
     K.bark = createScanStandardMaterial({ fallbackColor: 0x4a3c31, fallbackMap: noise, scanTint: 0x9a8d82, roughness: 0.92, fade });
@@ -272,10 +284,15 @@ export class CrystalHeightsWorld extends StreamedWorld {
     for (const h of [k.snow, k.peakMat, k.gateMat, ...k.rockMats.values()]) {
       h.setGround(snow);
       h.setRock(rock);
+      // Not drawn yet: show the scans from the first frame (no fallback fade-in)
+      if (!this.animated) h.snap();
     }
     if (bark) k.bark.apply(bark);
     if (this.rockPools) applyEnvModels(this.rockPools, k.rockMats);
   }
+
+  /** Set once animate() has run (the world has been on screen). */
+  private animated = false;
 
   public setStreamRange(minZ: number, maxZ: number): void {
     super.setStreamRange(minZ, maxZ);
@@ -302,25 +319,28 @@ export class CrystalHeightsWorld extends StreamedWorld {
     this.place(chunk, this.groundPool, trs(0, 0, centerZ, 0, 1));
 
     // 2. Ice seracs / quartz clusters / ice shards (measured reach keeps |x| >= 6)
-    let crystalDensity = 3;
+    let crystalDensity = 2;
     if (preset === 'mobile-opt') crystalDensity = 2;
     if (preset === 'webgl-min') crystalDensity = 1;
     for (let c = 0; c < crystalDensity; c++) {
       const side = c % 2 === 0 ? -1 : 1;
       const pick = rnd(c * 4 + 3);
       let archId = 'prismatic-cluster';
-      let minX = 12.5;
-      let range = 15.0;
-      if (pick > 0.65) {
+      let minX = 17.0;
+      let range = 18.0;
+      let scale = 0.6 + rnd(c * 4 + 5) * 0.3;
+      if (pick > 0.7) {
+        // Seracs stand well back on the glacier, never towering over the road
         archId = 'celestial-spire';
-        minX = 22.0;
-        range = 25.0;
-      } else if (pick < 0.25) {
+        minX = 32.0;
+        range = 30.0;
+        scale = 0.5 + rnd(c * 4 + 5) * 0.3;
+      } else if (pick < 0.3) {
         archId = 'ground-shard';
-        minX = 8.0;
-        range = 10.0;
+        minX = 11.0;
+        range = 12.0;
+        scale = 0.55 + rnd(c * 4 + 5) * 0.3;
       }
-      const scale = 0.85 + rnd(c * 4 + 5) * 0.35;
       const reach = (k.crystalRadii.get(archId) ?? 0) * scale;
       const posX = side * (Math.max(minX, this.clearX(reach)) + rnd(c * 4 + 1) * range);
       const posZ = centerZ + (rnd(c * 4 + 2) - 0.5) * 45.0;
@@ -335,13 +355,18 @@ export class CrystalHeightsWorld extends StreamedWorld {
     // 3. Scanned granite: a large outcrop out on the snowfield + roadside boulders
     if (this.rockPools) {
       if (preset !== 'webgl-min' && rnd(10) > 0.4) {
-        const id: EnvModelId = rnd(30) > 0.5 ? 'slab' : 'block';
-        const s = 6 + rnd(13) * 7;
+        // Snow-mantled outcrop: low, partly buried (a full-height scan at this
+        // size read as a dark wall standing on the snow)
+        // (the 'block' scan has a sawn-flat top: at this size it reads as a slab)
+        const id: EnvModelId = 'boulder';
+        const s = 4.5 + rnd(13) * 4.5;
+        const sy = s * (0.55 + rnd(32) * 0.3);
         const side = rnd(11) > 0.5 ? 1 : -1;
         const x = side * (this.clearX(s) + 18 + rnd(12) * 30);
         const z = centerZ + (rnd(14) - 0.5) * 20.0;
         if (this.inRange(z, s)) {
-          this.place(chunk, this.rockPools.far.get(id) ?? null, trs(x, ground(x, z) - ENV_MODEL_HEIGHT[id] * s * 0.28, z, rnd(15) * 6.28, s), rockTint(rnd(31)));
+          const gy = Math.min(ground(x, z), ground(x - s * 0.7, z), ground(x + s * 0.7, z));
+          this.place(chunk, this.rockPools.far.get(id) ?? null, trs(x, gy - ENV_MODEL_HEIGHT[id] * sy * 0.38, z, rnd(15) * 6.28, s, sy, s, (rnd(33) - 0.5) * 0.4, (rnd(34) - 0.5) * 0.4), rockTint(rnd(31)));
         }
       }
       if (rnd(21) > 0.25) {
@@ -407,7 +432,10 @@ export class CrystalHeightsWorld extends StreamedWorld {
 
   protected animate(playerZ: number, dt: number, time: number): void {
     const k = K as CrystalKit;
-    for (const h of [k.snow, k.peakMat, k.gateMat]) h.tick(dt);
+    this.animated = true;
+    k.snow.tick(dt);
+    k.peakMat.tick(dt);
+    k.gateMat.tick(dt);
     for (const h of k.rockMats.values()) h.tick(dt);
     this.updatePeaks(playerZ);
     if (this.atmosphere) {

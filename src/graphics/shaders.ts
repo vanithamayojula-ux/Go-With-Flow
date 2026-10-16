@@ -339,13 +339,18 @@ export const BloomBrightPassShader = {
   fragmentShader: `
     uniform sampler2D tDiffuse;
     uniform vec2 uTexel; // 1 / source resolution
+    uniform float uExposure; // renderer tone-mapping exposure
     varying vec2 vUv;
 
-    // Highlights above ~1.0 in linear HDR (sun glints, emissive parts).
-    // Soft knee so the bloom fades in instead of switching on at a hard edge.
+    // Only true highlights bloom (sun glints, emissive lava/rims, specular
+    // flashes). The threshold is taken AFTER the camera exposure: the raw
+    // linear sky is ~1.5-3 at these exposures (0.5-0.66), so a raw threshold
+    // of 1 made the whole sky bloom and haloed every silhouette against it.
+    // Exposed, the sky stays below ~1.2 (~2 right around the sun, where a
+    // lower threshold haloed mesas against the glare); the knee runs to 5.
     vec3 brightPass(vec3 c) {
-      float l = max(c.r, max(c.g, c.b));
-      return c * smoothstep(1.0, 3.0, l);
+      float l = max(c.r, max(c.g, c.b)) * uExposure;
+      return c * smoothstep(2.2, 5.0, l);
     }
 
     void main() {

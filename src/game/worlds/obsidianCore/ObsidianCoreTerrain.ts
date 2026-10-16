@@ -177,8 +177,9 @@ export function getVolcanicNoiseTexture(): THREE.CanvasTexture | null {
 }
 
 /**
- * Tileable 256x256 lava emissive texture: dark cooled crust plates separated by
- * glowing cracks (toroidal Voronoi F2-F1). Returns null when no DOM is available.
+ * Tileable 128x128 lava emissive texture: thin, irregular glowing seams between
+ * cooled crust plates (domain-warped toroidal Voronoi F2-F1 with varying seam
+ * width, broken up by noise), mostly dark crust. Returns null without a DOM.
  */
 export function getVolcanicLavaTexture(): THREE.CanvasTexture | null {
   if (!sharedLavaTexture) {
@@ -190,12 +191,41 @@ export function getVolcanicLavaTexture(): THREE.CanvasTexture | null {
   return sharedLavaTexture;
 }
 
-/** Builds the shared lava texture, yielding every 32 rows (for sliced warmup). */
+/** Tileable value noise (period `cells` lattice units). */
+function tileNoise(x: number, y: number, cells: number, seed: number): number {
+  const x0 = Math.floor(x);
+  const y0 = Math.floor(y);
+  const tx = smooth01(x - x0);
+  const ty = smooth01(y - y0);
+  const xa = ((x0 % cells) + cells) % cells;
+  const ya = ((y0 % cells) + cells) % cells;
+  const xb = (xa + 1) % cells;
+  const yb = (ya + 1) % cells;
+  const a = hash2(xa, ya, seed);
+  const b = hash2(xb, ya, seed);
+  const c = hash2(xa, yb, seed);
+  const d = hash2(xb, yb, seed);
+  return a + (b - a) * tx + (c - a) * ty + (a - b - c + d) * tx * ty;
+}
+
+function tileFbm(u: number, v: number, cells: number, seed: number): number {
+  let sum = 0;
+  let amp = 0.5;
+  let c = cells;
+  for (let o = 0; o < 3; o++) {
+    sum += tileNoise(u * c, v * c, c, seed + o * 7) * amp;
+    amp *= 0.5;
+    c *= 2;
+  }
+  return sum / 0.875;
+}
+
+/** Builds the shared lava texture, yielding every 8 rows (for sliced warmup). */
 export function* buildVolcanicLavaTextureGen(): Generator<void, void> {
   if (sharedLavaTexture) return;
   if (typeof document === 'undefined') return;
 
-  const size = 256;
+  const size = 128;
   const canvas = document.createElement('canvas');
   canvas.width = size;
   canvas.height = size;
@@ -203,7 +233,7 @@ export function* buildVolcanicLavaTextureGen(): Generator<void, void> {
   if (!ctx) return;
   const img = ctx.createImageData(size, size);
 
-  const pointCount = 22;
+  const pointCount = 30;
   const pts: number[] = [];
   for (let i = 0; i < pointCount; i++) {
     pts.push(hash2(i, 3, 11) * size, hash2(i, 7, 19) * size);
@@ -211,14 +241,21 @@ export function* buildVolcanicLavaTextureGen(): Generator<void, void> {
 
   for (let py = 0; py < size; py++) {
     for (let px = 0; px < size; px++) {
+      const u = px / size;
+      const v = py / size;
+      // Domain warp: bends the plate edges so no regular cell pattern survives
+      const wx = (tileFbm(u, v, 4, 31) - 0.5) * 24;
+      const wy = (tileFbm(u + 0.37, v + 0.61, 4, 57) - 0.5) * 24;
+      const qx = px + wx;
+      const qy = py + wy;
       let f1 = 1e9;
       let f2 = 1e9;
       for (let i = 0; i < pointCount; i++) {
-        let dx = Math.abs(px - pts[i * 2]);
-        let dy = Math.abs(py - pts[i * 2 + 1]);
+        let dx = Math.abs(qx - pts[i * 2]) % size;
+        let dy = Math.abs(qy - pts[i * 2 + 1]) % size;
         if (dx > size * 0.5) dx = size - dx;
         if (dy > size * 0.5) dy = size - dy;
-        const d = Math.sqrt(dx * dx + dy * dy);
+        const d = dx * dx + dy * dy;
         if (d < f1) {
           f2 = f1;
           f1 = d;
@@ -226,18 +263,22 @@ export function* buildVolcanicLavaTextureGen(): Generator<void, void> {
           f2 = d;
         }
       }
-      const edge = f2 - f1;
-      const crack = Math.exp(-edge * 0.35);
-      // Plates cool towards their centres; a faint glow persists everywhere
-      const plate = 0.1 * Math.exp(-f1 * 0.04);
-      const heat = Math.min(1, crack + plate + 0.04);
+      const edge = Math.sqrt(f2) - Math.sqrt(f1);
+      // Seam width and heat vary along the network; some seams have crusted over
+      const n = tileFbm(u, v, 8, 91);
+      const width = 0.3 + 1.0 * n;
+      const seam = Math.exp(-(edge * edge) / (width * width));
+      const alive = smooth01((n - 0.28) / 0.3);
+      const flicker = 0.75 + 0.25 * tileFbm(u, v, 16, 13);
+      const heat = Math.min(1, seam * alive * flicker + 0.015);
       const i = (py * size + px) * 4;
-      img.data[i] = Math.round(255 * Math.min(1, heat * 1.05));
-      img.data[i + 1] = Math.round(255 * Math.pow(heat, 1.6) * 0.85);
-      img.data[i + 2] = Math.round(255 * Math.pow(heat, 3.0) * 0.55);
+      // Blackbody-ish ramp: deep red -> orange, yellow only in the hottest core
+      img.data[i] = Math.round(255 * Math.min(1, Math.pow(heat, 0.9)));
+      img.data[i + 1] = Math.round(255 * Math.pow(heat, 2.1) * 0.62);
+      img.data[i + 2] = Math.round(255 * Math.pow(heat, 4.0) * 0.28);
       img.data[i + 3] = 255;
     }
-    if ((py & 31) === 31) yield;
+    if ((py & 7) === 7) yield;
   }
   ctx.putImageData(img, 0, 0);
 
@@ -347,10 +388,22 @@ export function createProceduralVolcanicRockGeometry(
         const env = Math.max(0, 1 - Math.pow(d / (spacing * 3.6), 1.6));
         const step = 0.55 + rnd() * 0.45;
         const colHeight = Math.max(0.8, maxH * env * step + rnd() * 0.6);
-        const prism = new THREE.CylinderGeometry(colR * (0.93 + rnd() * 0.06), colR, colHeight, 6, 2);
-        prism.rotateY(Math.PI / 6);
+        const girth = colR * (0.82 + rnd() * 0.3);
+        const prism = new THREE.CylinderGeometry(girth * (0.9 + rnd() * 0.08), girth, colHeight, 6, 2);
+        prism.rotateY(Math.PI / 6 + (rnd() - 0.5) * 0.25);
         prism.translate(0, colHeight * 0.5 - 0.4, 0);
         const pos = prism.attributes.position;
+        // Weathered column heads: joints break at an angle, edges spall
+        const topY = colHeight - 0.4;
+        const tiltA = (rnd() - 0.5) * 0.9;
+        const tiltB = (rnd() - 0.5) * 0.9;
+        for (let i = 0; i < pos.count; i++) {
+          if (pos.getY(i) < topY - 1e-3) continue;
+          const vx = pos.getX(i);
+          const vz = pos.getZ(i);
+          const chip = Math.sin(vx * 7.3 + vz * 5.1 + chipPhase(px, pz)) * 0.12;
+          pos.setY(i, topY + vx * tiltA + vz * tiltB + chip);
+        }
         const colors: number[] = [];
         const tone = rnd();
         for (let i = 0; i < pos.count; i++) {
@@ -381,15 +434,30 @@ export function createProceduralVolcanicRockGeometry(
     const colRadius = archetype.radius * (0.35 + rnd() * 0.25);
 
     const prism = new THREE.CylinderGeometry(
-      isObsidian ? colRadius * 0.12 : colRadius * 0.65,
+      isObsidian ? colRadius * 0.22 : colRadius * 0.65,
       colRadius,
       colHeight,
-      archetype.facets,
-      4
+      isObsidian ? archetype.facets + 2 : archetype.facets,
+      isObsidian ? 7 : 4
     );
     prism.translate(0, colHeight * 0.5, 0);
 
     const pos = prism.attributes.position;
+    if (isObsidian) {
+      // Irregular crag: per-ring radial jitter, a wandering axis and a broken,
+      // off-centre summit (shared ring vertices move together: no cracks)
+      const ph = rnd() * 10;
+      for (let i = 0; i < pos.count; i++) {
+        const x = pos.getX(i);
+        const y = pos.getY(i);
+        const z = pos.getZ(i);
+        const h = y / colHeight;
+        const ang = Math.atan2(z, x);
+        const jag = 1 + Math.sin(ang * 3 + ph + h * 5) * 0.22 + Math.sin(ang * 7 - ph * 1.3 + h * 11) * 0.12;
+        const bend = Math.sin(h * 2.6 + ph) * colRadius * 0.45 * h;
+        pos.setXYZ(i, x * jag + bend, y * (1 - 0.18 * Math.max(0, Math.cos(ang * 2 + ph)) * h * h), z * jag * 0.8 + bend * 0.4);
+      }
+    }
     const colors: number[] = [];
     const tone = rnd();
 
@@ -422,6 +490,10 @@ export function createProceduralVolcanicRockGeometry(
   const merged = mergeBufferGeometriesCustom(geometries);
   for (const g of geometries) g.dispose();
   return merged;
+}
+
+function chipPhase(x: number, z: number): number {
+  return x * 1.7 + z * 2.9;
 }
 
 function scaleUv(geom: THREE.BufferGeometry, su: number, sv: number): void {
@@ -544,27 +616,41 @@ export function createVolcanicHighwayChunkGeometry(
 }
 
 /**
- * Creates the lava surface for both side channels (|x| 10.6..17.6) at
- * y = -1.4, one 60 m chunk long. UVs tile every 15 m (seamless per chunk).
+ * Creates the cooled lava crust filling both side channels (|x| 10.4..17.8,
+ * around y = -1.4): a lumpy, ridged surface (pressure ridges along the flow)
+ * whose edges dive into the channel banks. One 60 m chunk long, periodic in z
+ * so chunks tile seamlessly. Shaded by the terrain material (scanned basalt
+ * with lava glowing in its cracks).
  */
-export function createLavaRiverGeometry(length = 60, segmentsZ = 8): THREE.BufferGeometry {
+export function createLavaRiverGeometry(length = 60, segmentsZ = 24): THREE.BufferGeometry {
   const positions: number[] = [];
-  const uvs: number[] = [];
   const indices: number[] = [];
-  const across = [VOLCANIC_LAVA_INNER_X, 14.1, VOLCANIC_LAVA_OUTER_X];
+  const across: number[] = [];
+  const n = 11;
+  for (let i = 0; i < n; i++) across.push(10.4 + (7.4 * i) / (n - 1));
+  const rows = Math.max(segmentsZ, 24);
 
   for (const side of [-1, 1]) {
     const base = positions.length / 3;
     const xs = side < 0 ? across.map(v => -v).reverse() : across;
-    for (let iz = 0; iz <= segmentsZ; iz++) {
-      const z = -length * 0.5 + (length * iz) / segmentsZ;
+    for (let iz = 0; iz <= rows; iz++) {
+      const z = -length * 0.5 + (length * iz) / rows;
+      const w = (z * TAU) / CHUNK_PERIOD;
       for (const x of xs) {
-        positions.push(x, VOLCANIC_LAVA_SURFACE_Y, z);
-        uvs.push(x / 15, z / 15);
+        const ax = Math.abs(x);
+        const t = (ax - VOLCANIC_LAVA_INNER_X) / (VOLCANIC_LAVA_OUTER_X - VOLCANIC_LAVA_INNER_X);
+        // Crust bulges in the middle of the flow and sags at the banks
+        const crown = Math.sin(Math.min(1, Math.max(0, t)) * Math.PI) * 0.22;
+        const ridges =
+          Math.sin(w * 7 + ax * 0.9 + side) * 0.09 +
+          Math.sin(w * 13 - ax * 1.7 + side * 2.1) * 0.05 +
+          corridorNoise(x * 2.3, z * 1.0) * 0.08;
+        const edgeDrop = ax < 10.8 || ax > 17.4 ? -0.35 : 0;
+        positions.push(x, VOLCANIC_LAVA_SURFACE_Y + crown + ridges + edgeDrop, z);
       }
     }
     const row = xs.length;
-    for (let iz = 0; iz < segmentsZ; iz++) {
+    for (let iz = 0; iz < rows; iz++) {
       for (let ix = 0; ix < row - 1; ix++) {
         const a = base + iz * row + ix;
         const b = a + 1;
@@ -577,9 +663,10 @@ export function createLavaRiverGeometry(length = 60, segmentsZ = 8): THREE.Buffe
 
   const geom = new THREE.BufferGeometry();
   geom.setAttribute('position', new THREE.Float32BufferAttribute(positions, 3));
-  geom.setAttribute('uv', new THREE.Float32BufferAttribute(uvs, 2));
+  geom.setAttribute('uv', new THREE.Float32BufferAttribute(new Float32Array((positions.length / 3) * 2), 2));
   geom.setIndex(indices);
   geom.computeVertexNormals();
+  geom.computeBoundingSphere();
   return geom;
 }
 

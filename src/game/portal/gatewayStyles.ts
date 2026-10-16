@@ -5,25 +5,31 @@ import type { WorldId } from '../WorldConfig';
  * world boundary (z = B, y = road surface); +Z points into the next world.
  */
 export const GATEWAY = {
-  /** Half width of the opening (pillar inner faces). Rails sit at +-4.5. */
-  OPEN_HALF_W: 7.2,
-  /** Height where the round arch springs from the pillars. */
-  SPRING_Y: 9.0,
+  /**
+   * Half width of the opening (pillar inner faces): a 20 m opening, the
+   * pillars well clear of the rails (+-4.5) and of the camera's lane swings.
+   * ~1.5x the first version so it reads as a landmark from far away.
+   */
+  OPEN_HALF_W: 10.0,
+  /** Height where the round arch springs from the pillars (crown ~26 m). */
+  SPRING_Y: 13.0,
   /** Radial depth of the arch stones (voussoirs). */
-  RING: 2.0,
+  RING: 3.0,
   /** Thickness of the arch ring and pillars along the road. */
-  DEPTH: 3.4,
-  PILLAR_W: 3.2,
-  PILLAR_D: 3.6,
-  PLINTH_W: 4.6,
-  PLINTH_D: 4.8,
-  PLINTH_TOP: 1.6,
+  DEPTH: 4.8,
+  PILLAR_W: 4.6,
+  PILLAR_D: 5.2,
+  PLINTH_W: 6.6,
+  PLINTH_D: 7.0,
+  PLINTH_TOP: 2.3,
   /** Foundations run this far down (Sky Isles has no ground beside the road). */
   FOUNDATION_BOTTOM: -60,
   /** Membrane bottom: the underside of the road slab. */
   MEMBRANE_BOTTOM: -1.1,
   /** World-space metres covered by one repeat of the scanned stone textures. */
-  STONE_TILE: 3.0,
+  STONE_TILE: 3.6,
+  /** Size of the dressing (rubble, drifts, icicles) relative to the first version. */
+  DRESS_SCALE: 1.4,
 } as const;
 
 /** Top of the arch ring (crown of the extrados). */

@@ -10,6 +10,7 @@ import { WorldManager } from './WorldManager';
 import { WorldId } from './WorldConfig';
 import { getWorldConfig } from './worlds';
 import { PortalSystem } from './portal/PortalSystem';
+import { markRoadStencil } from './portal/PortalGateway';
 import { SkyIslesWorld } from './worlds/skyIsles';
 import { VerdantWildsWorld } from './worlds/verdantWilds';
 import { CrimsonDunesWorld } from './worlds/crimsonDunes';
@@ -59,6 +60,11 @@ export interface GameEngineOptions {
   onGameOver?: () => void;
   /** Called when the engine wants the UI to show the pause menu (tab hidden / window blur). */
   onRequestPause?: () => void;
+  /**
+   * Loading overlay already painted over the container (GameCanvas shows it
+   * before constructing the engine); removed when the start-up warm-up ends.
+   */
+  loadingOverlay?: HTMLElement | null;
 }
 
 // Two Space presses (or screen taps) closer than this deploy the shield.
@@ -70,6 +76,8 @@ const BASE_FOV = 62;
 const ADAPTIVE_SETTLE_MS = 2500;
 // Motion blur only kicks in once the speed lines are strong (~45 m/s or boosting).
 const MOTION_BLUR_THRESHOLD = 0.3;
+// Forward speed (m/s) above which the radial motion blur fades in.
+const MOTION_BLUR_SPEED = 45;
 
 const WORLD_CONSTRUCTORS: Record<WorldId, WorldConstructor> = {
   'sky-isles': SkyIslesWorld as unknown as WorldConstructor,
@@ -235,7 +243,7 @@ export class GameEngine {
   // Before the first run: every world/gateway's shaders compiled and drawn
   // once while the rider waits at the start line (see StartupWarmup).
   private startup: StartupWarmup | null = null;
-  private startupLabel: HTMLDivElement | null = null;
+  private startupLabel: HTMLElement | null = null;
   private templatesCompiled = false;
   private orbsCollectedThisFrame = 0;
   private readonly collectChunkOrbs = (chunk: { foliageInstances: { orbs: any[] } }) => {
@@ -263,6 +271,7 @@ export class GameEngine {
     this.onNotification = options.onNotification;
     this.onGameOver = options.onGameOver;
     this.onRequestPause = options.onRequestPause;
+    this.startupLabel = options.loadingOverlay ?? null;
 
     const width = Math.max(this.container.clientWidth || window.innerWidth || 800, 100);
     const height = Math.max(this.container.clientHeight || window.innerHeight || 600, 100);
@@ -286,6 +295,12 @@ export class GameEngine {
       antialias: !this.graphicsConfig.enablePostProcess && preset !== 'webgl-min',
       powerPreference: 'high-performance',
     });
+    // Shader info logs are fetched with synchronous GL calls on each
+    // program's first use; on ANGLE/D3D11 those wait for the GPU process to
+    // finish the program's lazy D3D compile (100-400 ms each, measured at
+    // start-up). Off unless asked for with ?shaderdebug.
+    this.renderer.debug.checkShaderErrors =
+      typeof location !== 'undefined' && /[?&]shaderdebug\b/.test(location.search);
     this.renderer.setSize(width, height);
     this.renderer.setPixelRatio(targetDpr);
     this.renderer.toneMapping = THREE.ACESFilmicToneMapping;
@@ -323,12 +338,18 @@ export class GameEngine {
     this.post.postMaterial.uniforms.uBlurThreshold.value = MOTION_BLUR_THRESHOLD;
 
     // 3. Subsystem Managers Initialization
-    this.skyMgr = new SkyManager(this.scene, this.renderer);
+    // Reflection environments are baked by the start-up warm-up, one per
+    // frame (never inside this constructor: ~0.5 s each with its compile).
+    this.skyMgr = new SkyManager(this.scene, this.renderer, { deferEnvironment: true });
     this.skyMgr.applyLightingPreset(this.lightingMode);
     this.skyMgr.setShadowMapSize(preset === 'desktop-full' ? 2048 : 1024);
     this.skyMgr.setShadowsEnabled(this.graphicsConfig.enableShadows);
 
     this.terrainMgr = new TerrainManager(this.scene);
+    // The highway marks its pixels in the stencil: the portal membrane is not
+    // drawn over them, so the road continues through the opening (main pass).
+    const highway = this.scene.getObjectByName('HighwayInstances');
+    if (highway) markRoadStencil(highway);
     this.foliageMgr = new FoliageManager(this.scene);
 
     this.playerMgr = new PlayerManager(this.scene, this.cosmeticsConfig);
@@ -428,36 +449,27 @@ export class GameEngine {
     this.adaptiveHoldUntil = performance.now() + ADAPTIVE_SETTLE_MS;
   }
 
-  /**
-   * Compile every shader the opening seconds need before the first frame: the
-   * post passes, the initial scene, and (once loaded) the obstacle models.
-   */
-  private prewarm(): void {
-    try {
-      // Every world's reflection environment, baked once now (part of the
-      // start-up stall) instead of mid-run ahead of each gateway.
-      this.skyMgr.prebakeAllEnvironments();
-      this.post.compile();
-      this.camera.position.copy(this.playerMgr.cameraPos);
-      this.camera.lookAt(this.playerMgr.cameraLookAt);
-      this.camera.updateMatrixWorld();
-      // Whole scene: main-pass programs plus the shadow-depth variants of
-      // every caster (those otherwise compile on first shadow draw).
-      this.shaders.compile([this.scene]);
-      // ...and one off-screen draw of everything, hidden things included
-      // (portal warp rings, spare boards/helmets, shield): some programs only
-      // finish compiling on their first real draw, which would otherwise land
-      // mid-run (e.g. at the first portal).
-      this.shaders.warmDraw([this.scene], () => true);
-    } catch (err) {
-      console.warn('[GameEngine] shader prewarm failed:', err);
-    }
-    this.adaptiveHoldUntil = performance.now() + ADAPTIVE_SETTLE_MS;
-  }
-
   /** True while the start-up warm-up holds the rider at the start line. */
   public get warmingUp(): boolean {
     return this.startup !== null;
+  }
+
+  /**
+   * Full-cover loading backdrop (also used by GameCanvas, which paints it
+   * before the engine is even constructed). No text of its own: the HUD shows
+   * the "Preparing worlds…" pill while the rider is held (stats.isHolding).
+   */
+  public static createLoadingOverlay(container: HTMLElement): HTMLElement | null {
+    if (typeof document === 'undefined') return null;
+    const overlay = document.createElement('div');
+    overlay.setAttribute('aria-hidden', 'true');
+    overlay.dataset.gwfLoading = '';
+    overlay.style.cssText =
+      'position:absolute;inset:0;z-index:5;pointer-events:none;display:flex;align-items:flex-end;justify-content:center;' +
+      'background:radial-gradient(120% 90% at 50% 35%,#1b2a44 0%,#0b1220 60%,#05080f 100%);' +
+      'opacity:1;transition:opacity 280ms ease-out;';
+    container.appendChild(overlay);
+    return overlay;
   }
 
   private beginStartupWarmup(): void {
@@ -467,18 +479,14 @@ export class GameEngine {
       portals: this.portals,
       shaders: this.shaders,
       obstacles: this.obstacleMgr,
+      sky: this.skyMgr,
+      post: this.post,
+      scene: this.scene,
+      renderer: this.renderer,
       graphicsConfig: () => this.graphicsConfig,
     });
-    if (typeof document !== 'undefined') {
-      const label = document.createElement('div');
-      label.textContent = 'Preparing worlds…';
-      label.setAttribute('role', 'status');
-      label.style.cssText =
-        'position:absolute;left:50%;bottom:18%;transform:translateX(-50%);padding:6px 14px;border-radius:999px;' +
-        'background:rgba(8,12,24,0.55);color:#e8f0ff;font:500 13px/1.2 system-ui,sans-serif;letter-spacing:0.04em;' +
-        'pointer-events:none;z-index:5;';
-      this.container.appendChild(label);
-      this.startupLabel = label;
+    if (!this.startupLabel || !this.startupLabel.isConnected) {
+      this.startupLabel = GameEngine.createLoadingOverlay(this.container);
     }
   }
 
@@ -488,7 +496,8 @@ export class GameEngine {
     if (!s.step()) return;
     this.endStartupWarmup();
     if (typeof window !== 'undefined' && (window as any).__gameEngine === this) {
-      console.info(`[GameEngine] start-up warm-up ${Math.round(performance.now() - s.startedAt)} ms, ${this.renderer.info.programs?.length ?? 0} programs`);
+      const t = Object.entries(s.timings).map(([k, v]) => `${k} ${Math.round(v)}`).join(', ');
+      console.info(`[GameEngine] start-up warm-up ${Math.round(performance.now() - s.startedAt)} ms, ${this.renderer.info.programs?.length ?? 0} programs (${t})`);
     }
     // The run starts now: no frame delta from the warm-up, and the adaptive
     // quality ignores the warm-up frames.
@@ -500,9 +509,12 @@ export class GameEngine {
   private endStartupWarmup(): void {
     if (this.startup && !this.startup.done) this.startup.cancel();
     this.startup = null;
-    if (this.startupLabel) {
-      this.startupLabel.remove();
-      this.startupLabel = null;
+    const overlay = this.startupLabel;
+    this.startupLabel = null;
+    if (overlay) {
+      // Fade out over the first frames of the run.
+      overlay.style.opacity = '0';
+      setTimeout(() => overlay.remove(), 320);
     }
   }
 
@@ -680,10 +692,10 @@ export class GameEngine {
     const animate = (now: number) => {
       if (this.isDisposed) return;
       if (first) {
-        // Compile on the first frame, not in the constructor: a StrictMode
-        // double mount disposes the first engine before it ever runs.
+        // Warm up from the first frame, not in the constructor: a StrictMode
+        // double mount disposes the first engine before it ever runs. The
+        // warm-up itself is stepped, a few ms per frame.
         first = false;
-        this.prewarm();
         this.beginStartupWarmup();
       }
       this.animationFrameId = requestAnimationFrame(animate);
@@ -700,6 +712,12 @@ export class GameEngine {
       }
       const t0 = performance.now();
       this.update(now);
+      // Behind the loading overlay nothing is drawn until the warm-up has
+      // compiled, uploaded and first-drawn everything the scene holds.
+      if (this.startup && !this.startup.renderReady) {
+        this.publishStats(this.lastFrameDt, 0);
+        return;
+      }
       this.render(now);
       this.sampleAdaptive(rafDelta, performance.now() - t0, now);
     };
@@ -1051,7 +1069,11 @@ export class GameEngine {
 
       // Campaign worlds: current + (while approaching a gateway) the next one,
       // built over several frames ahead of the boundary.
-      this.worlds.update(this.playerMgr.position.z, dt, timeSeconds, this.graphicsConfig, metrics);
+      // (Not before the start-up warm-up has built the current world in
+      // slices: its first update would build all of it in one frame.)
+      if (!this.startup || this.startup.currentReady) {
+        this.worlds.update(this.playerMgr.position.z, dt, timeSeconds, this.graphicsConfig, metrics);
+      }
 
       this.compileLateAssets();
     }
@@ -1168,14 +1190,17 @@ export class GameEngine {
     let totalDrawCalls: number;
     // Render Scene passes
     if (this.graphicsConfig.enablePostProcess) {
-      const currentSpeed = this.playerMgr.stats.speed;
+      // Radial motion blur, driven by the real forward speed in m/s (stats.speed
+      // is km/h: reading it as m/s kept the blur on for the whole run). Only
+      // while boosting or above ~45 m/s, and subtle: the shader's threshold
+      // (uBlurThreshold) removes everything below ~0.3 of blur.
+      const speedMs = Math.max(0, this.playerMgr.velocity.z);
       let dynamicSpeedLines = 0.0;
-      if (currentSpeed > 24) {
-        const speedFactor = Math.min(1.0, (currentSpeed - 24) / 45.0);
-        dynamicSpeedLines = 0.15 + speedFactor * 0.75;
+      if (speedMs > MOTION_BLUR_SPEED) {
+        dynamicSpeedLines = 0.56 + 0.16 * Math.min(1, (speedMs - MOTION_BLUR_SPEED) / 15);
       }
       if (this.playerMgr.stats.isBoosting) {
-        dynamicSpeedLines = Math.max(dynamicSpeedLines, 0.95);
+        dynamicSpeedLines = Math.max(dynamicSpeedLines, 0.66);
       }
       const effectiveSpeedLines =
         this.shaderParams.speedLineIntensity !== undefined && this.shaderParams.speedLineIntensity > 0
@@ -1240,6 +1265,11 @@ export class GameEngine {
     this.gpuTimer.end();
     this.lastDrawCalls = totalDrawCalls;
 
+    this.publishStats(rawDt, totalDrawCalls);
+  }
+
+  /** Stats to the HUD store (~15 Hz, and on every game-state change). */
+  private publishStats(rawDt: number, totalDrawCalls: number): void {
     this.statsUpdateTimer += rawDt;
     const stateChanged = this.playerMgr.gameState !== this.lastSentGameState;
     if (this.statsUpdateTimer >= 0.066 || stateChanged || this._isPaused) {
@@ -1248,8 +1278,17 @@ export class GameEngine {
       const instances =
         (this.foliageMgr.grassMesh ? this.foliageMgr.grassMesh.count : 0) +
         (this.foliageMgr.treeMesh ? this.foliageMgr.treeMesh.count : 0);
-      liveStats.publish(this.playerMgr.stats, this.currentFps, totalDrawCalls, instances, this.adaptive.label);
-      if (this.onStatsUpdate) this.onStatsUpdate(this.playerMgr.stats, this.currentFps, totalDrawCalls, instances);
+      // Held at the start line by the warm-up: the rider is not moving, so the
+      // HUD must not show the (frozen) launch speed.
+      const stats = this.playerMgr.stats;
+      const realSpeed = stats.speed;
+      if (this.startup || stats.isHolding) stats.speed = 0;
+      try {
+        liveStats.publish(stats, this.currentFps, totalDrawCalls, instances, this.adaptive.label);
+        if (this.onStatsUpdate) this.onStatsUpdate(stats, this.currentFps, totalDrawCalls, instances);
+      } finally {
+        stats.speed = realSpeed;
+      }
     }
   }
 
@@ -1268,19 +1307,24 @@ export class GameEngine {
   /**
    * The view through the gateway ahead, drawn before the main pass with the
    * destination world's atmosphere. Live on every tier with post-processing
-   * except the lowest; half resolution, quarter on mobile / when adaptive
-   * quality has scaled the frame down.
+   * except the lowest. Its resolution comes from a pixel budget (a fraction
+   * of the main target): full resolution while the opening is small on
+   * screen, scaled down (never below 1/4) as it grows; smaller budgets on
+   * mobile and when adaptive quality has scaled the frame down.
    */
   private renderPortalWindow(postEnabled: boolean): void {
     const preset = this.graphicsConfig.preset;
     const live = postEnabled && preset !== 'webgl-min';
-    const scale = preset === 'mobile-opt' || this.adaptive.levelIndex > 0 ? 0.25 : 0.5;
+    let fraction = preset === 'desktop-full' ? 0.42 : preset === 'mobile-opt' ? 0.2 : 0.3;
+    if (this.adaptive.levelIndex > 0) fraction *= 0.65;
+    const w = this.drawingBufferSize.x;
+    const h = this.drawingBufferSize.y;
     this.portals.renderWindow({
       camera: this.camera,
-      width: this.drawingBufferSize.x,
-      height: this.drawingBufferSize.y,
+      width: w,
+      height: h,
       live,
-      scale,
+      pixelBudget: fraction * w * h,
       hide: this.portalHidden,
     });
   }

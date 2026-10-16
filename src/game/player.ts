@@ -172,9 +172,13 @@ export class PlayerManager {
   // Shield Visual Bubble
   shieldMesh!: THREE.Mesh;
 
+  /** False until the first non-zero physics step of a run (start-line hold). */
+  private hasLeftStartLine = false;
+
   // Stats
   stats: PlayerStats = {
     speed: 22,
+    isHolding: true,
     maxSpeed: 150,
     distance: 0,
     score: 0,
@@ -729,6 +733,8 @@ export class PlayerManager {
 
   resetRun() {
     const h = getTerrainHeight(0, 0);
+    this.hasLeftStartLine = false;
+    this.stats.isHolding = true;
     this.currentLane = 0;
     this.targetLaneX = 0;
     this.position.set(0, h + this.hoverHeight, 0);
@@ -880,6 +886,11 @@ export class PlayerManager {
     audioManager?: AudioManager | null,
     obstacleManager?: any
   ) {
+    // The engine steps the player with dt = 0 while the start-up warm-up
+    // holds the rider at the start line; the first real step releases it.
+    if (dt > 0) this.hasLeftStartLine = true;
+    this.stats.isHolding = !this.hasLeftStartLine;
+
     const currentBiome = getBiomeAt(this.position.z);
     const friction = getBiomeFriction(currentBiome);
     this.stats.currentBiome = currentBiome;
@@ -1215,7 +1226,7 @@ export class PlayerManager {
     let odTier: OverdriveTier = 'Dormant';
     if (this.overdriveMeter >= 99.0) {
       odTier = 'Max-Velocity';
-      if (Math.random() < 0.3) {
+      if (Math.random() < 0.05) {
         this.emitSparks(this.position, 1, 0xffe2b0);
       }
     } else if (this.overdriveMeter >= 70.0) {
@@ -1521,9 +1532,11 @@ function createPetalParticleTexture(): THREE.Texture {
   ctx.rotate(-Math.PI / 4);
 
   const grad = ctx.createRadialGradient(0, 0, 2, 0, 0, 24);
+  // White base so each spark's tint colour shows (the old magenta stops
+  // turned every spark pink and bloomed on the road).
   grad.addColorStop(0, 'rgba(255, 255, 255, 1.0)');
-  grad.addColorStop(0.4, 'rgba(255, 0, 127, 0.9)');
-  grad.addColorStop(0.8, 'rgba(255, 0, 127, 0.3)');
+  grad.addColorStop(0.4, 'rgba(255, 255, 255, 0.7)');
+  grad.addColorStop(0.8, 'rgba(255, 255, 255, 0.2)');
   grad.addColorStop(1, 'rgba(0, 0, 0, 0)');
 
   ctx.fillStyle = grad;

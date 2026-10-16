@@ -1,5 +1,24 @@
 @import "tailwindcss";
 
+/*
+ * HUD monospace stack. Tailwind's default reaches Consolas first on Windows,
+ * and Consolas Bold at 10-12 px renders a lowercase "m" as a solid block at
+ * DPR 1 ("Cri■son Dunes", "60 ■"). Cascadia Mono (Windows 11) and Lucida
+ * Console (every Windows) render it correctly, so they come before Consolas.
+ */
+@theme {
+  --font-mono: "Cascadia Mono", ui-monospace, SFMono-Regular, Menlo, Monaco, "Roboto Mono", "DejaVu Sans Mono",
+    "Liberation Mono", "Lucida Console", Consolas, "Courier New", monospace;
+}
+
+/* Phones (portrait, or landscape with little height): the one-row run HUD.
+   Keep in sync with COMPACT_HUD_QUERY in src/components/ToastStack.tsx. */
+@custom-variant compact {
+  @media (max-width: 639px), (max-height: 500px) {
+    @slot;
+  }
+}
+
 html,
 body {
   margin: 0;
@@ -8,4 +27,23 @@ body {
   user-select: none;
   -webkit-user-select: none;
   background-color: #020617;
+}
+
+/* Compact HUD pills (toasts, start-line hold): fade in after a short delay so
+   a one-frame state never flashes. */
+@keyframes gwf-pill-in {
+  from {
+    opacity: 0;
+    transform: translateY(-4px);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+.gwf-pill-in {
+  animation: gwf-pill-in 160ms ease-out both;
+}
+.gwf-pill-in-delayed {
+  animation: gwf-pill-in 200ms ease-out 350ms both;
 }

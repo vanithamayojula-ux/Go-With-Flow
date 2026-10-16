@@ -5,6 +5,7 @@ import { setActiveBiome, clearBiomeOverride } from '../game/terrain';
 import { ProgressionManager } from '../game/progression';
 import { CosmeticManager } from '../game/cosmetics';
 import { GameModeManager } from '../game/modes';
+import { whenRoadTexturesReady } from '../game/perf/preload';
 import {
   BiomeType,
   CosmeticsConfig,
@@ -89,6 +90,10 @@ export const GameCanvas: React.FC<GameCanvasProps> = ({
   const isPausedRef = useRef(isPaused);
   isPausedRef.current = isPaused;
 
+  // Latest props for the (deferred) engine construction below.
+  const initRef = useRef({ graphicsConfig, lightingMode, shaderParams, cosmeticsConfig, upgrades, isUpright, isCinematicCam });
+  initRef.current = { graphicsConfig, lightingMode, shaderParams, cosmeticsConfig, upgrades, isUpright, isCinematicCam };
+
   // Initialize and run the GameEngine runtime
   useEffect(() => {
     const container = containerRef.current;
@@ -102,56 +107,84 @@ export const GameCanvas: React.FC<GameCanvasProps> = ({
       audioManagerRef.current.setMuted(isMutedRef.current);
     }
 
-    const engine = new GameEngine({
-      container,
-      graphicsConfig,
-      lightingMode,
-      shaderParams,
-      cosmeticsConfig,
-      upgrades,
-      isUpright,
-      audioManager: audioManagerRef.current,
-      progressionMgr,
-      cosmeticMgr,
-      gameModeMgr,
-      onStatsUpdate: (stats, fps, calls, instances) => {
-        onStatsUpdateRef.current?.(stats, fps, calls, instances);
-      },
-      onNotification: msg => {
-        onNotificationRef.current(msg);
-      },
-      onGameOver: () => {
-        onGameOverRef.current?.();
-      },
-      onRequestPause: () => {
-        onRequestPauseRef.current?.();
-      },
+    // Paint the loading overlay first, construct the engine after the browser
+    // has presented it (next frame + a task): building the renderer, road and
+    // managers is heavy, and done inside this effect it froze the click/Enter
+    // that launched the run with no visible feedback.
+    const overlay = GameEngine.createLoadingOverlay(container);
+    let engine: GameEngine | null = null;
+    let cancelled = false;
+    let timer = 0;
+    const raf = requestAnimationFrame(() => {
+      timer = window.setTimeout(() => {
+        if (cancelled) return;
+        whenRoadTexturesReady().then(() => {
+          if (!cancelled) construct();
+        });
+      }, 0);
     });
-
-    engineRef.current = engine;
-    // Mount already paused if the UI is (e.g. a modal is open over the stage).
-    engine.isPaused = isPausedRef.current;
-    engine.start();
 
     // Dev and testing hooks: only in dev builds or with ?debug in the URL.
     const exposeDebugHooks =
       typeof window !== 'undefined' &&
       (import.meta.env.DEV || new URLSearchParams(window.location.search).has('debug'));
-    if (exposeDebugHooks) {
-      (window as any).__gameEngine = engine;
-      (window as any).__playerManager = engine.playerMgr;
-      (window as any).__setActiveBiome = (b: BiomeType | null) => {
-        setActiveBiome(b);
-        engine.terrainMgr.rebuildAroundPlayer(engine.playerMgr.stats.distance, 0, 4);
-      };
-      (window as any).__clearBiomeOverride = () => {
-        clearBiomeOverride();
-        engine.terrainMgr.rebuildAroundPlayer(engine.playerMgr.stats.distance, 0, 4);
-      };
-    }
+
+    const construct = () => {
+      const init = initRef.current;
+      engine = new GameEngine({
+        container,
+        graphicsConfig: init.graphicsConfig,
+        lightingMode: init.lightingMode,
+        shaderParams: init.shaderParams,
+        cosmeticsConfig: init.cosmeticsConfig,
+        upgrades: init.upgrades,
+        isUpright: init.isUpright,
+        audioManager: audioManagerRef.current!,
+        progressionMgr,
+        cosmeticMgr,
+        gameModeMgr,
+        loadingOverlay: overlay,
+        onStatsUpdate: (stats, fps, calls, instances) => {
+          onStatsUpdateRef.current?.(stats, fps, calls, instances);
+        },
+        onNotification: msg => {
+          onNotificationRef.current(msg);
+        },
+        onGameOver: () => {
+          onGameOverRef.current?.();
+        },
+        onRequestPause: () => {
+          onRequestPauseRef.current?.();
+        },
+      });
+
+      const e = engine;
+      engineRef.current = e;
+      // Mount already paused if the UI is (e.g. a modal is open over the stage).
+      e.isPaused = isPausedRef.current;
+      e.isCinematicCam = init.isCinematicCam;
+      e.start();
+
+      if (exposeDebugHooks) {
+        (window as any).__gameEngine = e;
+        (window as any).__playerManager = e.playerMgr;
+        (window as any).__setActiveBiome = (b: BiomeType | null) => {
+          setActiveBiome(b);
+          e.terrainMgr.rebuildAroundPlayer(e.playerMgr.stats.distance, 0, 4);
+        };
+        (window as any).__clearBiomeOverride = () => {
+          clearBiomeOverride();
+          e.terrainMgr.rebuildAroundPlayer(e.playerMgr.stats.distance, 0, 4);
+        };
+      }
+    };
 
     return () => {
-      engine.dispose();
+      cancelled = true;
+      cancelAnimationFrame(raf);
+      window.clearTimeout(timer);
+      if (engine) engine.dispose();
+      else overlay?.remove();
       engineRef.current = null;
       // Drop the dev hooks so they don't keep the disposed engine alive.
       if (exposeDebugHooks) {

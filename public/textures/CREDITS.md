@@ -22,7 +22,7 @@ ARM q70) and, for models, simplified and compressed with glTF-Transform
 | `crimson-dunes/rock` | [cliff_side](https://polyhaven.com/a/cliff_side) | James Ray Cock, Jenelle van Heerden, Dario Barresi | CC0 |
 | `crystal-heights/snow` | [snow_02](https://polyhaven.com/a/snow_02) | Rob Tuytel | CC0 |
 | `crystal-heights/rock` | [rock_3](https://polyhaven.com/a/rock_3) | Rob Tuytel | CC0 |
-| `obsidian-core/rock` | [dark_rock](https://polyhaven.com/a/dark_rock) | Amal Kumar | CC0 |
+| `obsidian-core/rock` | [dark_rock_02](https://polyhaven.com/a/dark_rock_02) (replaces dark_rock: brighter fractured basalt with stronger relief) | Amal Kumar | CC0 |
 | `obsidian-core/ground` | [rock_ground](https://polyhaven.com/a/rock_ground) | Rob Tuytel | CC0 |
 
 `_diff` = albedo (sRGB), `_nor` = OpenGL normal map, `_arm` = packed

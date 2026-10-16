@@ -97,6 +97,8 @@ const ROCK_MID = 0xa8704c;
 const ROCK_LIGHT = 0xb5784f;
 const ROCK_DARK = 0x7e5038;
 const ROCK_CAP = 0xc29a72;
+/** Pale, sand-coloured sandstone beds between the redder layers. */
+const ROCK_SAND_BED = 0xcfa77a;
 
 const smoothstep = (e0: number, e1: number, v: number): number => {
   const t = Math.min(1, Math.max(0, (v - e0) / (e1 - e0)));
@@ -227,6 +229,7 @@ export function createProceduralMesaGeometry(
   const light = new THREE.Color(ROCK_LIGHT);
   const dark = new THREE.Color(ROCK_DARK);
   const cap = new THREE.Color(ROCK_CAP);
+  const sandBed = new THREE.Color(ROCK_SAND_BED);
   const talus = new THREE.Color(SAND_TROUGH);
   const c = new THREE.Color();
   const phase = (seed % 89) * 0.21;
@@ -266,6 +269,9 @@ export function createProceduralMesaGeometry(
       c.lerpColors(mid, light, Math.max(0, 0.55 - strata) * 0.8);
     }
     c.lerp(dark, fine * 0.12);
+    // Thick buff (sand-coloured) beds: the strata read across the whole butte
+    const bed = Math.sin(normY * Math.PI * archetype.layerCount * 1.45 + Math.sin(theta * 3 + phase) * 0.35 + 0.8);
+    if (bed > 0.45) c.lerp(sandBed, Math.min(1, (bed - 0.45) * 2.4) * 0.85);
     // Lighter caprock on top, sand-dusted talus at the foot
     if (normY > 0.9) c.lerp(cap, (normY - 0.9) * 6);
     if (normY < 0.12) c.lerp(talus, (0.12 - normY) * 6);
@@ -311,6 +317,25 @@ export function desertGroundHeight(x: number, zLocal: number, length = 60, seed 
     Math.sin(zLocal * zFreq * 2 + absX * 0.21) * 0.35;
   return -0.15 + smoothstep(0, 14, flank) * (flank * 0.07 + undulation + 1.0);
 }
+
+/**
+ * GLSL twin of desertGroundHeight() for the world's own ground bed (seed 555,
+ * 60 m chunks aligned to the world span start 4500 m, so chunk-local z is
+ * world z - 30 modulo 60). Lets mesa materials blend into the sand exactly
+ * where they meet it.
+ */
+export const DESERT_GROUND_GLSL = /* glsl */ `
+float gwfGroundY( vec2 p ) {
+  float ax = abs( p.x );
+  if ( ax <= 6.0 ) return -0.15;
+  float zf = 6.28318530718 / 60.0;
+  float zl = p.y - 30.0;
+  float sp = p.x < 0.0 ? 2.7 : 0.0;
+  float fl = ax - 6.0;
+  float und = sin( fl * 0.11 + 1.3 + sp + 4.25 ) * 1.6 + cos( zl * zf + fl * 0.09 + sp ) * 0.9 + sin( zl * zf * 2.0 + ax * 0.21 ) * 0.35;
+  return -0.15 + smoothstep( 0.0, 14.0, fl ) * ( fl * 0.07 + und + 1.0 );
+}
+`;
 
 export function createDesertHighwayChunkGeometry(
   width: number,

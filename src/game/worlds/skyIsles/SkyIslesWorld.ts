@@ -7,9 +7,11 @@ import {
   buildTempleGeometries,
   buildWaterfallGeometry,
   getWaterStreakTexture,
+  WATERFALL_FOOT,
 } from './SkyIslesDecorations';
+import { BillboardCloudSet, createBillboardClouds } from './billboardClouds';
 import { skyIslesConfig } from './skyIslesConfig';
-import { TreeArchetype, createProceduralTreeGeometryGen, getLeafClusterTexture } from '../verdantWilds/VerdantWildsTerrain';
+import { TreeArchetype, createProceduralTreeGeometryGen, getLeafClusterTexture, getLeafMassTexture, buildLeafClusterTextureGen } from '../verdantWilds/VerdantWildsTerrain';
 import { buildSpruceVariant } from '../crystalHeights/CrystalHeightsDecorations';
 import { RAIL_X } from '../../trackConfig';
 import { StreamedWorld, StreamChunk, WarmTask } from '../shared/streamedWorld';
@@ -43,7 +45,7 @@ interface SkyKit {
   temple: { stone: THREE.BufferGeometry; roof: THREE.BufferGeometry; crystal: THREE.BufferGeometry };
   roof: THREE.MeshStandardMaterial;
   quartz: THREE.MeshPhysicalMaterial;
-  water: THREE.MeshPhysicalMaterial;
+  water: THREE.MeshStandardMaterial;
   waterTex: THREE.CanvasTexture | null;
   waterfall: THREE.BufferGeometry;
 }
@@ -110,14 +112,14 @@ const KIT_STEPS: WarmTask[] = [
   () => {
     K.conifer ??= buildSpruceVariant(613, 7.6, 2.1, 0);
   },
-  () => void getLeafClusterTexture(),
+  () => buildLeafClusterTextureGen(),
   () => {
     if (K.bark) return;
     const fade = getWorldFade('sky-isles');
     const noise = getGreyNoiseTexture(1234, 0.72, 4);
     K.bark = createScanStandardMaterial({ fallbackColor: 0x4a3a2a, fallbackMap: noise, scanTint: 0xb8a898, vertexColors: true, fade });
     K.crown = applyStreamFade(
-      new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 1, metalness: 0, map: noise, envMapIntensity: 0.35 }),
+      new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 1, metalness: 0, map: getLeafMassTexture(), envMapIntensity: 0.1 }),
       fade
     );
     const leafTex = getLeafClusterTexture();
@@ -162,18 +164,23 @@ const KIT_STEPS: WarmTask[] = [
     K.temple = buildTempleGeometries();
     K.waterfall = buildWaterfallGeometry(34, 3.2);
     K.waterTex = getWaterStreakTexture();
+    // Aerated falling water: white, fairly rough foam (not glass), vertex
+    // alpha thins it into spray toward the foot
     K.water = applyStreamFade(
-      new THREE.MeshPhysicalMaterial({
-        color: 0xe4eef0,
-        roughness: 0.18,
+      new THREE.MeshStandardMaterial({
+        color: 0xe8f0f2,
+        roughness: 0.55,
         metalness: 0,
-        ior: 1.333,
-        map: K.waterTex,
+        // The texture is alpha data (G channel) only: no albedo map, so the
+        // foam never picks up the R/B channels as a tint
         alphaMap: K.waterTex,
+        vertexColors: true,
         transparent: true,
-        opacity: K.waterTex ? 0.85 : 0.65,
+        opacity: K.waterTex ? 0.9 : 0.6,
         depthWrite: false,
         side: THREE.DoubleSide,
+        emissive: 0x2c3438,
+        envMapIntensity: 0.6,
       }),
       getWorldFade('sky-isles')
     );
@@ -214,6 +221,12 @@ export class SkyIslesWorld extends StreamedWorld {
   private templeCrystalPool: InstancePool | null = null;
   private waterfallPool: InstancePool | null = null;
   private crystals = new Map<PoolHandle, SpinningCrystal>();
+  /** Spray puffs at waterfall feet (one camera-facing instanced draw). */
+  private mist: BillboardCloudSet | null = null;
+  private mistFree: number[] = [];
+  private mistByHandle = new Map<PoolHandle, number>();
+  /** Set once animate() has run (the world has been on screen). */
+  private animated = false;
 
   constructor(scene: THREE.Scene, graphicsConfig: GraphicsConfig) {
     super(scene, graphicsConfig, 'sky-isles', 'SkyIslesWorldRootGroup');
@@ -260,6 +273,20 @@ export class SkyIslesWorld extends StreamedWorld {
     ];
     this.templeCrystalPool = this.addPool(new InstancePool('sky-temple-crystal', k.temple.crystal, k.quartz, 8));
     this.waterfallPool = this.addPool(new InstancePool('sky-waterfalls', k.waterfall, k.water, 16, { receiveShadow: false }));
+    this.mist = createBillboardClouds(16, {
+      litColor: 0xffffff,
+      litIntensity: 3.0,
+      shadowColor: 0xc4d0dc,
+      shadowIntensity: 2.2,
+      opacity: 0.6,
+    });
+    this.mist.mesh.name = 'sky-waterfall-mist';
+    for (let i = 15; i >= 0; i--) {
+      this.mist.setCloud(i, 0, -1e4, 0, 0, 0);
+      this.mistFree.push(i);
+    }
+    this.mist.mesh.instanceMatrix.needsUpdate = true;
+    this.group.add(this.mist.mesh);
   }
 
   protected applyScannedAssets(): void {
@@ -278,6 +305,8 @@ export class SkyIslesWorld extends StreamedWorld {
     }
     if (bark) k.bark.apply(bark);
     if (this.rockPools) applyEnvModels(this.rockPools, k.rockMats);
+    // Not drawn yet: show the scans from the first frame (no fallback fade-in)
+    if (!this.animated) for (const h of [k.island, k.islandFar, k.stone, ...k.rockMats.values()]) h.snap();
   }
 
   protected spawnChunk(chunk: StreamChunk): void {
@@ -312,7 +341,20 @@ export class SkyIslesWorld extends StreamedWorld {
       // Waterfall off the road-facing rim of large islands
       if (archId === 'large-sanctuary' && preset !== 'webgl-min') {
         const fallRot = sign > 0 ? -Math.PI / 2 : Math.PI / 2;
-        this.place(chunk, this.waterfallPool, trs(posX - sign * radius * 0.98, posY + heightGrass - 0.55, posZ + 2.0, fallRot, 1));
+        const fx = posX - sign * radius * 0.98;
+        const fy = posY + heightGrass - 0.55;
+        const fz = posZ + 2.0;
+        if (this.place(chunk, this.waterfallPool, trs(fx, fy, fz, fallRot, 1))) {
+          // Spray cloud where the fall dissolves (local +Z faces the road)
+          const slot = this.mistFree.pop();
+          if (slot !== undefined && this.mist) {
+            this.mistByHandle.set(chunk.handles[chunk.handles.length - 1], slot);
+            const mx = fx - sign * WATERFALL_FOOT.z;
+            const w = 13 + srnd(30) * 6;
+            this.mist.setCloud(slot, mx, fy + WATERFALL_FOOT.y, fz, w, w * 0.62);
+            this.mist.mesh.instanceMatrix.needsUpdate = true;
+          }
+        }
       }
 
       // Landmark: stone colonnade or sky temple on the largest isles
@@ -391,13 +433,26 @@ export class SkyIslesWorld extends StreamedWorld {
   }
 
   protected releaseChunk(chunk: StreamChunk): void {
-    for (const h of chunk.handles) this.crystals.delete(h);
+    for (const h of chunk.handles) {
+      this.crystals.delete(h);
+      const slot = this.mistByHandle.get(h);
+      if (slot !== undefined && this.mist) {
+        this.mistByHandle.delete(h);
+        this.mist.setCloud(slot, 0, -1e4, 0, 0, 0);
+        this.mist.mesh.instanceMatrix.needsUpdate = true;
+        this.mistFree.push(slot);
+      }
+    }
     super.releaseChunk(chunk);
   }
 
   protected animate(playerZ: number, dt: number, time: number): void {
     const k = K as SkyKit;
-    for (const h of [k.island, k.islandFar, k.stone, ...k.rockMats.values()]) h.tick(dt);
+    this.animated = true;
+    k.island.tick(dt);
+    k.islandFar.tick(dt);
+    k.stone.tick(dt);
+    for (const h of k.rockMats.values()) h.tick(dt);
     if (this.atmosphere) {
       this.atmosphere.group.visible = this.playerInRange(playerZ);
       if (this.atmosphere.group.visible) this.atmosphere.update(dt, playerZ, time);
@@ -405,11 +460,16 @@ export class SkyIslesWorld extends StreamedWorld {
     const spin = time * 0.3;
     const cp = this.templeCrystalPool;
     if (cp) for (const c of this.crystals.values()) cp.setMatrix(c.handle, trs(c.x, c.y, c.z, spin + c.phase, TEMPLE_SCALE));
-    if (k.waterTex) k.waterTex.offset.y = (time * 0.9) % 1;
+    if (k.waterTex) k.waterTex.offset.y = (time * 1.1) % 1;
+    if (this.mist) this.mist.mesh.visible = this.mistByHandle.size > 0;
   }
 
   protected disposeWorld(): void {
     this.crystals.clear();
+    this.mist?.dispose();
+    this.mist = null;
+    this.mistFree = [];
+    this.mistByHandle.clear();
     this.colonnadePool = null;
     this.templePools = [];
     this.templeCrystalPool = null;

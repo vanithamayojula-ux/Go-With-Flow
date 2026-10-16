@@ -45,6 +45,14 @@ function fbm(x: number, y: number, seed: number): number {
  * Stored in colour channels with opaque alpha so canvas premultiplication can't
  * destroy the light values in the thin edges.
  */
+let sharedAtlas: THREE.CanvasTexture | null | undefined;
+
+/** The atlas is painted once per session and shared by every cloud set (never disposed). */
+function getCloudAtlas(): THREE.CanvasTexture | null {
+  if (sharedAtlas === undefined) sharedAtlas = createCloudAtlas();
+  return sharedAtlas;
+}
+
 function createCloudAtlas(): THREE.CanvasTexture | null {
   if (typeof document === 'undefined') return null;
   const size = ATLAS_CELL * 2;
@@ -201,7 +209,7 @@ export interface BillboardCloudSet {
  * height in metres), then flag `mesh.instanceMatrix.needsUpdate`.
  */
 export function createBillboardClouds(count: number, opts: BillboardCloudOptions = {}): BillboardCloudSet {
-  const atlas = createCloudAtlas();
+  const atlas = getCloudAtlas();
   const geom = new THREE.PlaneGeometry(1, 1);
   const variant = new Float32Array(count);
   const shade = new Float32Array(count);
@@ -254,7 +262,6 @@ export function createBillboardClouds(count: number, opts: BillboardCloudOptions
     dispose() {
       geom.dispose();
       material.dispose();
-      atlas?.dispose();
       mesh.dispose();
     },
   };

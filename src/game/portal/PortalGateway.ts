@@ -21,9 +21,44 @@ export interface MembraneSharedUniforms {
 export interface GatewayShared {
   fade: StreamFade;
   membrane: MembraneSharedUniforms;
+  /**
+   * Fetch the scanned stone textures (default). The start-up warm-up builds
+   * throw-away gateways with the placeholders only: same texture slots, same
+   * programs, no download.
+   */
+  fetchTextures?: boolean;
 }
 
 const BEAM_HEIGHT = 900;
+
+/**
+ * Stencil value the highway writes (see markRoadStencil): the membrane is not
+ * drawn over those pixels, so the road shows through the opening from the
+ * main pass instead of from the (lower resolution, other-world lit) window.
+ */
+export const ROAD_STENCIL_REF = 1;
+
+/** Make the highway meshes under `root` write ROAD_STENCIL_REF (drawn before the membrane). */
+export function markRoadStencil(root: THREE.Object3D): number {
+  let n = 0;
+  root.traverse(o => {
+    const mesh = o as THREE.Mesh;
+    if (!mesh.isMesh) return;
+    mesh.renderOrder = Math.min(mesh.renderOrder, -2);
+    const mats = Array.isArray(mesh.material) ? mesh.material : [mesh.material];
+    for (const m of mats) {
+      if (!m) continue;
+      m.stencilWrite = true;
+      m.stencilRef = ROAD_STENCIL_REF;
+      m.stencilFunc = THREE.AlwaysStencilFunc;
+      m.stencilZPass = THREE.ReplaceStencilOp;
+      m.stencilFail = THREE.KeepStencilOp;
+      m.stencilZFail = THREE.KeepStencilOp;
+    }
+    n++;
+  });
+  return n;
+}
 
 function mulberry32(seed: number): () => number {
   let a = seed >>> 0;
@@ -253,6 +288,12 @@ export class PortalGateway {
     uColor: { value: new THREE.Color() },
     uIntensity: { value: 0 },
     uTime: { value: 0 },
+    /** Half width (m) at the arch and at the top of the shaft. */
+    uBaseHalfW: { value: 4.5 },
+    uTopHalfW: { value: 14.0 },
+    /** Minimum full width on screen (px) and the target height (px). */
+    uMinPx: { value: 10 },
+    uViewH: { value: 720 },
   };
   /** Linear energy colour of the destination world. */
   readonly energy = new THREE.Color();
@@ -358,6 +399,7 @@ export class PortalGateway {
     const S = GATEWAY.SPRING_Y;
     const rnd = mulberry32(0x9e3779b1 ^ Math.floor(this.boundaryZ));
     const tile = 1 / GATEWAY.STONE_TILE;
+    const D = GATEWAY.DRESS_SCALE;
 
     // 1. Materials + texture loads
     const stoneMat = this.scanMaterial(st.stone, st.stoneTint, st.normalScale, true);
@@ -378,7 +420,7 @@ export class PortalGateway {
       applyStreamFade(iceMat, this.shared.fade, 'far', false);
       this.materials.push(iceMat);
     }
-    this.loadScans();
+    if (this.shared.fetchTextures !== false) this.loadScans();
     yield;
 
     // 2. Pillars: foundation pier, plinth, moulding, shaft courses, impost
@@ -390,8 +432,8 @@ export class PortalGateway {
       stones.push(n);
     };
     const shaftBottom = GATEWAY.PLINTH_TOP + 0.35;
-    const shaftTop = S - 0.9;
-    const courses = 4;
+    const shaftTop = S - 1.2;
+    const courses = 5;
     const courseH = (shaftTop - shaftBottom) / courses;
     for (const side of [-1, 1]) {
       const cx = side * (W + GATEWAY.PILLAR_W / 2);
@@ -404,30 +446,31 @@ export class PortalGateway {
         const jx = (rnd() - 0.5) * 0.06;
         addStone(place(stoneBlock(GATEWAY.PILLAR_W + (c % 2) * 0.08, courseH - 0.04, GATEWAY.PILLAR_D, 0.07), cx + jx, y, 0));
       }
-      addStone(place(stoneBlock(GATEWAY.PILLAR_W + 0.7, 0.9, GATEWAY.PILLAR_D + 0.5, 0.08), cx, S - 0.45, 0));
+      addStone(place(stoneBlock(GATEWAY.PILLAR_W + 0.9, 1.2, GATEWAY.PILLAR_D + 0.7, 0.09), cx, S - 0.6, 0));
     }
     yield;
 
-    // 3. Arch ring: 13 voussoirs with a proud keystone
-    const N = 13;
+    // 3. Arch ring: 15 voussoirs with a proud keystone
+    const N = 15;
     const gap = 0.035 / W;
     for (let i = 0; i < N; i++) {
       const a0 = (i / N) * Math.PI + gap * 0.5;
       const a1 = ((i + 1) / N) * Math.PI - gap * 0.5;
       const key = i === (N - 1) / 2;
-      const r1 = W + GATEWAY.RING + (key ? 0.45 : (rnd() - 0.5) * 0.08);
-      const depth = GATEWAY.DEPTH + (key ? 0.3 : (rnd() - 0.5) * 0.06);
+      const r1 = W + GATEWAY.RING + (key ? 0.65 : (rnd() - 0.5) * 0.1);
+      const depth = GATEWAY.DEPTH + (key ? 0.4 : (rnd() - 0.5) * 0.08);
       addStone(place(sectorStone(W, r1, a0, a1, depth, 0.07), 0, S, 0));
     }
     // Fallen blocks at the foot of the pillars
     if (st.rubble) {
       for (let i = 0; i < 6; i++) {
         const side = i % 2 === 0 ? -1 : 1;
-        const w = 0.8 + rnd() * 0.9;
-        const h = 0.5 + rnd() * 0.5;
-        const d = 0.7 + rnd() * 0.8;
-        const x = side * (10.4 + rnd() * 2.6);
-        const z = (rnd() - 0.5) * 9;
+        const w = (0.8 + rnd() * 0.9) * D;
+        const h = (0.5 + rnd() * 0.5) * D;
+        const d = (0.7 + rnd() * 0.8) * D;
+        // Outside the pillars (never on the road or the shoulders).
+        const x = side * (W + GATEWAY.PILLAR_W + rnd() * 2.6 * D);
+        const z = (rnd() - 0.5) * 9 * D;
         addStone(place(stoneBlock(w, h, d, 0.06), x, h / 2 - 0.12, z, (rnd() - 0.5) * 0.3, rnd() * Math.PI, (rnd() - 0.5) * 0.3));
       }
     }
@@ -454,15 +497,15 @@ export class PortalGateway {
       const parts: THREE.BufferGeometry[] = [];
       for (const side of [-1, 1]) {
         const cx = side * (W + GATEWAY.PILLAR_W / 2);
-        parts.push(drift(2.6, 0.9, 2.2, cx + side * 1.6, -0.25, -2.3, 0.3 * side));
-        parts.push(drift(2.2, 0.7, 2.0, cx + side * 1.9, -0.25, 2.5, -0.2 * side));
-        parts.push(drift(1.6, 0.55, 1.5, cx + side * 0.2, -0.2, -3.0, 0.5));
+        parts.push(drift(2.6 * D, 0.9 * D, 2.2 * D, cx + side * 1.6 * D, -0.25, -2.3 * D, 0.3 * side));
+        parts.push(drift(2.2 * D, 0.7 * D, 2.0 * D, cx + side * 1.9 * D, -0.25, 2.5 * D, -0.2 * side));
+        parts.push(drift(1.6 * D, 0.55 * D, 1.5 * D, cx + side * 0.2, -0.2, -3.0 * D, 0.5));
       }
       if (snowMat) {
         // Caps on the ledges and along the top of the arch
         for (const side of [-1, 1]) {
           const cx = side * (W + GATEWAY.PILLAR_W / 2);
-          parts.push(normalizeAttributes(place(stoneBlock(GATEWAY.PILLAR_W + 0.78, 0.2, GATEWAY.PILLAR_D + 0.58, 0.08), cx, S + 0.07, 0)));
+          parts.push(normalizeAttributes(place(stoneBlock(GATEWAY.PILLAR_W + 0.98, 0.26, GATEWAY.PILLAR_D + 0.78, 0.08), cx, S + 0.09, 0)));
           parts.push(normalizeAttributes(place(stoneBlock(GATEWAY.PLINTH_W - 0.35, 0.18, GATEWAY.PLINTH_D - 0.35, 0.07), cx, GATEWAY.PLINTH_TOP + 0.4, 0)));
         }
         const snowArch = sectorStone(W + GATEWAY.RING - 0.04, W + GATEWAY.RING + 0.24, 0.62, Math.PI - 0.62, GATEWAY.DEPTH + 0.08, 0.08);
@@ -481,23 +524,23 @@ export class PortalGateway {
       // Icicles hanging from the arch's underside
       for (let i = 0; i < 30; i++) {
         const a = 0.25 + (i / 29) * (Math.PI - 0.5) + (rnd() - 0.5) * 0.05;
-        const len = 0.35 + rnd() * rnd() * 1.6;
-        const r = 0.06 + rnd() * 0.12;
+        const len = (0.35 + rnd() * rnd() * 1.6) * D;
+        const r = (0.06 + rnd() * 0.12) * D;
         const g = new THREE.ConeGeometry(r, len, 6, 1);
         g.rotateX(Math.PI); // tip down
         const rr = W - 0.02;
-        parts.push(normalizeAttributes(place(g, Math.cos(a) * rr, S + Math.sin(a) * rr - len / 2, (rnd() - 0.5) * 2.6)));
+        parts.push(normalizeAttributes(place(g, Math.cos(a) * rr, S + Math.sin(a) * rr - len / 2, (rnd() - 0.5) * (GATEWAY.DEPTH - 0.8))));
       }
       // Ice crystal clusters at the plinths
       for (const side of [-1, 1]) {
         const cx = side * (W + GATEWAY.PILLAR_W / 2);
         for (let i = 0; i < 7; i++) {
-          const h = 0.7 + rnd() * 1.6;
-          const r = 0.12 + rnd() * 0.2;
+          const h = (0.7 + rnd() * 1.6) * D;
+          const r = (0.12 + rnd() * 0.2) * D;
           const g = new THREE.CylinderGeometry(r * 0.35, r, h, 6, 1);
           parts.push(
             normalizeAttributes(
-              place(g, cx + side * (1.9 + rnd() * 1.0), h * 0.4 - 0.15, (rnd() - 0.5) * 4.4, (rnd() - 0.5) * 0.7, rnd() * Math.PI, side * (0.15 + rnd() * 0.5))
+              place(g, cx + side * (GATEWAY.PLINTH_W / 2 + 0.2 + rnd() * 1.4), h * 0.4 - 0.15, (rnd() - 0.5) * GATEWAY.PLINTH_D, (rnd() - 0.5) * 0.7, rnd() * Math.PI, side * (0.15 + rnd() * 0.5))
             )
           );
         }
@@ -517,7 +560,7 @@ export class PortalGateway {
     const rimMat = new THREE.MeshBasicMaterial({ color: rimColor });
     applyStreamFade(rimMat, this.shared.fade, 'far', false);
     this.materials.push(rimMat);
-    const rimGeom = this.track(new THREE.TubeGeometry(new OpeningCurve(W - 0.05, S, 0.02, 0), 220, 0.045, 6, false));
+    const rimGeom = this.track(new THREE.TubeGeometry(new OpeningCurve(W - 0.05, S, 0.02, 0), 260, 0.06, 6, false));
     const rim = new THREE.Mesh(rimGeom, rimMat);
     rim.name = 'GatewayRim';
     this.group.add(rim);
@@ -551,6 +594,16 @@ export class PortalGateway {
       uniforms: this.membraneUniforms,
       vertexShader: MEMBRANE_VERTEX,
       fragmentShader: MEMBRANE_FRAGMENT,
+      // Never drawn over the highway (deck, slab, rails): the road marks its
+      // pixels in the stencil (ROAD_STENCIL_REF) and the main pass draws it
+      // through the opening at full resolution, in the same light as the
+      // road in front of the gateway - no seam across the road.
+      stencilWrite: true,
+      stencilRef: ROAD_STENCIL_REF,
+      stencilFunc: THREE.NotEqualStencilFunc,
+      stencilFail: THREE.KeepStencilOp,
+      stencilZFail: THREE.KeepStencilOp,
+      stencilZPass: THREE.KeepStencilOp,
     });
     this.materials.push(memMat);
     const membrane = new THREE.Mesh(memGeom, memMat);
@@ -561,7 +614,8 @@ export class PortalGateway {
     this.group.add(membrane);
     this.membrane = membrane;
 
-    const beamGeom = this.track(new THREE.CylinderGeometry(10, 3.6, BEAM_HEIGHT, 32, 1, true));
+    // Billboard: x in [-1, 1] (scaled in the vertex shader), y up the shaft.
+    const beamGeom = this.track(new THREE.PlaneGeometry(2, BEAM_HEIGHT, 1, 12));
     beamGeom.translate(0, BEAM_HEIGHT / 2, 0);
     this.beamUniforms.uColor.value.copy(this.energy).lerp(new THREE.Color(1, 1, 1), 0.35);
     const beamMat = new THREE.ShaderMaterial({

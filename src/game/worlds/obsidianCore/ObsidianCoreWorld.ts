@@ -7,7 +7,6 @@ import {
   createLavaRiverGeometry,
   getVolcanicLavaTexture,
   buildVolcanicLavaTextureGen,
-  OBSIDIAN_LAVA_EMISSIVE,
   volcanicGroundHeight,
 } from './ObsidianCoreTerrain';
 import { ObsidianCoreAtmosphere } from './ObsidianCoreAtmosphere';
@@ -47,30 +46,31 @@ interface ObsidianKit {
   forgeArch: THREE.BufferGeometry;
   fall: { sheet: THREE.BufferGeometry; cliff: THREE.BufferGeometry };
   groundMat: TerrainMaterialHandle;
+  crust: TerrainMaterialHandle;
+  spireMat: TerrainMaterialHandle;
   basaltCols: TerrainMaterialHandle;
   basalt: TerrainMaterialHandle;
   volcanoMat: TerrainMaterialHandle;
   rockMats: Map<EnvModelId, TerrainMaterialHandle>;
-  obsidianGlass: THREE.MeshPhysicalMaterial;
-  lava: THREE.MeshStandardMaterial;
   coreLava: THREE.MeshStandardMaterial;
   coals: THREE.MeshStandardMaterial;
   fallLava: THREE.MeshStandardMaterial;
-  lavaTex: THREE.Texture | null;
   coreTex: THREE.Texture | null;
   fallTex: THREE.Texture | null;
 }
 const K: Partial<ObsidianKit> = {};
 
-const ASH = { tile: 6, tint: 0x8c827c, normalScale: 1.0, roughness: [0.82, 1.0] as [number, number], fallback: 0x45413d };
-const BASALT = { tile: 7, tint: 0x8a8582, normalScale: 1.2, roughness: [0.55, 0.95] as [number, number], fallback: 0x302d2b };
+const ASH = { tile: 6, tint: 0x5a5552, normalScale: 1.0, roughness: [0.82, 1.0] as [number, number], fallback: 0x45413d };
+// Scanned fractured basalt (dark_rock_02, sRGB ~0.23): lifted to a natural
+// basalt albedo (~0.03-0.05 linear) so faces catch the light instead of reading black
+const BASALT = { tile: 7, tint: 0xc4c3c6, gain: 0.5, normalScale: 1.25, roughness: [0.5, 0.92] as [number, number], fallback: 0x3a3633 };
 const LAVA = { color: 0xff5a1a, intensity: 2.2 };
 
 const KIT_STEPS: WarmTask[] = [
   buildVolcanicLavaTextureGen,
   () => {
     K.ground ??= createVolcanicHighwayChunkGeometry(140, CHUNK, 14, 24, 999);
-    K.lavaRiver ??= createLavaRiverGeometry(CHUNK, 8);
+    K.lavaRiver ??= createLavaRiverGeometry(CHUNK, 24);
   },
   () => {
     if (K.columns) return;
@@ -98,9 +98,34 @@ const KIT_STEPS: WarmTask[] = [
       vcRefRock: 0x343130,
       vcKeep: 0.5,
       lava: LAVA,
+      // Ash shoulders: only the odd glowing seam, never a speckled carpet
+      lavaAo: [0.12, 0.2],
+      skirt: { length: 20, depth: 3, innerX: 8 },
+      fade,
+    });
+    // Channels: cooled, ridged pahoehoe crust with lava showing through the
+    // cracks between plates (the scan's AO marks the cracks)
+    K.crust = createTerrainMaterial({
+      name: 'obsidian-lava-crust',
+      ground: { tile: 5.5, tint: 0xd8d0ca, gain: 1.2, normalScale: 1.4, roughness: [0.45, 0.9], fallback: 0x1c1816 },
+      lava: { color: 0xff4a12, intensity: 3.0 },
+      lavaCover: 0.9,
+      lavaAo: [0.78, 0.9],
+      macro: 0.2,
       fade,
     });
     K.basaltCols = createTerrainMaterial({ name: 'obsidian-basalt-columns', rock: BASALT, flatShading: true, lava: LAVA, macro: 0.12, fade });
+    // Obsidian crags: textured volcanic rock, glossier than basalt where the
+    // glassy faces are fresh (roughness from the scan, 0.3..0.7), no clearcoat:
+    // a coat made them read as polished metal under the bright sky
+    K.spireMat = createTerrainMaterial({
+      name: 'obsidian-spire',
+      rock: { ...BASALT, tile: 5, tint: 0xb4b2b8, gain: 0.5, normalScale: 1.4, roughness: [0.3, 0.7] },
+      envMapIntensity: 0.5,
+      flatShading: true,
+      macro: 0.1,
+      fade,
+    });
     K.basalt = createTerrainMaterial({ name: 'obsidian-basalt', rock: { ...BASALT, tile: 5 }, lava: LAVA, macro: 0.12, fade });
     K.volcanoMat = createTerrainMaterial({
       name: 'obsidian-volcano',
@@ -122,22 +147,7 @@ const KIT_STEPS: WarmTask[] = [
       lava: LAVA,
       fade,
     });
-    // Volcanic glass: near-black body that reads through glossy reflections
-    K.obsidianGlass = applyStreamFade(
-      new THREE.MeshPhysicalMaterial({
-        vertexColors: true,
-        roughness: 0.14,
-        metalness: 0,
-        flatShading: true,
-        clearcoat: 1,
-        clearcoatRoughness: 0.05,
-        ior: 1.49,
-        envMapIntensity: 1.8,
-      }),
-      fade
-    );
     const lavaTex = getVolcanicLavaTexture();
-    K.lavaTex = lavaTex;
     K.coreTex = lavaTex ? lavaTex.clone() : null;
     if (K.coreTex) K.coreTex.repeat.set(0.5, 0.5);
     K.fallTex = lavaTex ? lavaTex.clone() : null;
@@ -155,7 +165,6 @@ const KIT_STEPS: WarmTask[] = [
         }),
         fade
       );
-    K.lava = lavaMat(lavaTex, 0xff4a10, OBSIDIAN_LAVA_EMISSIVE);
     K.coreLava = lavaMat(K.coreTex, 0xff4a10, 2.2);
     K.coals = lavaMat(K.coreTex, 0xff7a20, 2.4);
     K.fallLava = lavaMat(K.fallTex, 0xff5a14, 2.2, THREE.DoubleSide);
@@ -206,10 +215,10 @@ export class ObsidianCoreWorld extends StreamedWorld {
   protected onKitReady(): void {
     const k = K as ObsidianKit;
     this.groundPool = this.addPool(new InstancePool('obsidian-ground', k.ground, k.groundMat.material, 16));
-    this.lavaPool = this.addPool(new InstancePool('obsidian-lava', k.lavaRiver, k.lava, 16));
+    this.lavaPool = this.addPool(new InstancePool('obsidian-lava', k.lavaRiver, k.crust.material, 16));
     this.columnsNear = this.addPool(new InstancePool('obsidian-columns-near', k.columns, k.basaltCols.material, 48, { castShadow: true }));
     this.columnsFar = this.addPool(new InstancePool('obsidian-columns-far', k.columns, k.basaltCols.material, 48));
-    this.spirePool = this.addPool(new InstancePool('obsidian-spires', k.spire, k.obsidianGlass, 32));
+    this.spirePool = this.addPool(new InstancePool('obsidian-spires', k.spire, k.spireMat.material, 32));
     this.volcanoPool = this.addPool(new InstancePool('obsidian-volcanoes', k.volcano, k.volcanoMat.material, 12));
     this.brazierStone = this.addPool(new InstancePool('obsidian-brazier', k.brazier.stone, k.basalt.material, 16, { castShadow: true }));
     this.brazierCoals = this.addPool(new InstancePool('obsidian-coals', k.brazier.coals, k.coals, 16));
@@ -218,7 +227,7 @@ export class ObsidianCoreWorld extends StreamedWorld {
     for (const p of this.rockPools.far.values()) this.addPool(p);
     this.citadelPools = [
       this.addPool(new InstancePool('obsidian-citadel-basalt', k.citadel.basalt, k.basalt.material, 6, { castShadow: true })),
-      this.addPool(new InstancePool('obsidian-citadel-glass', k.citadel.obsidian, k.obsidianGlass, 6, { castShadow: true })),
+      this.addPool(new InstancePool('obsidian-citadel-glass', k.citadel.obsidian, k.spireMat.material, 6, { castShadow: true })),
       this.addPool(new InstancePool('obsidian-citadel-molten', k.citadel.molten, k.coreLava, 6)),
     ];
     this.forgeArchPool = this.addPool(new InstancePool('obsidian-forge-arch', k.forgeArch, k.basalt.material, 4, { castShadow: true }));
@@ -232,11 +241,26 @@ export class ObsidianCoreWorld extends StreamedWorld {
     const k = K as ObsidianKit;
     const ground = getLoadedTextureSet('obsidian-core/ground');
     const rock = getLoadedTextureSet('obsidian-core/rock');
-    for (const h of [k.groundMat, k.basaltCols, k.basalt, k.volcanoMat, ...k.rockMats.values()]) {
+    for (const h of [k.groundMat, k.basaltCols, k.basalt, k.volcanoMat, k.spireMat, ...k.rockMats.values()]) {
       h.setGround(ground);
       h.setRock(rock);
     }
+    k.crust.setGround(rock);
     if (this.rockPools) applyEnvModels(this.rockPools, k.rockMats);
+    // Not drawn yet: show the scans from the first frame (no fallback fade-in)
+    if (!this.animated) for (const h of this.handles()) h.snap();
+  }
+
+  /** Set once animate() has run (the world has been on screen). */
+  private animated = false;
+
+  private handleList: TerrainMaterialHandle[] | null = null;
+
+  /** Every terrain-material handle of the kit (cached: no per-frame allocation). */
+  private handles(): TerrainMaterialHandle[] {
+    const k = K as ObsidianKit;
+    this.handleList ??= [k.groundMat, k.crust, k.spireMat, k.basaltCols, k.basalt, k.volcanoMat, ...k.rockMats.values()];
+    return this.handleList;
   }
 
   /** Lowest ground height across a footprint so rocks never float on slopes. */
@@ -265,14 +289,14 @@ export class ObsidianCoreWorld extends StreamedWorld {
     this.place(chunk, this.lavaPool, trs(0, 0, centerZ, 0, 1));
 
     // 2. Basalt column clusters and obsidian spires: |x| in [16.5, 40]
-    let rockDensity = 4;
+    let rockDensity = 3;
     if (preset === 'mobile-opt') rockDensity = 3;
     if (preset === 'webgl-min') rockDensity = 2;
     for (let r = 0; r < rockDensity; r++) {
       const side = r % 2 === 0 ? -1 : 1;
       const posX = side * (BIG_ROCK_MIN_X + rnd(r * 4 + 1) * 23.5);
       const posZ = centerZ + (rnd(r * 4 + 2) - 0.5) * 50.0;
-      const spire = rnd(r * 4 + 3) > 0.72;
+      const spire = rnd(r * 4 + 3) > 0.8;
       const archId = spire ? 'obsidian-spire' : 'basalt-cluster';
       const scale = 0.85 + rnd(r * 4 + 5) * (ROCK_MAX_SCALE - 0.85);
       const reach = (ROCK_EXTENT[archId] ?? 8.2) * scale * 0.6;
@@ -302,7 +326,7 @@ export class ObsidianCoreWorld extends StreamedWorld {
           rockTint(rnd(47 + d))
         );
       }
-      const far = preset === 'desktop-full' ? 3 : 1;
+      const far = preset === 'desktop-full' ? 4 : 2;
       for (let d = 0; d < far; d++) {
         const id = ROCK_IDS[Math.floor(rnd(50 + d) * ROCK_IDS.length) % ROCK_IDS.length];
         const side = rnd(51 + d) > 0.5 ? 1 : -1;
@@ -314,7 +338,7 @@ export class ObsidianCoreWorld extends StreamedWorld {
         this.place(
           chunk,
           pools.get(id) ?? null,
-          trs(x, this.footprintBaseY(x, z, s) - ENV_MODEL_HEIGHT[id] * s * 0.25, z, rnd(55 + d) * 6.28, s, s * (id === 'shard' ? 1.6 : 1), s),
+          trs(x, this.footprintBaseY(x, z, s) - ENV_MODEL_HEIGHT[id] * s * 0.25, z, rnd(55 + d) * 6.28, s, s * (id === 'shard' ? 1.3 + rnd(57 + d) * 0.9 : 0.75 + rnd(57 + d) * 0.5), s * (0.8 + rnd(58 + d) * 0.4), (rnd(59 + d) - 0.5) * 0.25, (rnd(60 + d) - 0.5) * 0.25),
           rockTint(rnd(56 + d), 0.1)
         );
       }
@@ -365,19 +389,15 @@ export class ObsidianCoreWorld extends StreamedWorld {
   protected animate(playerZ: number, dt: number, time: number): void {
     const k = K as ObsidianKit;
     // Slow breathing heat on every lava surface (kept <= 2.5)
+    this.animated = true;
     const breath = 1 + Math.sin(time * 0.6) * 0.09 + Math.sin(time * 2.3) * 0.03;
-    for (const h of [k.groundMat, k.basaltCols, k.basalt, k.volcanoMat]) {
-      h.tick(dt);
-      h.lavaPulse.value = breath;
+    const hs = this.handles();
+    for (let i = 0; i < hs.length; i++) {
+      hs[i].tick(dt);
+      hs[i].lavaPulse.value = breath;
     }
-    for (const h of k.rockMats.values()) {
-      h.tick(dt);
-      h.lavaPulse.value = breath;
-    }
-    k.lava.emissiveIntensity = Math.min(LAVA_MAX, (k.lavaTex ? OBSIDIAN_LAVA_EMISSIVE : 1.6) * breath);
-    k.coreLava.emissiveIntensity = Math.min(LAVA_MAX, 2.1 + Math.sin(time * 1.5) * 0.25);
+    k.coreLava.emissiveIntensity = Math.min(LAVA_MAX, 1.4 + Math.sin(time * 1.5) * 0.2);
     k.coals.emissiveIntensity = Math.min(LAVA_MAX, 2.2 + Math.sin(time * 9.0) * 0.18 + Math.sin(time * 13.7 + 1.3) * 0.1);
-    if (k.lavaTex) k.lavaTex.offset.y = (time * 0.012) % 1;
     if (k.fallTex) k.fallTex.offset.y = (time * 0.35) % 1;
     if (this.atmosphere) {
       const on = this.playerInRange(playerZ);

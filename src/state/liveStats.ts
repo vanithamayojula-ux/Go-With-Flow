@@ -55,6 +55,7 @@ const DEFAULT_STATS: PlayerStats = {
   },
   scoreMultiplier: 1,
   gameState: 'playing',
+  isHolding: true,
 };
 
 const listeners = new Set<Listener>();
@@ -82,7 +83,7 @@ function signature(s: PlayerStats): string {
     (s.currentWorldId || '') + s.currentBiome + '|' + s.highScore + '|' + s.scoreMultiplier + '|' +
     (p ? (p.magnetTimer > 0 ? p.magnetTimer.toFixed(1) : '0') + (p.jetpackTimer > 0 ? p.jetpackTimer.toFixed(1) : '0') +
       (p.multiplierTimer > 0 ? p.multiplierTimer.toFixed(1) : '0') + p.hoverboardShield : '') + '|' +
-    (s.shieldCooldown !== undefined ? Math.ceil(s.shieldCooldown) : '') + '|' + (s.overdriveTier || '') + (s.styleTier || '')
+    (s.shieldCooldown !== undefined ? Math.ceil(s.shieldCooldown) : '') + '|' + (s.overdriveTier || '') + (s.styleTier || '') + '|' + !!s.isHolding
   );
 }
 

@@ -3,9 +3,9 @@ import { GLTFLoader } from 'three/examples/jsm/loaders/GLTFLoader.js';
 import { MeshoptDecoder } from 'three/examples/jsm/libs/meshopt_decoder.module.js';
 import { LaneIndex, PowerUpType } from '../types';
 import { getTerrainHeight } from './terrain';
-import { WORLD_LENGTH_DISTANCE, WORLD_ORDER } from './worlds';
+import { WORLD_LENGTH_DISTANCE, WORLD_ORDER, WORLDS } from './worlds';
 import { laneToWorldX } from './trackConfig';
-import { createStripeTexture } from '../graphics/hazardTextures';
+import { createBrushedMetalTexture, createStripeTexture } from '../graphics/hazardTextures';
 
 // Open road kept on both sides of a world-boundary portal gateway (the
 // gateway itself is engine-owned, see src/game/portal): no obstacle, rail,
@@ -651,14 +651,41 @@ export class ObstacleManager {
   // Boost Gate Geometries & Materials
   private boostPillarGeom = new THREE.BoxGeometry(0.24, BOOST_GATE_POST_HEIGHT, 0.35);
   private boostTopGeom = new THREE.BoxGeometry(2.74, 0.35, 0.35);
-  // Boost gate: a lit LED gantry (genuinely emissive, so it blooms)
-  private boostMat = new THREE.MeshStandardMaterial({
-    color: 0x1a1d20,
-    emissive: new THREE.Color(0x3dff9a),
-    emissiveIntensity: 1.6,
-    metalness: 0.6,
-    roughness: 0.35,
-  });
+  // Boost gate: a dark brushed-metal gantry (PBR) carrying thin LED strips
+  // on its inner faces in the current world's energy colour. The frame
+  // itself does not glow; only the strips do (emissive <= 0.8).
+  private boostLedGeomPost = new THREE.BoxGeometry(0.03, BOOST_GATE_POST_HEIGHT - 0.7, 0.07);
+  private boostLedGeomTop = new THREE.BoxGeometry(2.2, 0.03, 0.07);
+  private boostBrushed = createBrushedMetalTexture();
+  private boostMat = (() => {
+    const map = this.boostBrushed;
+    if (map) map.repeat.set(2, 1);
+    return new THREE.MeshStandardMaterial({
+      color: 0x464c53, // dark anodised steel
+      metalness: 0.85,
+      roughness: 0.42,
+      map,
+    });
+  })();
+  /** Posts: same metal with the brushing running up the post. */
+  private boostPostMat = (() => {
+    const map = this.boostBrushed ? this.boostBrushed.clone() : null;
+    if (map) {
+      map.rotation = Math.PI / 2;
+      map.repeat.set(4, 1);
+    }
+    return new THREE.MeshStandardMaterial({ color: 0x464c53, metalness: 0.85, roughness: 0.42, map });
+  })();
+  /** One LED material per world (energy colour), same shader program. */
+  private boostLedMats: THREE.MeshStandardMaterial[] = WORLD_ORDER.map(id =>
+    new THREE.MeshStandardMaterial({
+      color: 0x0c0d0e,
+      emissive: new THREE.Color(WORLDS[id]?.palette.energy ?? '#3dff9a'),
+      emissiveIntensity: 0.8,
+      metalness: 0.0,
+      roughness: 0.35,
+    })
+  );
 
   private coinGeom = new THREE.OctahedronGeometry(0.24);
   private powerUpGeom = new THREE.DodecahedronGeometry(0.35);
@@ -1062,19 +1089,34 @@ export class ObstacleManager {
     const gateGroup = this.acquire('boost-gate', () => {
       const g = new THREE.Group();
       // Left & Right Pillars (tall enough to carry the bar above the camera)
-      const postL = new THREE.Mesh(this.boostPillarGeom, this.boostMat);
+      const postL = new THREE.Mesh(this.boostPillarGeom, this.boostPostMat);
       postL.position.set(-1.25, BOOST_GATE_POST_HEIGHT / 2, 0);
-      const postR = new THREE.Mesh(this.boostPillarGeom, this.boostMat);
+      const postR = new THREE.Mesh(this.boostPillarGeom, this.boostPostMat);
       postR.position.set(1.25, BOOST_GATE_POST_HEIGHT / 2, 0);
       g.add(postL, postR);
 
       // Gantry bar at ~4.3 m: the chase camera rides at ~2.6-2.9 m, so a lower
-      // bar sweeps through the lens and fills the screen with flat green.
+      // bar sweeps through the lens and fills the screen.
       const topBar = new THREE.Mesh(this.boostTopGeom, this.boostMat);
       topBar.position.set(0, BOOST_GATE_BAR_Y, 0);
       g.add(topBar);
+
+      // Thin LED strips set into the inner faces (posts at |x| 1.13, bar underside)
+      const led = this.boostLedMats[0];
+      const ledL = new THREE.Mesh(this.boostLedGeomPost, led);
+      ledL.position.set(-1.125, BOOST_GATE_POST_HEIGHT / 2 - 0.05, 0);
+      const ledR = new THREE.Mesh(this.boostLedGeomPost, led);
+      ledR.position.set(1.125, BOOST_GATE_POST_HEIGHT / 2 - 0.05, 0);
+      const ledTop = new THREE.Mesh(this.boostLedGeomTop, led);
+      ledTop.position.set(0, BOOST_GATE_BAR_Y - 0.185, 0);
+      g.add(ledL, ledR, ledTop);
+      g.userData.leds = [ledL, ledR, ledTop];
       return g;
     });
+    // LEDs take the energy colour of the world the gate stands in
+    const wi = Math.max(0, Math.min(this.boostLedMats.length - 1, Math.floor(z / WORLD_LENGTH_DISTANCE)));
+    const leds = gateGroup.userData.leds as THREE.Mesh[] | undefined;
+    if (leds) for (let i = 0; i < leds.length; i++) leds[i].material = this.boostLedMats[wi];
     gateGroup.position.set(x, groundH, z);
     this.group.add(gateGroup);
 
@@ -1656,6 +1698,8 @@ export class ObstacleManager {
     this.railPostGeom.dispose();
     this.boostPillarGeom.dispose();
     this.boostTopGeom.dispose();
+    this.boostLedGeomPost.dispose();
+    this.boostLedGeomTop.dispose();
 
     // Dispose materials
     this.barrierMat.dispose();
@@ -1672,6 +1716,10 @@ export class ObstacleManager {
     this.railMat.dispose();
     this.railPostMat.dispose();
     this.boostMat.dispose();
+    this.boostPostMat.map?.dispose();
+    this.boostPostMat.dispose();
+    this.boostBrushed?.dispose();
+    for (const m of this.boostLedMats) m.dispose();
     this.steelMat.dispose();
   }
 }

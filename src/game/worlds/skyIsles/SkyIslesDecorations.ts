@@ -237,13 +237,16 @@ export function buildTempleGeometries(): { stone: THREE.BufferGeometry; roof: TH
 let waterTex: THREE.CanvasTexture | null | undefined;
 
 /**
- * Vertical streak texture for falling water (linear data, used as map +
- * alphaMap and scrolled downwards). Session-cached; null without a DOM.
+ * Falling-water texture (linear data; used as map + alphaMap, scrolled
+ * downwards): fine vertical streaks broken into aerated foam clumps, with
+ * soft, ragged side edges (alpha fades out across the last ~20% of the
+ * width) so the sheet has no hard card outline. Session-cached; null
+ * without a DOM.
  */
 export function getWaterStreakTexture(): THREE.CanvasTexture | null {
   if (waterTex !== undefined) return waterTex;
   if (typeof document === 'undefined') return null;
-  const w = 64;
+  const w = 128;
   const h = 256;
   const canvas = document.createElement('canvas');
   canvas.width = w;
@@ -256,27 +259,55 @@ export function getWaterStreakTexture(): THREE.CanvasTexture | null {
     s = (s * 16807) % 2147483647;
     return (s - 1) / 2147483646;
   };
-
+  // Tileable lattice noise, stretched vertically (foam is drawn out by the fall)
+  const LX = 16;
+  const LY = 8;
+  const lat = new Float32Array(LX * LY);
+  for (let k = 0; k < lat.length; k++) lat[k] = rnd();
+  const lat2 = new Float32Array(LX * 2 * LY * 2);
+  for (let k = 0; k < lat2.length; k++) lat2[k] = rnd();
+  const sm = (t: number) => t * t * (3 - 2 * t);
+  const noise = (u: number, v: number, nx: number, ny: number, L: Float32Array) => {
+    const fx = u * nx;
+    const fy = v * ny;
+    const x0 = Math.floor(fx);
+    const y0 = Math.floor(fy);
+    const tx = sm(fx - x0);
+    const ty = sm(fy - y0);
+    const xa = x0 % nx;
+    const xb = (x0 + 1) % nx;
+    const ya = y0 % ny;
+    const yb = (y0 + 1) % ny;
+    const a = L[ya * nx + xa];
+    const b = L[ya * nx + xb];
+    const c = L[yb * nx + xa];
+    const d = L[yb * nx + xb];
+    return a + (b - a) * tx + (c - a) * ty + (a - b - c + d) * tx * ty;
+  };
   const colBase = new Float32Array(w);
-  for (let x = 0; x < w; x++) colBase[x] = 0.55 + rnd() * 0.45;
+  for (let x = 0; x < w; x++) colBase[x] = 0.5 + rnd() * 0.5;
   const col = new Float32Array(w);
   for (let x = 0; x < w; x++) {
-    col[x] = (colBase[(x + w - 1) % w] + colBase[x] * 2 + colBase[(x + 1) % w]) / 4;
+    col[x] = (colBase[(x + w - 2) % w] + colBase[(x + w - 1) % w] * 2 + colBase[x] * 3 + colBase[(x + 1) % w] * 2 + colBase[(x + 2) % w]) / 9;
   }
 
   const img = ctx.createImageData(w, h);
-  const phase = new Float32Array(w);
-  for (let x = 0; x < w; x++) phase[x] = rnd() * Math.PI * 2;
   for (let y = 0; y < h; y++) {
+    const v = y / h;
     for (let x = 0; x < w; x++) {
-      const t = (y / h) * Math.PI * 2;
-      const pulse = 0.75 + 0.25 * Math.sin(t * 3 + phase[x]) * Math.sin(t * 7 + phase[(x * 7) % w]);
-      const v = Math.min(1, Math.max(0, col[x] * pulse));
-      const g = Math.round((0.8 + 0.2 * v) * 255);
-      const a = Math.round(v * 255);
+      const u = x / w;
+      const foam = noise(u, v, LX, LY, lat) * 0.6 + noise(u, v, LX * 2, LY * 2, lat2) * 0.4;
+      const streak = col[x];
+      // Dense white water where foam and streaks coincide, thinner glassy water between
+      let a = Math.min(1, Math.max(0, (streak * 0.55 + foam * 0.75 - 0.42) * 1.9));
+      // Ragged soft sides
+      const edge = Math.min(u, 1 - u);
+      const rag = 0.1 + foam * 0.14;
+      a *= sm(Math.min(1, Math.max(0, edge / rag)));
+      const g = Math.round((0.86 + 0.14 * foam) * 255);
       const o = (y * w + x) * 4;
       img.data[o] = g;
-      img.data[o + 1] = a; // alphaMap samples the green channel
+      img.data[o + 1] = Math.round(a * 255); // alphaMap samples the green channel
       img.data[o + 2] = g;
       img.data[o + 3] = 255;
     }
@@ -284,25 +315,46 @@ export function getWaterStreakTexture(): THREE.CanvasTexture | null {
   ctx.putImageData(img, 0, 0);
 
   const tex = new THREE.CanvasTexture(canvas);
-  tex.wrapS = THREE.RepeatWrapping;
+  tex.wrapS = THREE.ClampToEdgeWrapping;
   tex.wrapT = THREE.RepeatWrapping;
   tex.colorSpace = THREE.NoColorSpace;
-  tex.repeat.set(1, 4);
+  tex.repeat.set(1, 3);
   tex.needsUpdate = true;
   waterTex = tex;
   return tex;
 }
 
-/** Waterfall sheet hanging from its top edge, arcing out along local +Z. */
+/** Local offset of a waterfall's foot (where it dissolves into mist), see buildWaterfallGeometry. */
+export const WATERFALL_FOOT = { y: -30, z: 3.2 };
+
+/**
+ * Waterfall hanging from its top edge and arcing out along local +Z: a
+ * curved sheet (convex toward the viewer, so it has depth and catches light
+ * across its width) that widens as it falls and thins out into spray:
+ * vertex alpha (RGBA colours) fades the lower part away so the fall
+ * dissolves into the mist puff placed at its foot.
+ */
 export function buildWaterfallGeometry(height = 34.0, width = 3.2): THREE.BufferGeometry {
-  const geom = new THREE.PlaneGeometry(width, height, 4, 16);
+  const geom = new THREE.PlaneGeometry(width, height, 8, 20);
   geom.translate(0, -height / 2, 0);
   const p = geom.getAttribute('position') as THREE.BufferAttribute;
+  const colors = new Float32Array(p.count * 4);
   for (let i = 0; i < p.count; i++) {
     const t = Math.min(1, Math.max(0, -p.getY(i) / height));
-    p.setX(i, p.getX(i) * (1.0 + 0.7 * t));
-    p.setZ(i, 2.2 * Math.sqrt(t));
+    const u = p.getX(i) / width; // -0.5 .. 0.5
+    const spread = 1.0 + 0.9 * t;
+    const bulge = (1 - 4 * u * u) * (0.35 + 0.9 * t);
+    const wobble = Math.sin(t * 9.0 + u * 3.0) * 0.12 * t;
+    p.setX(i, p.getX(i) * spread + wobble);
+    p.setZ(i, 2.2 * Math.sqrt(t) + bulge);
+    // Lip stays dense; the lower half breaks up into spray
+    const a = 1 - Math.min(1, Math.max(0, (t - 0.45) / 0.55)) ** 1.5;
+    colors[i * 4] = 1;
+    colors[i * 4 + 1] = 1;
+    colors[i * 4 + 2] = 1;
+    colors[i * 4 + 3] = a;
   }
+  geom.setAttribute('color', new THREE.BufferAttribute(colors, 4));
   geom.computeVertexNormals();
   return geom;
 }
