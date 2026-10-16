@@ -92,6 +92,123 @@ export function setAssetAnisotropy(value: number): void {
   for (const t of loadedTextures.values()) t.anisotropy = anisotropy;
 }
 
+/**
+ * Decode an <img> texture off the main thread right before its GPU upload,
+ * so the upload is a plain pixel copy. Uploading an HTMLImageElement decodes,
+ * flips and converts it synchronously inside texImage2D (30-110 ms per 1024px
+ * webp on integrated GPUs), and an ImageBitmap upload can block for hundreds
+ * of ms on GPU-side work in Chrome/Edge. A worker fetches and decodes the
+ * file and returns raw RGBA (ImageData); the bitmap path is the fallback.
+ * After the upload the texture points at its <img> again, so only images,
+ * never decoded pixels, stay cached (a later re-upload takes the slow path).
+ * Resolves once the texture is ready to upload either way (never rejects).
+ */
+const pendingDecodes = new WeakMap<THREE.Texture, Promise<ImageData | null>>();
+
+interface DecodeReply {
+  id: number;
+  width?: number;
+  height?: number;
+  buffer?: ArrayBuffer;
+  error?: string;
+}
+
+let decodeWorker: Worker | null | undefined;
+let decodeSeq = 0;
+const decodeCallbacks = new Map<number, (reply: DecodeReply) => void>();
+
+function getDecodeWorker(): Worker | null {
+  if (decodeWorker !== undefined) return decodeWorker;
+  decodeWorker = null;
+  if (typeof Worker === 'undefined' || typeof OffscreenCanvas === 'undefined') return null;
+  try {
+    const w = new Worker(new URL('./textureDecode.worker.ts', import.meta.url), { type: 'module' });
+    w.onmessage = (ev: MessageEvent<DecodeReply>) => {
+      const cb = decodeCallbacks.get(ev.data.id);
+      if (!cb) return;
+      decodeCallbacks.delete(ev.data.id);
+      cb(ev.data);
+    };
+    w.onerror = () => {
+      // Worker unavailable (e.g. blocked by policy): everything falls back.
+      decodeWorker = null;
+      for (const [id, cb] of decodeCallbacks) cb({ id, error: 'worker failed' });
+      decodeCallbacks.clear();
+    };
+    decodeWorker = w;
+  } catch {
+    decodeWorker = null;
+  }
+  return decodeWorker;
+}
+
+function decodeInWorker(url: string, flipY: boolean): Promise<ImageData | null> {
+  const w = getDecodeWorker();
+  if (!w || !url || url.startsWith('blob:') || url.startsWith('data:')) return Promise.resolve(null);
+  return new Promise((resolve) => {
+    const id = ++decodeSeq;
+    decodeCallbacks.set(id, (reply) => {
+      if (reply.error || !reply.buffer || !reply.width || !reply.height) resolve(null);
+      else resolve(new ImageData(new Uint8ClampedArray(reply.buffer), reply.width, reply.height));
+    });
+    w.postMessage({ id, url, flipY });
+  });
+}
+
+/** Point `tex` at decoded pixels until its next upload, then back at `img`. */
+function useDecoded(tex: THREE.Texture, img: HTMLImageElement, decoded: ImageData | ImageBitmap): void {
+  const flip = tex.flipY;
+  tex.image = decoded;
+  tex.flipY = false;
+  const prevOnUpdate = tex.onUpdate;
+  tex.onUpdate = (t: THREE.Texture) => {
+    tex.onUpdate = prevOnUpdate;
+    if (prevOnUpdate) prevOnUpdate.call(tex, t);
+    if (tex.image === decoded) {
+      tex.image = img;
+      tex.flipY = flip;
+      if (typeof ImageBitmap !== 'undefined' && decoded instanceof ImageBitmap) decoded.close();
+    }
+  };
+  tex.needsUpdate = true;
+}
+
+export function decodeTextureOffThread(tex: THREE.Texture): Promise<ImageData | null> {
+  const pending = pendingDecodes.get(tex);
+  if (pending) return pending;
+  const img = tex.image as HTMLImageElement | undefined;
+  if (typeof HTMLImageElement === 'undefined' || !(img instanceof HTMLImageElement) || !img.complete) {
+    return Promise.resolve(null);
+  }
+  const flip = tex.flipY;
+  const viaBitmap = (): Promise<void> => {
+    if (typeof createImageBitmap !== 'function') return Promise.resolve();
+    return createImageBitmap(img, {
+      imageOrientation: flip ? 'flipY' : 'from-image',
+      premultiplyAlpha: tex.premultiplyAlpha ? 'premultiply' : 'none',
+      colorSpaceConversion: 'none',
+    }).then(
+      (bitmap) => {
+        if (tex.image === img) useDecoded(tex, img, bitmap);
+        else bitmap.close();
+      },
+      () => undefined
+    );
+  };
+  // Raw pixels from the worker are straight (not premultiplied) RGBA.
+  const p = (tex.premultiplyAlpha ? Promise.resolve(null) : decodeInWorker(img.currentSrc || img.src, flip))
+    .then((data): Promise<ImageData | null> | ImageData => {
+      if (!data || tex.image !== img) return viaBitmap().then(() => null);
+      return data;
+    })
+    .catch(() => null)
+    .finally(() => {
+      pendingDecodes.delete(tex);
+    });
+  pendingDecodes.set(tex, p);
+  return p;
+}
+
 const texturePromises = new Map<string, Promise<THREE.Texture>>();
 const loadedTextures = new Map<string, THREE.Texture>();
 let textureLoader: THREE.TextureLoader | null = null;

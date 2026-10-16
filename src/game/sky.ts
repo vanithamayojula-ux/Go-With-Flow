@@ -526,6 +526,8 @@ export class SkyManager {
   // One baked PMREM environment per world, baked once and reused. Only the
   // current world's and the next world's are kept (see pruneEnvironments).
   private envCache = new Map<WorldId, THREE.WebGLRenderTarget>();
+  // Set by prebakeAllEnvironments(): every world's bake is kept (no pruning).
+  private keepAllEnvironments = false;
   private envWorld: WorldId | null = null;
 
   // Last applied blend, so an unchanged frame is skipped entirely.
@@ -661,6 +663,17 @@ export class SkyManager {
     this.envCache.set(worldId, this.pmrem.fromScene(this.envScene, 0, 0.1, 100));
   }
 
+  /**
+   * Bake every world's environment now (engine start-up, with the rest of the
+   * shader warm-up) and keep them all: no PMREM bake ever runs mid-run, where
+   * it cost a 1.0-1.5 s hitch on integrated GPUs.
+   */
+  prebakeAllEnvironments() {
+    if (!this.pmrem) return;
+    this.keepAllEnvironments = true;
+    for (const id of WORLD_ORDER) this.prebakeEnvironment(id);
+  }
+
   hasEnvironment(worldId: WorldId): boolean {
     return this.envCache.has(worldId) || !this.pmrem;
   }
@@ -732,6 +745,7 @@ export class SkyManager {
 
   /** Keep only the current world's and the next world's environment bakes. */
   private pruneEnvironments(current: WorldId) {
+    if (this.keepAllEnvironments) return;
     const next = nextWorldOf(current);
     for (const [id, target] of this.envCache) {
       if (id === current || id === next) continue;

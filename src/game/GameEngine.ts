@@ -18,6 +18,7 @@ import { ObsidianCoreWorld } from './worlds/obsidianCore';
 import { PostPipeline } from './engine/PostPipeline';
 import { WorldConstructor, WorldStreamer } from './engine/WorldStreamer';
 import { ShaderWarmup } from './engine/ShaderWarmup';
+import { StartupWarmup } from './engine/StartupWarmup';
 import { AdaptiveQuality, GpuTimer } from './perf/AdaptiveQuality';
 import { liveStats } from '../state/liveStats';
 import { telemetry } from '../utils/performanceTelemetry';
@@ -231,6 +232,10 @@ export class GameEngine {
   private lastTransitionState: string = 'STABLE';
   private lastDrawCalls = 0;
   private lastHeroRig: unknown = null;
+  // Before the first run: every world/gateway's shaders compiled and drawn
+  // once while the rider waits at the start line (see StartupWarmup).
+  private startup: StartupWarmup | null = null;
+  private startupLabel: HTMLDivElement | null = null;
   private templatesCompiled = false;
   private orbsCollectedThisFrame = 0;
   private readonly collectChunkOrbs = (chunk: { foliageInstances: { orbs: any[] } }) => {
@@ -372,6 +377,7 @@ export class GameEngine {
           console.info(`[GameEngine] warm draw ${Math.round(ms)} ms`);
         }
       },
+      isBusy: () => this.shaders.busy,
     });
     this.worlds.reset('sky-isles', this.graphicsConfig);
 
@@ -387,6 +393,7 @@ export class GameEngine {
         this.shaders.warmDraw(roots, () => true);
       },
       currentWorldRoots: () => this.worlds.getCurrentRoots(),
+      isBusy: () => this.shaders.busy,
     });
     this.portalHidden = [this.playerMgr.group];
 
@@ -427,6 +434,9 @@ export class GameEngine {
    */
   private prewarm(): void {
     try {
+      // Every world's reflection environment, baked once now (part of the
+      // start-up stall) instead of mid-run ahead of each gateway.
+      this.skyMgr.prebakeAllEnvironments();
       this.post.compile();
       this.camera.position.copy(this.playerMgr.cameraPos);
       this.camera.lookAt(this.playerMgr.cameraLookAt);
@@ -443,6 +453,57 @@ export class GameEngine {
       console.warn('[GameEngine] shader prewarm failed:', err);
     }
     this.adaptiveHoldUntil = performance.now() + ADAPTIVE_SETTLE_MS;
+  }
+
+  /** True while the start-up warm-up holds the rider at the start line. */
+  public get warmingUp(): boolean {
+    return this.startup !== null;
+  }
+
+  private beginStartupWarmup(): void {
+    if (this.startup || this.isDisposed) return;
+    this.startup = new StartupWarmup({
+      worlds: this.worlds,
+      portals: this.portals,
+      shaders: this.shaders,
+      obstacles: this.obstacleMgr,
+      graphicsConfig: () => this.graphicsConfig,
+    });
+    if (typeof document !== 'undefined') {
+      const label = document.createElement('div');
+      label.textContent = 'Preparing worlds…';
+      label.setAttribute('role', 'status');
+      label.style.cssText =
+        'position:absolute;left:50%;bottom:18%;transform:translateX(-50%);padding:6px 14px;border-radius:999px;' +
+        'background:rgba(8,12,24,0.55);color:#e8f0ff;font:500 13px/1.2 system-ui,sans-serif;letter-spacing:0.04em;' +
+        'pointer-events:none;z-index:5;';
+      this.container.appendChild(label);
+      this.startupLabel = label;
+    }
+  }
+
+  private stepStartupWarmup(): void {
+    const s = this.startup;
+    if (!s) return;
+    if (!s.step()) return;
+    this.endStartupWarmup();
+    if (typeof window !== 'undefined' && (window as any).__gameEngine === this) {
+      console.info(`[GameEngine] start-up warm-up ${Math.round(performance.now() - s.startedAt)} ms, ${this.renderer.info.programs?.length ?? 0} programs`);
+    }
+    // The run starts now: no frame delta from the warm-up, and the adaptive
+    // quality ignores the warm-up frames.
+    this.lastTime = performance.now();
+    this.adaptive.resetTimers();
+    this.adaptiveHoldUntil = performance.now() + ADAPTIVE_SETTLE_MS;
+  }
+
+  private endStartupWarmup(): void {
+    if (this.startup && !this.startup.done) this.startup.cancel();
+    this.startup = null;
+    if (this.startupLabel) {
+      this.startupLabel.remove();
+      this.startupLabel = null;
+    }
   }
 
   /** Re-render one frame while paused (resize, settings change). */
@@ -469,7 +530,7 @@ export class GameEngine {
   }
 
   private canAcceptGameplayInput(): boolean {
-    return !this.isDisposed && !this._isPaused && this.playerMgr.gameState === 'playing';
+    return !this.isDisposed && !this._isPaused && !this.startup && this.playerMgr.gameState === 'playing';
   }
 
   private releaseAllInput(): void {
@@ -542,7 +603,7 @@ export class GameEngine {
       if (w <= 0 || h <= 0) return;
 
       this.applyViewportFraming(w, h);
-      this.renderer.setPixelRatio(this.adaptive.level.pixelRatio);
+      this.renderer.setPixelRatio(this.canvasPixelRatio());
       this.renderer.setSize(w, h);
       this.resizeRenderTargets();
       // A resize while paused still shows one correct frame.
@@ -554,15 +615,32 @@ export class GameEngine {
   /** Match the post targets to the canvas drawing buffer (never the CSS size). */
   private resizeRenderTargets(): void {
     this.renderer.getDrawingBufferSize(this.drawingBufferSize);
+    // With post-processing the scene renders into its own target: the
+    // adaptive render scale applies there (the final pass upscales).
+    if (this.graphicsConfig.enablePostProcess) {
+      const s = Math.min(1, this.adaptive.level.pixelRatio / Math.max(1e-3, this.renderer.getPixelRatio()));
+      this.drawingBufferSize.set(Math.max(1, Math.round(this.drawingBufferSize.x * s)), Math.max(1, Math.round(this.drawingBufferSize.y * s)));
+    }
     this.post.setSize(this.drawingBufferSize.x, this.drawingBufferSize.y);
+  }
+
+  /**
+   * Canvas pixel ratio. With post-processing on it stays at the ladder's top
+   * level and adaptive steps only resize the offscreen targets: resizing the
+   * canvas drawing buffer is synchronous in Chrome/Edge and waits for the GPU
+   * to drain (a 600 ms hitch measured on an integrated GPU on battery).
+   */
+  private canvasPixelRatio(): number {
+    return this.graphicsConfig.enablePostProcess ? this.adaptive.maxPixelRatio : this.adaptive.level.pixelRatio;
   }
 
   /** Apply the adaptive quality level: render scale, MSAA, bloom/motion blur tier. */
   private applyQualityLevel(): void {
     const level = this.adaptive.level;
-    if (this.renderer.getPixelRatio() !== level.pixelRatio) {
+    const pr = this.canvasPixelRatio();
+    if (this.renderer.getPixelRatio() !== pr) {
       // setPixelRatio resizes only the drawing buffer; the canvas CSS size is untouched.
-      this.renderer.setPixelRatio(level.pixelRatio);
+      this.renderer.setPixelRatio(pr);
     }
     this.resizeRenderTargets();
     this.post.setSamples(level.msaa ? 4 : 0);
@@ -606,6 +684,7 @@ export class GameEngine {
         // double mount disposes the first engine before it ever runs.
         first = false;
         this.prewarm();
+        this.beginStartupWarmup();
       }
       this.animationFrameId = requestAnimationFrame(animate);
       const rafDelta = this.lastRafTime >= 0 ? now - this.lastRafTime : 0;
@@ -628,7 +707,9 @@ export class GameEngine {
   }
 
   private sampleAdaptive(frameMs: number, workMs: number, now: number): void {
-    const gpuMs = this.gpuTimer.poll();
+    // Reading the timer is a synchronous GL query: it would wait for any
+    // shader still linking in the background.
+    const gpuMs = this.shaders.busy ? -1 : this.gpuTimer.poll();
     if (gpuMs >= 0) this.adaptive.reportGpuTime(gpuMs);
     if (this._isPaused || this.playerMgr.gameState !== 'playing' || now < this.adaptiveHoldUntil) return;
     if (this.adaptive.sample(frameMs, workMs, now)) {
@@ -754,7 +835,8 @@ export class GameEngine {
 
     // Time Dilation for Near Miss Slow-Motion
     const timeScale = this.nearMissSlowMoTimer > 0 ? 0.42 : 1.0;
-    const dt = rawDt * timeScale;
+    // The rider holds at the start line while the start-up warm-up runs.
+    const dt = this.startup ? 0 : rawDt * timeScale;
     if (this.nearMissSlowMoTimer > 0) {
       this.nearMissSlowMoTimer -= rawDt;
     }
@@ -762,6 +844,8 @@ export class GameEngine {
     // FPS Counter Accumulator & Telemetry
     telemetry.recordFrame(rawDt);
     this.frameCount++;
+    // Deferred first draws, at the start of a frame with no shader linking.
+    this.shaders.tick();
     // FPS uses real elapsed time; the clamped physics delta counted every slow
     // frame as 50 ms, so hitches never showed below 20 fps.
     this.fpsAccum += realElapsed;
@@ -770,6 +854,8 @@ export class GameEngine {
       this.frameCount = 0;
       this.fpsAccum = 0;
     }
+
+    if (this.startup && !this.isPaused) this.stepStartupWarmup();
 
     if (!this.isPaused) {
       // 1. Player Physics & Controls
@@ -1006,8 +1092,11 @@ export class GameEngine {
       // (the live scene supplies lights, fog and environment).
       const pivots = ObstacleManager.cachedTemplates.map(t => t.pivot);
       this.shaders.compile(pivots).then(() => {
-        // First real draw happens off screen too (both LOD levels).
-        if (!this.isDisposed) this.shaders.warmDraw(pivots, () => true);
+        // First real draw happens off screen too (both LOD levels), once
+        // nothing is linking (it would wait for every pending link).
+        this.shaders.onIdle(() => {
+          if (!this.isDisposed) this.shaders.warmDraw(pivots, () => true);
+        });
       });
     }
   }
@@ -1342,6 +1431,8 @@ export class GameEngine {
 
     // Persist progression that was batched during the run.
     this.progressionMgr.save();
+
+    this.endStartupWarmup();
 
     this.terrainMgr.dispose();
     this.foliageMgr.dispose();

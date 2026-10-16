@@ -6,6 +6,7 @@ import { NEXT_WORLD_LEAD } from '../engine/WorldStreamer';
 import { GATEWAY, GATEWAY_CROWN_Y } from './gatewayStyles';
 import { PortalGateway } from './PortalGateway';
 import { PortalWindow } from './PortalWindow';
+import { TextureUploader } from '../engine/TextureUploader';
 
 export interface PortalSystemDeps {
   scene: THREE.Scene;
@@ -17,6 +18,8 @@ export interface PortalSystemDeps {
   warmDraw: (roots: THREE.Object3D[]) => void;
   /** Roots of the current world (hidden in the window pass). */
   currentWorldRoots: () => readonly THREE.Object3D[];
+  /** Shaders are linking: hold back synchronous GL work (uploads, first draws). */
+  isBusy?: () => boolean;
 }
 
 export interface PortalCrossing {
@@ -95,9 +98,11 @@ export class PortalSystem {
   private lastWidth = 0;
   private lastHeight = 0;
   private disposed = false;
+  private uploader: TextureUploader;
 
   constructor(deps: PortalSystemDeps) {
     this.deps = deps;
+    this.uploader = new TextureUploader(deps.renderer);
     this.fade.setRange(-Infinity, Infinity);
   }
 
@@ -171,7 +176,10 @@ export class PortalSystem {
       const B = s.gate.boundaryZ;
       const keep = (B === aheadB && B - z <= NEXT_WORLD_LEAD + 60) || (s.crossed && z - B <= REMOVE_BEHIND);
       if (keep) this.slots[w++] = s;
-      else s.gate.dispose();
+      else {
+        if (s.phase === 'upload') this.uploader.clear();
+        s.gate.dispose();
+      }
     }
     this.slots.length = w;
     if (aheadB !== Infinity && aheadB - z <= NEXT_WORLD_LEAD && !this.slots.some(s => s.gate.boundaryZ === aheadB)) {
@@ -229,26 +237,22 @@ export class PortalSystem {
         return;
       case 'upload': {
         if (!g.texturesSettled && dist > TEXTURE_WAIT_UNTIL) return;
+        // Texture uploads are synchronous: never while anything is linking.
+        if (this.deps.isBusy && this.deps.isBusy()) return;
         if (!s.texturesCollected) {
           g.collectTextures(s.uploads);
           s.texturesCollected = true;
+          for (const t of s.uploads) this.uploader.enqueue(t);
+          s.uploads.length = 0;
         }
-        const tex = s.uploads.pop();
-        if (tex) {
-          const img = (tex as any).image;
-          if (img && !(typeof HTMLImageElement !== 'undefined' && img instanceof HTMLImageElement && !img.complete)) {
-            try {
-              this.deps.renderer.initTexture(tex);
-            } catch {
-              /* uploads on first use instead */
-            }
-          }
-          return;
-        }
+        // Decoded off the main thread, then one upload per frame.
+        this.uploader.pump();
+        if (this.uploader.pending > 0) return;
         s.phase = 'warm';
         return;
       }
       case 'warm':
+        if (this.deps.isBusy && this.deps.isBusy()) return;
         // First real draw off screen (some programs finish linking on it),
         // and the window target allocated, before any of it is visible.
         this.deps.warmDraw([g.group]);
@@ -313,8 +317,46 @@ export class PortalSystem {
     u.uLive.value = drawn ? 1 : 0;
   }
 
+  // Throw-away gateways built at start-up so every style's programs (lava,
+  // ice, sand, snow variants) are linked and first-drawn before the run.
+  private prewarmGates: PortalGateway[] = [];
+
+  /** Build (hidden, in the scene) one gateway per boundary; returns their groups. */
+  buildPrewarmGateways(): THREE.Object3D[] {
+    const groups: THREE.Object3D[] = [];
+    const L = WORLD_LENGTH_DISTANCE;
+    for (let k = 1; k < WORLD_ORDER.length; k++) {
+      try {
+        const gate = new PortalGateway(WORLD_ORDER[k], k * L, { fade: this.fade, membrane: this.window.uniforms });
+        const it = gate.build();
+        while (!it.next().done) {
+          /* all of it now */
+        }
+        gate.group.visible = false;
+        this.deps.scene.add(gate.group);
+        gate.group.updateMatrixWorld(true);
+        this.prewarmGates.push(gate);
+        groups.push(gate.group);
+      } catch (err) {
+        console.warn('[PortalSystem] warm-up gateway failed:', err);
+      }
+    }
+    return groups;
+  }
+
+  /** Warm-up gateways have their scanned textures (or gave up loading them). */
+  get prewarmAssetsSettled(): boolean {
+    return this.prewarmGates.every(g => g.texturesSettled);
+  }
+
+  disposePrewarmGateways(): void {
+    for (const g of this.prewarmGates) g.dispose();
+    this.prewarmGates.length = 0;
+  }
+
   /** New run: drop every gateway. */
   reset(): void {
+    this.uploader.clear();
     for (const s of this.slots) s.gate.dispose();
     this.slots.length = 0;
     this.upcoming = null;
@@ -324,6 +366,7 @@ export class PortalSystem {
 
   dispose(): void {
     this.reset();
+    this.disposePrewarmGateways();
     this.window.dispose();
     this.disposed = true;
   }

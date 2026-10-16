@@ -1606,6 +1606,28 @@ export class ObstacleManager {
     this.spawnInitialObstacles();
   }
 
+  /**
+   * One small mesh per obstacle material, for the start-up shader warm-up:
+   * obstacle types that are not on the road yet (rails, boost gates,
+   * overhead beams, power-ups...) otherwise compiled their shader the moment
+   * the first one spawned, a 100-1300 ms stall mid-run. The materials are
+   * shared: only the returned group's geometry is the caller's to dispose.
+   */
+  buildWarmupGroup(): THREE.Group {
+    const group = new THREE.Group();
+    group.name = 'ObstacleWarmup';
+    const geometry = new THREE.BoxGeometry(1, 1, 1);
+    for (const value of Object.values(this)) {
+      if (!value || (value as THREE.Material).isMaterial !== true) continue;
+      const mesh = new THREE.Mesh(geometry, value as THREE.Material);
+      mesh.castShadow = true;
+      mesh.receiveShadow = true;
+      group.add(mesh);
+    }
+    group.userData.warmupGeometry = geometry;
+    return group;
+  }
+
   dispose(): void {
     this.disposed = true;
     this.clearSpawned();

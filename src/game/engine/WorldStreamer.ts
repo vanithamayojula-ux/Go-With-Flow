@@ -1,6 +1,7 @@
 import * as THREE from 'three';
 import { GraphicsConfig } from '../../types';
 import { WorldId, WORLD_ORDER, WORLD_LENGTH_DISTANCE } from '../WorldConfig';
+import { TextureUploader } from './TextureUploader';
 
 /**
  * What the engine needs from a campaign world. `setStreamRange`, `prepare`
@@ -33,6 +34,11 @@ export interface WorldStreamerHooks {
   needsCompile?(object: THREE.Object3D): boolean;
   /** Draw these objects once, off screen (first real draws can still stall). */
   warmDraw?(roots: THREE.Object3D[], filter: (o: THREE.Object3D) => boolean): void;
+  /**
+   * Shaders are linking in the background. Synchronous GL work (first draws,
+   * texture uploads) would wait for them, so it is held back meanwhile.
+   */
+  isBusy?(): boolean;
 }
 
 export interface WorldStreamMetrics {
@@ -77,8 +83,6 @@ export const NEXT_WORLD_LEAD = 900;
 // screen, so it can no longer be hidden to recompile it.
 const VISIBLE_RANGE = 480;
 const WARMUP_BUDGET_MS = 4;
-// GPU texture uploads (and mip generation) for the next world, per frame.
-const TEXTURE_UPLOAD_BUDGET_MS = 3;
 const TEXTURE_KEYS = [
   'map', 'normalMap', 'roughnessMap', 'metalnessMap', 'aoMap', 'emissiveMap', 'alphaMap',
   'bumpMap', 'displacementMap', 'lightMap', 'specularMap', 'clearcoatNormalMap',
@@ -87,8 +91,8 @@ const TEXTURE_KEYS = [
 // crossing, then go (one disposal per frame, never on the crossing frame).
 const RETIRE_DELAY_FRAMES = 90;
 // Top-level units (chunks, pools, atmosphere) drawn off screen per frame
-// while preparing the next world.
-const WARM_DRAWS_PER_FRAME = 2;
+// while preparing the next world (a first draw can link a D3D variant).
+const WARM_DRAWS_PER_FRAME = 1;
 
 function worldStart(index: number): number {
   // The first world starts at the start line (matches the worlds' own default span).
@@ -122,9 +126,12 @@ export class WorldStreamer {
   private current: WorldSlot | null = null;
   private next: WorldSlot | null = null;
   private retired: RetiredWorld[] = [];
-  private textureQueue: THREE.Texture[] = [];
+  // GPU uploads (decoded off-thread first) for the next world's textures.
+  private uploader: TextureUploader | null;
   // Streamed objects already checked by the draw guard.
   private guarded = new WeakSet<THREE.Object3D>();
+  // Guarded objects compiled and waiting for a frame with no link in flight.
+  private revealQueue: THREE.Object3D[] = [];
   private frame = 0;
   private disposed = false;
 
@@ -140,6 +147,7 @@ export class WorldStreamer {
     this.camera = camera;
     this.ctors = ctors;
     this.hooks = hooks;
+    this.uploader = renderer ? new TextureUploader(renderer) : null;
   }
 
   get currentWorldId(): WorldId | null {
@@ -259,7 +267,7 @@ export class WorldStreamer {
         this.retire(this.current);
         this.retire(this.next);
         this.next = null;
-        this.textureQueue.length = 0;
+        this.uploader?.clear();
         this.current = this.create(wantId, graphicsConfig, false);
       }
     }
@@ -276,7 +284,7 @@ export class WorldStreamer {
     if (this.next && (!approaching || this.next.id !== nextId)) {
       this.retire(this.next);
       this.next = null;
-      this.textureQueue.length = 0;
+      this.uploader?.clear();
     }
     if (approaching && !this.next && nextId) {
       this.next = this.create(nextId, graphicsConfig, true);
@@ -284,6 +292,13 @@ export class WorldStreamer {
 
     // 3. Prepare the next world, one step per frame.
     const n = this.next;
+    const busy = this.isBusy();
+    // Guarded objects whose shaders are ready: shown once nothing is linking
+    // (their first draw would otherwise wait for every pending link).
+    if (!busy && this.revealQueue.length > 0) {
+      for (const o of this.revealQueue) o.visible = true;
+      this.revealQueue.length = 0;
+    }
     if (n) this.advancePreparation(n, playerZ, gateway, dt, time, graphicsConfig);
 
     // 4. Simulate. A drawable streaming next world is updated every frame
@@ -297,8 +312,8 @@ export class WorldStreamer {
     if (cur) this.guardNewObjects(cur);
     if (n && !n.hidden) this.guardNewObjects(n);
 
-    // 5. Pending texture uploads.
-    this.pumpTextureUploads();
+    // 5. Pending texture uploads (synchronous: never while shaders link).
+    if (!busy) this.pumpTextureUploads();
 
     // 6. Retired worlds: one disposal per frame once their delay is up.
     if (this.retired.length > 0 && this.retired[0].disposeAtFrame <= this.frame) {
@@ -347,7 +362,7 @@ export class WorldStreamer {
       case 'compiling':
         return;
       case 'upload':
-        if (this.textureQueue.length > 0) return;
+        if ((this.uploader && this.uploader.pending > 0) || this.isBusy()) return;
         n.warmList = this.collectWarmList(n.roots);
         this.setPhase(n, 'warmdraw');
         return;
@@ -356,6 +371,7 @@ export class WorldStreamer {
         // (ANGLE/D3D11 point sprites, input-layout variants): draw one object
         // per configuration off screen, a few per frame, long before the
         // rider can see any of it.
+        if (this.isBusy()) return;
         if (this.hooks.warmDraw && n.warmList.length > 0) {
           const batch = new Set<THREE.Object3D>();
           for (const unit of n.warmList.splice(0, WARM_DRAWS_PER_FRAME)) unit.traverse(o => { batch.add(o); });
@@ -399,7 +415,7 @@ export class WorldStreamer {
         if (!child.visible || !needs(child)) continue;
         child.visible = false;
         this.compileRoots([child]).then(() => {
-          child.visible = true;
+          this.revealQueue.push(child);
         });
       }
     }
@@ -419,6 +435,10 @@ export class WorldStreamer {
     return list;
   }
 
+  private isBusy(): boolean {
+    return this.hooks.isBusy ? this.hooks.isBusy() : false;
+  }
+
   private compileRoots(roots: THREE.Object3D[]): Promise<void> {
     if (this.hooks.compile) return this.hooks.compile(roots);
     const renderer = this.renderer;
@@ -430,14 +450,9 @@ export class WorldStreamer {
   }
 
   private queueTextures(slot: WorldSlot): void {
-    const seen = new Set<THREE.Texture>(this.textureQueue);
-    const push = (t: unknown) => {
-      const tex = t as THREE.Texture | null;
-      if (!tex || !(tex as any).isTexture || seen.has(tex)) return;
-      if ((tex as any).isRenderTargetTexture || (tex as any).isCubeTexture) return;
-      seen.add(tex);
-      this.textureQueue.push(tex);
-    };
+    const uploader = this.uploader;
+    if (!uploader) return;
+    const push = (t: unknown) => uploader.enqueue(t as THREE.Texture | null);
     for (const root of slot.roots) {
       root.traverse(o => {
         const m = (o as THREE.Mesh).material as THREE.Material | THREE.Material[] | undefined;
@@ -454,21 +469,53 @@ export class WorldStreamer {
   }
 
   private pumpTextureUploads(): void {
-    const renderer = this.renderer;
-    if (!renderer || this.textureQueue.length === 0) return;
-    const t0 = performance.now();
-    while (this.textureQueue.length > 0 && performance.now() - t0 < TEXTURE_UPLOAD_BUDGET_MS) {
-      const tex = this.textureQueue.pop()!;
-      const img = (tex as any).image;
-      // Not loaded yet: it uploads on first use as before.
-      if (!img) continue;
-      if (typeof HTMLImageElement !== 'undefined' && img instanceof HTMLImageElement && !img.complete) continue;
-      try {
-        renderer.initTexture(tex);
-      } catch {
-        /* uploads on first use instead */
+    if (this.uploader) this.uploader.pump();
+  }
+
+  // -------------------------------------------------------------------------
+  // Start-up warm-up: every other world built once (hidden) so its shader
+  // programs are linked and first-drawn before the run starts. The programs
+  // outlive these throw-away instances (ShaderWarmup keeps them), so the
+  // real worlds, built ahead of their gateways mid-run, compile nothing.
+  // -------------------------------------------------------------------------
+
+  private prewarmSlots: WorldSlot[] = [];
+
+  /**
+   * Build one world for the warm-up, fully (deferred construction included)
+   * and hidden. Returns its roots (to compile and warm draw), or null.
+   */
+  buildPrewarmWorld(id: WorldId, graphicsConfig: GraphicsConfig): THREE.Object3D[] | null {
+    if (!this.ctors[id] || (this.current && this.current.id === id)) return null;
+    let slot: WorldSlot;
+    try {
+      slot = this.create(id, graphicsConfig, true);
+      if (slot.world.warmup) {
+        let guard = 0;
+        while (!slot.world.warmup(50) && guard++ < 200) {
+          /* deferred construction, all of it now */
+        }
       }
+      if (!slot.streaming) slot.world.update(worldStart(slot.index) + 1, 0, 0, graphicsConfig);
+    } catch (err) {
+      console.warn(`[WorldStreamer] warm-up build failed for ${id}:`, err);
+      return null;
     }
+    this.prewarmSlots.push(slot);
+    return slot.roots;
+  }
+
+  /** Every warm-up world has its scanned assets (or gave up loading them). */
+  get prewarmAssetsSettled(): boolean {
+    return this.prewarmSlots.every(s => s.prepared);
+  }
+
+  /** Dispose one warm-up world per call; false once none are left. */
+  disposeNextPrewarmWorld(): boolean {
+    const slot = this.prewarmSlots.shift();
+    if (!slot) return false;
+    this.disposeSlot(slot);
+    return this.prewarmSlots.length > 0;
   }
 
   private disposeSlot(slot: WorldSlot): void {
@@ -482,7 +529,8 @@ export class WorldStreamer {
   }
 
   private disposeAll(): void {
-    this.textureQueue.length = 0;
+    this.uploader?.clear();
+    this.revealQueue.length = 0;
     for (const r of this.retired) this.disposeSlot(r.slot);
     this.retired.length = 0;
     if (this.next) this.disposeSlot(this.next);
@@ -493,6 +541,9 @@ export class WorldStreamer {
 
   dispose(): void {
     this.disposeAll();
+    while (this.disposeNextPrewarmWorld()) {
+      /* drop any warm-up world still alive */
+    }
     this.disposed = true;
   }
 }

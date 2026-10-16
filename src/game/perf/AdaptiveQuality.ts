@@ -77,6 +77,11 @@ export class AdaptiveQuality {
     return this.levels[this.index];
   }
 
+  /** Render scale of the top level (the preset's maximum). */
+  get maxPixelRatio(): number {
+    return this.levels.length > 0 ? this.levels[0].pixelRatio : 1;
+  }
+
   get levelIndex(): number {
     return this.index;
   }
