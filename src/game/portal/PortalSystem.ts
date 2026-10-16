@@ -54,7 +54,8 @@ interface GatewaySlot {
 // membrane follow the far scenery band (fully visible inside ~640 m).
 const BEAM_FADE_START = NEXT_WORLD_LEAD - 40;
 const BEAM_FADE_LENGTH = 220;
-const BEAM_INTENSITY = 0.55;
+const BEAM_INTENSITY = 0.8;
+const WINDOW_CLIP_MARGIN = 3;
 // Crossed gateways are removed once the rider is this far past them.
 const REMOVE_BEHIND = 70;
 // Don't wait for scanned textures past this distance to the gateway (they
@@ -283,8 +284,9 @@ export class PortalSystem {
 
     const own = this.ownHidden;
     own.length = 0;
-    own.push(s.gate.membrane);
-    if (s.gate.beam) own.push(s.gate.beam);
+    // The whole gateway: drawn at the window's reduced resolution its stone
+    // would show as a jagged second copy along the rim.
+    own.push(s.gate.group);
     for (const h of o.hide) own.push(h);
     this.hideLists[0] = this.deps.currentWorldRoots();
     this.hideLists[1] = own;
@@ -297,7 +299,10 @@ export class PortalSystem {
       width: o.width,
       height: o.height,
       scale: o.scale,
-      planeZ: s.gate.boundaryZ,
+      // Clip a few metres in front of the membrane: the window then always has
+      // road (identical in both worlds) under its bottom edge, instead of the
+      // open road slab cut by the clip plane bleeding in through filtering.
+      planeZ: s.gate.boundaryZ - WINDOW_CLIP_MARGIN,
       minX: -W,
       maxX: W,
       minY: GATEWAY.MEMBRANE_BOTTOM,

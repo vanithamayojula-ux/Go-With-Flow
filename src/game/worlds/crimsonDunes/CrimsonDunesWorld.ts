@@ -78,7 +78,7 @@ const KIT_STEPS: WarmTask[] = [
     const profiles = new Map<string, DuneProfile>();
     for (const p of DUNE_PROFILES) {
       if (!DUNE_IDS.includes(p.id)) continue;
-      dunes.set(p.id, createProceduralDuneGeometry(p, 40, 48, 333));
+      dunes.set(p.id, createProceduralDuneGeometry(p, 56, 72, 333));
       profiles.set(p.id, p);
     }
     K.duneProfiles = profiles;
@@ -261,14 +261,18 @@ export class CrimsonDunesWorld extends StreamedWorld {
     for (const sign of sides) {
       const duneType = rnd(3 + sign) > 0.6 ? 'large-crescent' : rnd(4 + sign) > 0.3 ? 'medium-dune' : 'long-ridge';
       const profile = k.duneProfiles.get(duneType)!;
-      // Half the dunes turn their slip face (sharp crest, steep shaded face) toward the camera
-      const rotY = (rnd(8 + sign) - 0.5) * 0.5 + (rnd(9 + sign * 3) > 0.5 ? Math.PI : 0);
-      const halfX = Math.abs(Math.cos(rotY)) * profile.width * 0.5 + Math.abs(Math.sin(rotY)) * profile.length * 0.5;
-      const halfZ = Math.abs(Math.sin(rotY)) * profile.width * 0.5 + Math.abs(Math.cos(rotY)) * profile.length * 0.5;
+      // Prevailing wind blows roughly across the road (varying +-30 deg), so
+      // most dunes show their profile: long windward ramp, sharp brink and a
+      // steep, shaded slip face. Size and height vary per dune.
+      const rotY = Math.PI * 0.5 + (rnd(8 + sign) - 0.5) * 1.05 + (rnd(9 + sign * 3) > 0.5 ? Math.PI : 0);
+      const sxz = 0.72 + rnd(30 + sign) * 0.55;
+      const sy = sxz * (0.8 + rnd(31 + sign) * 0.35);
+      const halfX = (Math.abs(Math.cos(rotY)) * profile.width * 0.5 + Math.abs(Math.sin(rotY)) * profile.length * 0.5) * sxz;
+      const halfZ = (Math.abs(Math.sin(rotY)) * profile.width * 0.5 + Math.abs(Math.cos(rotY)) * profile.length * 0.5) * sxz;
       const posX = sign * (ROAD_CLEAR_X + DUNE_MARGIN_X + halfX + rnd(5 + sign) * 18.0);
       const posZ = centerZ + (rnd(7 + sign) - 0.5) * 20.0;
       if (!this.inRange(posZ, halfZ * 0.8)) continue;
-      this.place(chunk, this.dunePools.get(duneType) ?? null, trs(posX, -1.2 + rnd(6 + sign) * 0.6, posZ, rotY, 1));
+      this.place(chunk, this.dunePools.get(duneType) ?? null, trs(posX, -1.2 + rnd(6 + sign) * 0.6, posZ, rotY, sxz, sy, sxz));
     }
 
     // 3. Mesas: a wind-carved butte on a flank, or a far horizon mesa

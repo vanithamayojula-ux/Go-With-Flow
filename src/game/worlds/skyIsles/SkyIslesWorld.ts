@@ -3,14 +3,14 @@ import { GraphicsConfig } from '../../../types';
 import { ISLAND_ARCHETYPES, createProceduralIslandGeometry, skyIslesCapHeight } from './SkyIslesTerrain';
 import { SkyIslesAtmosphere } from './SkyIslesAtmosphere';
 import {
-  buildBroadleafGeometry,
-  buildConiferGeometry,
   buildColonnadeGeometry,
   buildTempleGeometries,
   buildWaterfallGeometry,
   getWaterStreakTexture,
 } from './SkyIslesDecorations';
 import { skyIslesConfig } from './skyIslesConfig';
+import { TreeArchetype, createProceduralTreeGeometryGen, getLeafClusterTexture } from '../verdantWilds/VerdantWildsTerrain';
+import { buildSpruceVariant } from '../crystalHeights/CrystalHeightsDecorations';
 import { RAIL_X } from '../../trackConfig';
 import { StreamedWorld, StreamChunk, WarmTask } from '../shared/streamedWorld';
 import { InstancePool, PoolHandle, trs } from '../shared/instancePool';
@@ -34,7 +34,8 @@ interface SkyKit {
   stone: TerrainMaterialHandle;
   rockMats: Map<EnvModelId, TerrainMaterialHandle>;
   bark: ScanStandardHandle;
-  foliage: THREE.MeshStandardMaterial;
+  crown: THREE.MeshStandardMaterial;
+  leafCards: THREE.MeshStandardMaterial;
   needles: THREE.MeshStandardMaterial;
   broadleaf: THREE.BufferGeometry;
   conifer: THREE.BufferGeometry;
@@ -47,6 +48,17 @@ interface SkyKit {
   waterfall: THREE.BufferGeometry;
 }
 const K: Partial<SkyKit> = {};
+
+/** Island broadleaf: same generator as the Verdant forest, sized for the isles. */
+const SKY_BROADLEAF: TreeArchetype = {
+  id: 'sky-broadleaf',
+  name: 'Sky Isles Broadleaf',
+  tier: 'canopy',
+  height: 8.5,
+  trunkRadius: 0.5,
+  crownRadius: 4.4,
+  canopyClusters: 3,
+};
 
 const KIT_STEPS: WarmTask[] = [
   () => void getGreyNoiseTexture(1234, 0.72, 4),
@@ -91,18 +103,43 @@ const KIT_STEPS: WarmTask[] = [
       fade,
     });
   },
-  () => {
+  function* (): Generator<void, void> {
     if (K.broadleaf) return;
-    K.broadleaf = buildBroadleafGeometry();
-    K.conifer = buildConiferGeometry();
+    K.broadleaf = yield* createProceduralTreeGeometryGen(SKY_BROADLEAF, 404, 3.2, 20);
   },
+  () => {
+    K.conifer ??= buildSpruceVariant(613, 7.6, 2.1, 0);
+  },
+  () => void getLeafClusterTexture(),
   () => {
     if (K.bark) return;
     const fade = getWorldFade('sky-isles');
     const noise = getGreyNoiseTexture(1234, 0.72, 4);
-    K.bark = createScanStandardMaterial({ fallbackColor: 0x4a3a2a, fallbackMap: noise, scanTint: 0xb8a898, fade });
-    K.foliage = applyStreamFade(new THREE.MeshStandardMaterial({ color: 0x3f5a28, roughness: 0.9, metalness: 0, map: noise }), fade);
-    K.needles = applyStreamFade(new THREE.MeshStandardMaterial({ color: 0x2b4024, roughness: 0.92, metalness: 0, map: noise }), fade);
+    K.bark = createScanStandardMaterial({ fallbackColor: 0x4a3a2a, fallbackMap: noise, scanTint: 0xb8a898, vertexColors: true, fade });
+    K.crown = applyStreamFade(
+      new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 1, metalness: 0, map: noise, envMapIntensity: 0.35 }),
+      fade
+    );
+    const leafTex = getLeafClusterTexture();
+    K.leafCards = applyStreamFade(
+      new THREE.MeshStandardMaterial({
+        color: 0xffffff,
+        vertexColors: true,
+        map: leafTex,
+        // Low cut-off: mipmapped alpha thins out with distance, so a high
+        // threshold would strip distant crowns down to their cores
+        alphaTest: 0.3,
+        roughness: 0.82,
+        metalness: 0,
+        envMapIntensity: 0.55,
+        visible: !!leafTex,
+      }),
+      fade
+    );
+    K.needles = applyStreamFade(
+      new THREE.MeshStandardMaterial({ color: 0xffffff, vertexColors: true, roughness: 0.9, metalness: 0, envMapIntensity: 0.5 }),
+      fade
+    );
     K.roof = applyStreamFade(new THREE.MeshStandardMaterial({ color: 0x5f8574, roughness: 0.75, metalness: 0.1, map: noise }), fade);
     // Clear quartz: opaque glossy dielectric, reflections do the work (no transmission pass)
     K.quartz = applyStreamFade(
@@ -153,6 +190,7 @@ interface SpinningCrystal {
 }
 
 const TEMPLE_SCALE = 0.85;
+const _tint = new THREE.Color();
 const TEMPLE_CRYSTAL_Y = 4.5;
 
 /**
@@ -208,10 +246,10 @@ export class SkyIslesWorld extends StreamedWorld {
       this.islandPools.set(id, this.addPool(pool));
     }
     this.treePools.broadleaf = this.addPool(
-      new InstancePool('sky-broadleaf', k.broadleaf, [k.bark.material, k.foliage], 128, { castShadow: true })
+      new InstancePool('sky-broadleaf', k.broadleaf, [k.bark.material, k.crown, k.leafCards], 128, { castShadow: true, colors: true })
     );
     this.treePools.conifer = this.addPool(
-      new InstancePool('sky-conifer', k.conifer, [k.bark.material, k.needles], 128, { castShadow: true })
+      new InstancePool('sky-conifer', k.conifer, [k.bark.material, k.needles], 128, { castShadow: true, colors: true })
     );
     this.rockPools = createRockPools('sky', ROCK_IDS, k.rockMats, 48, 0);
     for (const p of this.rockPools.near.values()) this.addPool(p);
@@ -264,7 +302,8 @@ export class SkyIslesWorld extends StreamedWorld {
       const sign = side === 'left' ? -1 : 1;
       // Keep the whole island (rim reaches ~1.12x radiusTop) clear of the road
       const posX = sign * (ROAD_CLEARANCE_X + radius * 1.25 + srnd(5) * 28.0);
-      const posY = -4.0 + (srnd(6) - 0.5) * 14.0;
+      // Mostly below eye level so the turf tops (and their trees) read
+      const posY = -7.0 + (srnd(6) - 0.5) * 10.0;
       const posZ = centerZ + (srnd(7) - 0.5) * 24.0;
       if (!this.inRange(posZ, radius * 1.15)) continue;
       const rotY = srnd(8) * Math.PI * 2;
@@ -297,10 +336,17 @@ export class SkyIslesWorld extends StreamedWorld {
           const tx = posX + Math.cos(ang) * dist;
           const tz = posZ + Math.sin(ang) * dist;
           const ty = posY + skyIslesCapHeight(heightGrass, radius, dist) - 0.15;
-          const scale = 0.85 + srnd(22 + t * 3) * 0.5;
+          const scale = 0.75 + srnd(22 + t * 3) * 0.5;
           const conifer = srnd(23 + t * 3) < 0.45;
           const sy = scale * (0.9 + srnd(24 + t * 3) * 0.25);
-          this.place(chunk, conifer ? this.treePools.conifer : this.treePools.broadleaf, trs(tx, ty, tz, srnd(25 + t * 3) * Math.PI * 2, scale, sy, scale));
+          const tk = 0.84 + srnd(26 + t * 3) * 0.26;
+          const th = srnd(27 + t * 3) * 2 - 1;
+          this.place(
+            chunk,
+            conifer ? this.treePools.conifer : this.treePools.broadleaf,
+            trs(tx, ty, tz, srnd(25 + t * 3) * Math.PI * 2, scale, sy, scale),
+            _tint.setRGB(tk * (1 + th * 0.06), tk, tk * (1 - th * 0.09))
+          );
         }
       }
 

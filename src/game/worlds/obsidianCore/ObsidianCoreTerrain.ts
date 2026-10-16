@@ -325,6 +325,55 @@ export function createProceduralVolcanicRockGeometry(
     return s / 233280;
   };
 
+  if (archetype.tier === 'basalt-cluster') {
+    // Columnar basalt: many slender, tightly packed hexagonal columns with flat
+    // (slightly weathered) tops, stepping down from a high point like a
+    // cooled flow broken along its joints. All share one lean.
+    const spacing = 1.55;
+    const colR = spacing * 0.56;
+    const leanX = (rnd() - 0.5) * 0.12;
+    const leanZ = (rnd() - 0.5) * 0.12;
+    const peakX = (rnd() - 0.5) * 2.0;
+    const peakZ = (rnd() - 0.5) * 2.0;
+    const maxH = archetype.height * 0.5;
+    for (let q = -3; q <= 3; q++) {
+      for (let r = -3; r <= 3; r++) {
+        if (Math.abs(q + r) > 3) continue;
+        const px = spacing * (q + r * 0.5);
+        const pz = spacing * r * 0.866;
+        const d = Math.hypot(px - peakX, pz - peakZ);
+        if (d > spacing * 3.2 && rnd() < 0.6) continue;
+        // Dome-ish envelope with broken steps
+        const env = Math.max(0, 1 - Math.pow(d / (spacing * 3.6), 1.6));
+        const step = 0.55 + rnd() * 0.45;
+        const colHeight = Math.max(0.8, maxH * env * step + rnd() * 0.6);
+        const prism = new THREE.CylinderGeometry(colR * (0.93 + rnd() * 0.06), colR, colHeight, 6, 2);
+        prism.rotateY(Math.PI / 6);
+        prism.translate(0, colHeight * 0.5 - 0.4, 0);
+        const pos = prism.attributes.position;
+        const colors: number[] = [];
+        const tone = rnd();
+        for (let i = 0; i < pos.count; i++) {
+          const y = pos.getY(i);
+          const h = (y + 0.4) / colHeight;
+          tmp.copy(C_BASALT_DARK).lerp(C_BASALT_LIGHT, tone * 0.8);
+          tmp.lerp(C_SOOT, Math.max(0, 1 - (y + 0.4) / 2.0) * 0.5);
+          if (h > 0.97) tmp.lerp(C_ASH, 0.35 + tone * 0.3);
+          colors.push(tmp.r, tmp.g, tmp.b);
+        }
+        prism.setAttribute('color', new THREE.Float32BufferAttribute(colors, 3));
+        scaleUv(prism, 1, Math.max(1, colHeight / 3));
+        prism.rotateZ(leanX + (rnd() - 0.5) * 0.03);
+        prism.rotateX(leanZ + (rnd() - 0.5) * 0.03);
+        prism.translate(px, 0, pz);
+        geometries.push(prism);
+      }
+    }
+    const mergedCols = mergeBufferGeometriesCustom(geometries);
+    for (const g of geometries) g.dispose();
+    return mergedCols;
+  }
+
   for (let c = 0; c < columnCount; c++) {
     const angle = (c / columnCount) * Math.PI * 2;
     const dist = c === 0 ? 0 : archetype.radius * (0.5 + rnd() * 0.5);

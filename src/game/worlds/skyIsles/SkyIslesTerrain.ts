@@ -271,10 +271,18 @@ export function createProceduralIslandGeometry(
   // Underside rings: tapering inverted crag with strata and buttress ridges
   const underRings = 16;
   const topY = -1.0;
+  // The rock carrot bends and goes lopsided with depth (never a lathe-turned cone)
+  const bendA = rnd() * Math.PI * 2;
+  const bendX = Math.cos(bendA) * radiusTop * (0.25 + rnd() * 0.25);
+  const bendZ = Math.sin(bendA) * radiusTop * (0.25 + rnd() * 0.25);
+  const lopPh = rnd() * Math.PI * 2;
   for (let k = 1; k <= underRings; k++) {
     const p = k / (underRings + 1);
     const ringJitter = 1.0 + (rnd() - 0.5) * 0.06 * roughK; // strata ledges
-    const baseR = radiusTop * Math.pow(1.0 - p, 0.75) * ringJitter;
+    // Short rocky shoulder, then a long tapering carrot of rock (reads as a
+    // chunk torn out of the ground rather than a cylinder)
+    const taper = p < 0.12 ? 1.0 - p * 0.6 : (1.0 - 0.072) * Math.pow((1.0 - p) / 0.88, 1.35);
+    const baseR = radiusTop * taper * ringJitter;
     const baseY = topY - p * (depthRock + topY);
     for (let i = 0; i < slices; i++) {
       const theta = (i / slices) * Math.PI * 2;
@@ -282,8 +290,9 @@ export function createProceduralIslandGeometry(
         baseR * (1.0 + lobe(theta, p) + relief(theta, p) * roughK),
         radiusTop * MAX_RIM_FACTOR
       );
-      ringX[i] = Math.cos(theta) * rr;
-      ringZ[i] = Math.sin(theta) * rr;
+      const lop = 1 + 0.22 * p * Math.sin(2 * theta + lopPh) + 0.12 * p * Math.sin(3 * theta + ph4 + p * 4);
+      ringX[i] = Math.cos(theta) * rr * lop + bendX * p * p;
+      ringZ[i] = Math.sin(theta) * rr * lop + bendZ * p * p;
       ringY[i] = baseY + Math.sin(theta * 4 + p * 6 + ph2) * 0.35;
     }
     const pk = p;
@@ -296,7 +305,7 @@ export function createProceduralIslandGeometry(
 
   // Bottom tip of the inverted crag
   const tipIndex = positions.length / 3;
-  positions.push((rnd() - 0.5) * 1.5, -depthRock, (rnd() - 0.5) * 1.5);
+  positions.push(bendX + (rnd() - 0.5) * 1.5, -depthRock, bendZ + (rnd() - 0.5) * 1.5);
   uvs.push(circumferenceTiles * 0.5, -depthRock / DETAIL_TILE_M);
   pushColor(rockDeep, 0.05);
 

@@ -78,7 +78,7 @@ export const GATEWAY_STYLES: Record<WorldId, GatewayStyle> = {
   // Granite with ice
   'crystal-heights': {
     stone: 'crystal-heights/rock',
-    stoneTint: 0xd6d6d6,
+    stoneTint: 0xffffff,
     normalScale: 1.1,
     jitter: 0.1,
     cast: [0.94, 0.97, 1.0],
@@ -91,7 +91,7 @@ export const GATEWAY_STYLES: Record<WorldId, GatewayStyle> = {
     stoneTint: 0xb4aca6,
     normalScale: 1.3,
     jitter: 0.1,
-    lava: { color: 0xff5a14, intensity: 7.0 },
+    lava: { color: 0xff5a14, intensity: 3.2 },
     rubble: true,
   },
 };

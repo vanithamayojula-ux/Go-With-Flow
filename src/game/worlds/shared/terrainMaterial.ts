@@ -71,6 +71,12 @@ export interface TerrainMaterialOptions {
   clip?: boolean;
   /** Scanned-model mode: per-model UV normal / AO maps (placeholders until loaded). */
   modelMaps?: boolean;
+  /**
+   * Snow look on the ground layer: soft blue-white fill light (stands in for
+   * subsurface scattering and the blue skylight in shadows) and a raised
+   * roughness floor so the snow never sparkles.
+   */
+  snow?: boolean;
   /** Emissive lava glowing in the crevices (AO-driven), HDR intensity. */
   lava?: { color: THREE.ColorRepresentation; intensity: number };
   side?: THREE.Side;
@@ -253,6 +259,9 @@ diffuseColor.rgb *= mix( gwfFall, gwfAlb, uScanMix );
 
 const ROUGHNESS_BODY = /* glsl */ `
 roughnessFactor = mix( uFallRough, clamp( gwfRough * ( 0.92 + 0.16 * gwfMacroA ), 0.04, 1.0 ), uScanMix );
+#ifdef GWF_SNOW
+roughnessFactor = max( roughnessFactor, mix( 0.55, 0.78, 1.0 - gwfRockW ) );
+#endif
 `;
 
 const NORMAL_BODY = /* glsl */ `
@@ -267,12 +276,28 @@ const NORMAL_BODY = /* glsl */ `
 const LAVA_BODY = /* glsl */ `
 #ifdef GWF_LAVA
 {
-  // Glow in the deepest crevices of the scanned rock, patchy at macro scale
-  float crev = smoothstep( 0.4, 0.12, gwfArm.r );
-  float patchy = smoothstep( 0.58, 0.86, gwfMacroB ) * smoothstep( 0.3, 0.7, gwfMacroA );
+  // Lava follows the rock's own cracks: the scanned AO marks crevices. A thin
+  // white-hot / orange core in the deepest part, a broader deep-red heat glow
+  // falling off around it, both patchy at macro scale (never a flat sheet).
+  float ao = gwfArm.r;
+  float core = smoothstep( 0.24, 0.07, ao );
+  float halo = smoothstep( 0.46, 0.16, ao );
+  float patchy = smoothstep( 0.55, 0.85, gwfMacroB ) * smoothstep( 0.3, 0.7, gwfMacroA );
   float low = 1.0 - smoothstep( 0.5, 8.0, vGwfWPos.y );
-  float lava = crev * patchy * ( 0.25 + 0.75 * low ) * uScanMix;
-  totalEmissiveRadiance += uLavaColor * lava * uLavaPulse;
+  float m = patchy * ( 0.25 + 0.75 * low ) * uScanMix * uLavaPulse;
+  vec3 hot = uLavaColor * vec3( 1.0, 1.45, 2.2 );
+  vec3 ember = uLavaColor * vec3( 0.55, 0.22, 0.12 );
+  totalEmissiveRadiance += ( hot * core * core + ember * halo * halo * 0.6 ) * m;
+  // Heated crust around the cracks is scorched darker
+  diffuseColor.rgb *= 1.0 - 0.45 * halo * m;
+}
+#endif
+#ifdef GWF_SNOW
+{
+  // Light scattered inside the snowpack: a faint cool glow that keeps shaded
+  // snow blue-white instead of grey, strongest on fresh (non-rock) snow.
+  float snowW = 1.0 - gwfRockW;
+  totalEmissiveRadiance += diffuseColor.rgb * vec3( 0.045, 0.07, 0.11 ) * snowW;
 }
 #endif
 `;
@@ -347,6 +372,7 @@ export function createTerrainMaterial(opts: TerrainMaterialOptions): TerrainMate
   if (r) defines.GWF_ROCK = '';
   if (opts.modelMaps) defines.GWF_MODEL_MAPS = '';
   if (opts.lava) defines.GWF_LAVA = '';
+  if (opts.snow) defines.GWF_SNOW = '';
   if (opts.vertexColors) defines.GWF_VC_ALBEDO = '';
   if (opts.vcLuma) defines.GWF_VC_LUMA = '';
   material.defines = { ...(material.defines ?? {}), ...defines };

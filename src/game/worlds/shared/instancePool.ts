@@ -9,7 +9,14 @@ export class PoolHandle {
 export interface InstancePoolOptions {
   castShadow?: boolean;
   receiveShadow?: boolean;
-  /** Allocate per-instance colours (relative tint) up front. */
+  /**
+   * Allocate per-instance colours (relative tint) up front. Defaults to
+   * `castShadow`: every shadow caster of every world then needs one of only
+   * three shadow-pass depth programs (instanced + colour, with/without map,
+   * alpha-tested), all of which the first world already draws at the start.
+   * On ANGLE/D3D11 a depth program's first real draw costs ~0.3-0.7 s even
+   * when it was compiled ahead, so later worlds must not bring new ones.
+   */
   colors?: boolean;
 }
 
@@ -50,7 +57,7 @@ export class InstancePool {
     this.wantsShadow = !!opts.castShadow;
     this.mesh.receiveShadow = opts.receiveShadow ?? true;
     this.mesh.instanceMatrix.setUsage(THREE.DynamicDrawUsage);
-    if (opts.colors) {
+    if (opts.colors ?? !!opts.castShadow) {
       // Create the colour buffer now so the shader variant never changes later
       for (let i = 0; i < capacity; i++) this.mesh.setColorAt(i, _white);
       this.mesh.instanceColor!.setUsage(THREE.DynamicDrawUsage);

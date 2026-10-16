@@ -277,7 +277,9 @@ export class ObsidianCoreWorld extends StreamedWorld {
       const scale = 0.85 + rnd(r * 4 + 5) * (ROCK_MAX_SCALE - 0.85);
       const reach = (ROCK_EXTENT[archId] ?? 8.2) * scale * 0.6;
       if (!this.inRange(posZ, reach)) continue;
-      const m = trs(posX, this.footprintBaseY(posX, posZ, reach) - 0.6, posZ, rnd(r * 4 + 4) * Math.PI * 2, scale);
+      // Obsidian shards stay well below the old 38 m needles; columns keep their own profile
+      const sy = spire ? scale * (0.42 + rnd(r * 4 + 6) * 0.3) : scale * (0.85 + rnd(r * 4 + 6) * 0.3);
+      const m = trs(posX, this.footprintBaseY(posX, posZ, reach) - 0.6, posZ, rnd(r * 4 + 4) * Math.PI * 2, scale, sy, scale);
       if (spire) this.place(chunk, this.spirePool, m);
       else this.place(chunk, Math.abs(posX) < 32 ? this.columnsNear : this.columnsFar, m);
     }
@@ -331,7 +333,8 @@ export class ObsidianCoreWorld extends StreamedWorld {
       const cSide = rnd(21) > 0.5 ? 1 : -1;
       const cx = cSide * (32 + rnd(22) * 20);
       const cz = centerZ + 16;
-      this.placeParts(chunk, this.citadelPools, trs(cx, this.footprintBaseY(cx, cz, 10) - 1.0, cz, -cSide * Math.PI * 0.5, 1.1));
+      // A ruined fortress hunkered on the ridge (lower than a skyline of towers)
+      this.placeParts(chunk, this.citadelPools, trs(cx, this.footprintBaseY(cx, cz, 10) - 1.0, cz, -cSide * Math.PI * 0.5, 1.0, 0.72, 1.0));
     } else if (rnd(15) > 0.85 && this.canSpanRoad(centerZ + 10)) {
       this.place(chunk, this.forgeArchPool, trs(0, 0, centerZ + 10, 0, 1));
     }

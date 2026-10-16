@@ -134,20 +134,26 @@ export function createProceduralDuneGeometry(
   const trough = new THREE.Color(SAND_TROUGH);
   const crest = new THREE.Color(SAND_CREST);
   const c = new THREE.Color();
-  const phase = (seed % 97) * 0.13;
+  const phase = (seed % 97) * 0.13 + profile.width * 0.37;
   const leeSteep = 1.0 + profile.steepness * 0.8;
+  // Asymmetric horns (one arm longer / further downwind), as wind is never
+  // perfectly steady; and a wandering brink line.
+  const asym = Math.sin(phase * 3.1) * 0.5;
+  const slip = new THREE.Color(0xb98d5c);
 
   for (let i = 0; i < pos.count; i++) {
     const x = pos.getX(i);
     const z = pos.getZ(i);
 
-    const nx = x / (profile.width * 0.5);
+    const nx0 = x / (profile.width * 0.5);
     const nz = z / (profile.length * 0.5);
+    // Skew the lateral coordinate so the two horns differ
+    const nx = nx0 * (1 + asym * 0.18 * Math.sign(nx0)) + Math.sin(nz * 2.3 + phase) * 0.06;
 
     // Barchan-like profile: a sharp, curved crest (horns trailing downwind, +z),
     // a long convex windward ramp and a steeper, straight slip face, tapering
     // to nothing at the lateral edges.
-    const crestZ = -0.2 + 0.32 * nx * nx + Math.sin(nx * 2.1 + phase) * 0.05;
+    const crestZ = -0.2 + 0.36 * nx * nx + asym * 0.1 * nx + Math.sin(nx * 2.1 + phase) * 0.05 + Math.sin(nx * 5.3 + phase * 2) * 0.015;
     const lateral = Math.max(0, 1 - nx * nx);
     const envelope = Math.pow(lateral, 0.85);
     const dz = nz - crestZ;
@@ -165,13 +171,21 @@ export function createProceduralDuneGeometry(
       prof = Math.max(0, Math.min(1, prof));
     }
     const t = envelope;
-    const ripples = Math.sin(x * 0.32 + z * 0.17 + phase) * 0.18 * t * prof;
-    const y = prof * envelope * profile.height * 0.82 + ripples;
+    // Wind ripples (~4 m) only on the windward ramp, running across the wind
+    // and bending with it; the slip face is smooth avalanche sand.
+    const windward = dz <= 0 ? 1 : Math.exp(-dz * 30);
+    const ripples =
+      Math.sin(z * 1.55 + Math.sin(x * 0.21 + phase) * 1.8 + Math.sin(x * 0.67) * 0.4) * 0.055 * t * windward * Math.min(1, prof * 3);
+    // Low secondary undulation so the ramp is never a perfect surface
+    const swell = Math.sin(x * 0.19 + phase) * Math.sin(z * 0.13 - phase) * 0.35 * t * prof;
+    const y = prof * envelope * profile.height * 0.82 + ripples + swell;
     pos.setY(i, y);
 
     const heightNorm = Math.min(1, Math.max(0, y / profile.height));
     const variation = Math.sin(x * 0.11 + z * 0.07 + phase) * 0.12;
     c.lerpColors(trough, crest, Math.min(1, Math.max(0, heightNorm * 0.85 + 0.1 + variation)));
+    // Freshly avalanched slip faces are a touch darker and redder
+    if (dz > 0) c.lerp(slip, Math.min(0.5, dz * 4) * t);
     colors[i * 3] = c.r;
     colors[i * 3 + 1] = c.g;
     colors[i * 3 + 2] = c.b;

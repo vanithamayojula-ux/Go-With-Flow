@@ -134,8 +134,13 @@ const LEAF_SHADE = new THREE.Color(0x1f3214);
  * soft leafy crown clumps) with natural vertex colours and smooth normals.
  * All foliage sits above TREE_FOLIAGE_MIN_Y (local units).
  */
-export function createProceduralTreeGeometry(archetype: TreeArchetype, seed = 101): THREE.BufferGeometry {
-  const it = createProceduralTreeGeometryGen(archetype, seed);
+export function createProceduralTreeGeometry(
+  archetype: TreeArchetype,
+  seed = 101,
+  foliageMinY = TREE_FOLIAGE_MIN_Y,
+  cardsPerClump = 28
+): THREE.BufferGeometry {
+  const it = createProceduralTreeGeometryGen(archetype, seed, foliageMinY, cardsPerClump);
   let r = it.next();
   while (!r.done) r = it.next();
   return r.value;
@@ -144,7 +149,9 @@ export function createProceduralTreeGeometry(archetype: TreeArchetype, seed = 10
 /** Same as createProceduralTreeGeometry, yielding after each crown clump (for sliced warmup). */
 export function* createProceduralTreeGeometryGen(
   archetype: TreeArchetype,
-  seed = 101
+  seed = 101,
+  foliageMinY = TREE_FOLIAGE_MIN_Y,
+  cardsPerClump = 28
 ): Generator<void, THREE.BufferGeometry> {
   const geometries: THREE.BufferGeometry[] = []; // bark: trunk + limbs
   const clumps: THREE.BufferGeometry[] = []; // leafy crown masses
@@ -216,7 +223,7 @@ export function* createProceduralTreeGeometryGen(
     const len = archetype.height * (isDead ? 0.18 : 0.26) * (0.8 + rnd() * 0.4);
     const tilt = 0.6 + rnd() * 0.35;
     const h0 = Math.max(
-      TREE_FOLIAGE_MIN_Y + 1.0,
+      foliageMinY + 1.0,
       trunkHeight * (0.6 + rnd() * 0.3) - sink
     );
     const limb = new THREE.CylinderGeometry(rTop * 0.45, rTop * 0.85, len, 8, 3);
@@ -254,13 +261,17 @@ export function* createProceduralTreeGeometryGen(
       const cx = Math.cos(angle) * hAxis * distF;
       const cz = Math.sin(angle) * hAxis * distF;
       let cy = crownCY + (rnd() * 2 - 1) * vAxis + (1 - distF) * vAxis * 0.5;
-      cy = Math.max(cy, TREE_FOLIAGE_MIN_Y + radius * 1.25);
-      const tint = 0.88 + rnd() * 0.2;
+      cy = Math.max(cy, foliageMinY + radius * 1.25);
+      const tint = 0.86 + rnd() * 0.24;
+      // Per-clump hue drift: yellow-green sunlit sprays vs cooler blue-green ones
+      const hue = rnd() * 2 - 1;
+      const hueR = 1 + hue * 0.08;
+      const hueB = 1 - hue * 0.12;
       const phase = rnd() * 10;
 
       // Core mass is smaller than the crown clump: the alpha-tested leaf cards
       // around it form the silhouette, so the crown never reads as a smooth blob.
-      const core = 0.74;
+      const core = 0.52;
       const clump = new THREE.IcosahedronGeometry(1, 2);
       const cPos = clump.attributes.position;
       const cNorm = clump.attributes.normal;
@@ -281,8 +292,8 @@ export function* createProceduralTreeGeometryGen(
         cPos.setXYZ(j, px, py, pz);
 
         // Soft, slightly up-biased normals read as a leafy mass, not a facet
-        nrm.set(dir.x, dir.y * 1.2 + 0.25, dir.z).normalize();
-        cNorm.setXYZ(j, nrm.x, nrm.y, nrm.z);
+        // Plain outward normals: the core is self-shadowed, never a lit dome
+        cNorm.setXYZ(j, dir.x, dir.y, dir.z);
 
         // Sunlit top, shaded underside, darker crown interior
         const hf = Math.min(1, Math.max(0, (dir.y + 1) * 0.5));
@@ -290,8 +301,9 @@ export function* createProceduralTreeGeometryGen(
         const var01 = 0.5 + 0.5 * Math.sin(dir.x * 7 + dir.z * 5 + phase);
         tmpColor.copy(LEAF_DARK).lerp(LEAF_LIGHT, Math.min(1, hf * 0.75 + var01 * 0.25));
         tmpColor.lerp(LEAF_SHADE, (1 - hf) * 0.55 * (1.2 - outer));
-        tmpColor.multiplyScalar(tint * 0.82);
-        cColors.push(tmpColor.r, tmpColor.g, tmpColor.b);
+        // The core is the shaded interior seen between the leaf cards: keep it dark
+        tmpColor.multiplyScalar(tint * 0.3);
+        cColors.push(tmpColor.r * hueR, tmpColor.g, tmpColor.b * hueB);
 
         cUv.setXY(j, cUv.getX(j) * 3, cUv.getY(j) * 3);
       }
@@ -301,7 +313,8 @@ export function* createProceduralTreeGeometryGen(
       // Leaf cards scattered over the clump surface (upper-biased), each a
       // two-sided quad whose normals point out of the crown so both faces
       // shade like the foliage mass around them.
-      const cardCount = 20;
+      // Alpha-tested cards are the fill-rate cost of a tree (main + shadow pass)
+      const cardCount = cardsPerClump;
       const cardPos: number[] = [];
       const cardNrm: number[] = [];
       const cardCol: number[] = [];
@@ -312,8 +325,10 @@ export function* createProceduralTreeGeometryGen(
       const rv = new THREE.Vector3();
       for (let k = 0; k < cardCount; k++) {
         dir.set(rnd() * 2 - 1, rnd() * 1.4 - 0.3, rnd() * 2 - 1).normalize();
-        const centre = new THREE.Vector3(cx, cy, cz).addScaledVector(dir, radius * (0.6 + rnd() * 0.45));
-        const half = radius * (0.36 + rnd() * 0.24);
+        // Cards fill the clump volume (interior ones smaller and darker)
+        const depth = 0.45 + Math.sqrt(rnd()) * 0.62;
+        const centre = new THREE.Vector3(cx, cy, cz).addScaledVector(dir, radius * depth);
+        const half = radius * (0.28 + rnd() * 0.2) * (0.75 + depth * 0.3);
         rv.set(rnd() * 2 - 1, rnd() * 2 - 1, rnd() * 2 - 1).normalize();
         u.crossVectors(dir, rv).normalize();
         if (u.lengthSq() < 1e-6) u.set(1, 0, 0);
@@ -322,7 +337,13 @@ export function* createProceduralTreeGeometryGen(
         w.lerp(dir, rnd() * 0.5).normalize();
         nrm.set(dir.x, dir.y * 1.2 + 0.25, dir.z).normalize();
         const hf = Math.min(1, Math.max(0, (dir.y + 1) * 0.5));
-        const shade = (0.62 + hf * 0.45) * tint;
+        const inner = Math.min(1, Math.max(0, (depth - 0.45) / 0.62));
+        const shade = (0.5 + hf * 0.42) * (0.62 + inner * 0.45) * tint;
+        // Leaf-to-leaf colour variation (sun-bleached, fresh, olive)
+        const lv = rnd();
+        const cr = shade * hueR * (0.94 + lv * 0.14);
+        const cg = shade * (0.96 + (1 - Math.abs(lv - 0.5)) * 0.08);
+        const cb = shade * hueB * (1.04 - lv * 0.16);
         const base = cardPos.length / 3;
         const corners: Array<[number, number]> = [[-1, -1], [1, -1], [1, 1], [-1, 1]];
         for (const [a, b] of corners) {
@@ -332,7 +353,7 @@ export function* createProceduralTreeGeometryGen(
             centre.z + (u.z * a + w.z * b) * half
           );
           cardNrm.push(nrm.x, nrm.y, nrm.z);
-          cardCol.push(shade, shade, shade);
+          cardCol.push(cr, cg, cb);
           cardUv.push((a + 1) / 2, (b + 1) / 2);
         }
         // Front and back faces (reverse winding) share the outward normal
@@ -607,21 +628,33 @@ function createLeafClusterTexture(): THREE.CanvasTexture | null {
     return s / 2147483647;
   };
   ctx.clearRect(0, 0, size, size);
-  const leaves = 950;
-  for (let i = 0; i < leaves; i++) {
-    // Denser toward the centre, ragged toward the rim
+  // Drawn back to front: early (deep) leaves are darker, so each card reads
+  // as a spray with self-shadowed depth instead of a flat decal. Twig-like
+  // clusters (leaves around a few sprigs) give a ragged, organic outline.
+  const leaves = 1500;
+  const sprigs: Array<[number, number, number]> = [];
+  for (let k = 0; k < 26; k++) {
     const ang = rnd() * Math.PI * 2;
-    const rad = Math.pow(rnd(), 0.55) * size * 0.44;
-    const x = size / 2 + Math.cos(ang) * rad;
-    const y = size / 2 + Math.sin(ang) * rad;
-    const len = 14 + rnd() * 12;
-    const wid = len * (0.42 + rnd() * 0.15);
-    const rot = rnd() * Math.PI * 2;
-    // Mid-green leaves with yellow-green sunlit and dark olive variants
+    const rad = Math.pow(rnd(), 0.7) * size * 0.34;
+    sprigs.push([size / 2 + Math.cos(ang) * rad, size / 2 + Math.sin(ang) * rad, ang]);
+  }
+  for (let i = 0; i < leaves; i++) {
+    const order = i / leaves;
+    const sp = sprigs[Math.floor(rnd() * sprigs.length)];
+    const ang = sp[2] + (rnd() - 0.5) * 1.6;
+    const rad = Math.pow(rnd(), 0.8) * size * 0.16;
+    const x = sp[0] + Math.cos(ang) * rad;
+    const y = sp[1] + Math.sin(ang) * rad;
+    if (Math.hypot(x - size / 2, y - size / 2) > size * 0.47) continue;
+    const len = 9 + rnd() * 9;
+    const wid = len * (0.4 + rnd() * 0.16);
+    const rot = ang + (rnd() - 0.5) * 1.2;
+    // Olive / mid / yellow-green leaves; deeper layers darker
     const t = rnd();
-    const r = Math.round(46 + t * 50 + (rnd() - 0.5) * 12);
-    const g = Math.round(70 + t * 52 + (rnd() - 0.5) * 14);
-    const b = Math.round(26 + t * 18 + (rnd() - 0.5) * 8);
+    const lit = 0.55 + 0.45 * order;
+    const r = Math.round((40 + t * 52 + (rnd() - 0.5) * 14) * lit);
+    const g = Math.round((64 + t * 54 + (rnd() - 0.5) * 16) * lit);
+    const b = Math.round((22 + t * 16 + (rnd() - 0.5) * 8) * lit);
     ctx.save();
     ctx.translate(x, y);
     ctx.rotate(rot);

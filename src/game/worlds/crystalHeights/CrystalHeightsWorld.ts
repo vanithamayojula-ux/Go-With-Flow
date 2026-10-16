@@ -98,6 +98,7 @@ const KIT_STEPS: WarmTask[] = [
     const fade = getWorldFade('crystal-heights');
     K.snow = createTerrainMaterial({
       name: 'crystal-snowfield',
+      snow: true,
       ground: SNOW,
       rock: GRANITE,
       slope: [0.7, 0.86],
@@ -110,6 +111,7 @@ const KIT_STEPS: WarmTask[] = [
     });
     K.peakMat = createTerrainMaterial({
       name: 'crystal-peaks',
+      snow: true,
       ground: { ...SNOW, tile: 24 },
       rock: { ...GRANITE, tile: 30 },
       slope: [0.5, 0.72],
@@ -124,6 +126,7 @@ const KIT_STEPS: WarmTask[] = [
     });
     K.gateMat = createTerrainMaterial({
       name: 'crystal-gate',
+      snow: true,
       ground: { ...SNOW, tile: 4 },
       rock: { ...GRANITE, tile: 5 },
       slope: [0.55, 0.75],
@@ -133,6 +136,7 @@ const KIT_STEPS: WarmTask[] = [
       ground: { ...SNOW, tile: 5 },
       rock: { ...GRANITE, tile: 5, normalScale: 0.6 },
       slope: [0.62, 0.8],
+      snow: true,
       fade,
     });
     // Glacial ice / quartz: opaque glossy dielectrics lit by the sky reflection

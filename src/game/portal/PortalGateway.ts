@@ -202,7 +202,7 @@ function getLavaVeinTexture(): THREE.CanvasTexture | null {
     // Draw 9 times offset by the tile size so the map wraps seamlessly.
     for (let ox = -size; ox <= size; ox += size) {
       for (let oy = -size; oy <= size; oy += size) {
-        for (const [lw, col] of [[width * 4.5, 'rgba(255,90,20,0.18)'], [width * 2, 'rgba(255,140,40,0.55)'], [width, 'rgba(255,230,160,1)']] as [number, string][]) {
+        for (const [lw, col] of [[width * 3.5, 'rgba(255,80,16,0.12)'], [width * 1.8, 'rgba(255,130,36,0.5)'], [width * 0.8, 'rgba(255,220,150,1)']] as [number, string][]) {
           ctx.strokeStyle = col;
           ctx.lineWidth = lw;
           ctx.beginPath();
@@ -213,7 +213,7 @@ function getLavaVeinTexture(): THREE.CanvasTexture | null {
       }
     }
   };
-  for (let i = 0; i < 7; i++) crack(rnd() * size, rnd() * size, rnd() * Math.PI * 2, 30 + Math.floor(rnd() * 30), 1.6 + rnd() * 1.6, 0);
+  for (let i = 0; i < 5; i++) crack(rnd() * size, rnd() * size, rnd() * Math.PI * 2, 30 + Math.floor(rnd() * 30), 1.6 + rnd() * 1.6, 0);
   const tex = new THREE.CanvasTexture(canvas);
   tex.wrapS = THREE.RepeatWrapping;
   tex.wrapT = THREE.RepeatWrapping;
@@ -369,7 +369,8 @@ export class PortalGateway {
         stoneMat.emissiveIntensity = st.lava.intensity;
       }
     }
-    const sandMat = st.sand ? this.scanMaterial(st.sand, 0xffffff, 1.0, false) : null;
+    // The sand scan is a neutral grey; warm it to the dunes' colour.
+    const sandMat = st.sand ? this.scanMaterial(st.sand, 0xe9b98a, 1.0, false) : null;
     const snowMat = st.snow ? this.scanMaterial(st.snow, 0xffffff, 0.8, false) : null;
     let iceMat: THREE.MeshStandardMaterial | null = null;
     if (st.ice) {

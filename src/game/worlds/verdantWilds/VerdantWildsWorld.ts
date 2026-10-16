@@ -45,7 +45,15 @@ const TREE_MIN_ABS_X: Record<string, number> = {
   'slender-willow': 13.5, // also keeps trunks out of the 8.5..12.5 m ditch
   'ancient-snag': 14.0,
 };
-const TREE_X_SPREAD = 15.0;
+const TREE_X_SPREAD = 20.0;
+
+const _treeTint = new THREE.Color();
+/** Per-tree tint: brightness and a slight yellow-green / blue-green drift. */
+function treeTint(a: number, b: number): THREE.Color {
+  const k = 0.84 + a * 0.26;
+  const h = b * 2 - 1;
+  return _treeTint.setRGB(k * (1 + h * 0.06), k, k * (1 - h * 0.09));
+}
 
 interface VerdantKit {
   treeGeoms: Map<string, THREE.BufferGeometry>;
@@ -143,16 +151,22 @@ const KIT_STEPS: WarmTask[] = [
       roughness: 0.9,
       fade,
     });
-    K.crown = applyStreamFade(new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.88, metalness: 0, map: noise }), fade);
+    K.crown = applyStreamFade(
+      new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 1, metalness: 0, map: noise, envMapIntensity: 0.35 }),
+      fade
+    );
     const leafTex = getLeafClusterTexture();
     K.leafCards = applyStreamFade(
       new THREE.MeshStandardMaterial({
         color: 0xffffff,
         vertexColors: true,
         map: leafTex,
-        alphaTest: 0.45,
-        roughness: 0.78,
+        // Low cut-off: mipmapped alpha thins out with distance, so a high
+        // threshold would strip distant crowns down to their cores
+        alphaTest: 0.3,
+        roughness: 0.82,
         metalness: 0,
+        envMapIntensity: 0.55,
         visible: !!leafTex,
       }),
       fade
@@ -166,7 +180,16 @@ const KIT_STEPS: WarmTask[] = [
     );
     // Shallow, slightly tea-stained forest stream
     K.water = applyStreamFade(
-      new THREE.MeshPhysicalMaterial({ color: 0x26332a, roughness: 0.06, metalness: 0, ior: 1.33, transparent: true, opacity: 0.88 }),
+      // Dark, tannin-tinted water: mostly the forest and a dim sky reflected
+      new THREE.MeshPhysicalMaterial({
+        color: 0x141b12,
+        roughness: 0.3,
+        metalness: 0,
+        ior: 1.33,
+        transparent: true,
+        opacity: 0.94,
+        envMapIntensity: 0.22,
+      }),
       fade
     );
   },
@@ -228,11 +251,11 @@ export class VerdantWildsWorld extends StreamedWorld {
       const g = k.treeGeoms.get(arch.id)!;
       this.treePools.set(
         arch.id,
-        this.addPool(new InstancePool(`verdant-tree-${arch.id}`, g, [k.bark.material, k.crown, k.leafCards], 48, { castShadow: true }))
+        this.addPool(new InstancePool(`verdant-tree-${arch.id}`, g, [k.bark.material, k.crown, k.leafCards], 48, { castShadow: true, colors: true }))
       );
       this.farTreePools.set(
         arch.id,
-        this.addPool(new InstancePool(`verdant-tree-far-${arch.id}`, g, [k.bark.material, k.crown, k.leafCards], 40))
+        this.addPool(new InstancePool(`verdant-tree-far-${arch.id}`, g, [k.bark.material, k.crown, k.leafCards], 40, { colors: true }))
       );
     }
     this.shroomPool = this.addPool(new InstancePool('verdant-mushrooms', k.shrooms, k.shroomMat, 20, { castShadow: true }));
@@ -309,10 +332,13 @@ export class VerdantWildsWorld extends StreamedWorld {
       const zLocal = (rnd(t * 3 + 2) - 0.5) * 45.0;
       if (!this.inRange(centerZ + zLocal, 4)) continue;
       const scale = TREE_SCALE_MIN + rnd(t * 3 + 5) * (TREE_SCALE_MAX - TREE_SCALE_MIN);
+      // Taller-or-equal only (never lowers the crown toward the road corridor)
+      const sy = scale * (1 + rnd(t * 3 + 40) * 0.14);
       this.place(
         chunk,
         this.treePools.get(archId) ?? null,
-        trs(posX, this.groundUnder(posX, zLocal, 2.5 * scale) - 0.2, centerZ + zLocal, rnd(t * 3 + 4) * Math.PI * 2, scale)
+        trs(posX, this.groundUnder(posX, zLocal, 2.5 * scale) - 0.2, centerZ + zLocal, rnd(t * 3 + 4) * Math.PI * 2, scale, sy, scale),
+        treeTint(rnd(t * 3 + 41), rnd(t * 3 + 42))
       );
     }
 
@@ -326,10 +352,12 @@ export class VerdantWildsWorld extends StreamedWorld {
       const zLocal = (rnd(83 + t) - 0.5) * 56;
       if (!this.inRange(centerZ + zLocal, 4)) continue;
       const scale = 0.9 + rnd(84 + t) * 0.45;
+      const sy = scale * (1 + rnd(86 + t) * 0.18);
       this.place(
         chunk,
         this.farTreePools.get(archId) ?? null,
-        trs(posX, this.groundUnder(posX, zLocal, 2.5 * scale) - 0.3, centerZ + zLocal, rnd(85 + t) * Math.PI * 2, scale)
+        trs(posX, this.groundUnder(posX, zLocal, 2.5 * scale) - 0.3, centerZ + zLocal, rnd(85 + t) * Math.PI * 2, scale, sy, scale),
+        treeTint(rnd(87 + t), rnd(88 + t))
       );
     }
 

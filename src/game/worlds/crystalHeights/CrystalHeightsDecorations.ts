@@ -90,20 +90,32 @@ export function buildSpruceGeometries(only?: number): THREE.BufferGeometry[] {
   ];
   return variants.flatMap((v, k) => {
     if (only !== undefined && only !== k) return [];
-    const trunk = new THREE.CylinderGeometry(0.14, 0.32, 8.4, 8);
+    return [buildSpruceVariant(101 + k * 37, v.h, v.r, v.snow)];
+  });
+}
+
+/**
+ * One spruce (groups: 0 = trunk, 1 = vertex-coloured crown). `snow` 0 gives a
+ * plain green conifer. Trunk height follows the crown.
+ */
+export function buildSpruceVariant(seed: number, h: number, r: number, snow: number): THREE.BufferGeometry {
+  {
+    const v = { h, r, snow };
+    const trunkH = h * 0.91;
+    const trunk = new THREE.CylinderGeometry(0.14 * (h / 9.2), 0.32 * (h / 9.2), trunkH, 8);
     const uv = trunk.getAttribute('uv') as THREE.BufferAttribute;
     for (let i = 0; i < uv.count; i++) uv.setXY(i, uv.getX(i) * 2, uv.getY(i) * 7);
-    trunk.translate(0, 4.2, 0);
+    trunk.translate(0, trunkH * 0.5, 0);
     const t = nonIndexed(trunk);
     const white = new Float32Array(t.getAttribute('position').count * 3).fill(1);
     t.setAttribute('color', new THREE.BufferAttribute(white, 3));
-    const crown = nonIndexed(createConiferCrownGeometry(101 + k * 37, { height: v.h, maxRadius: v.r, snow: v.snow }));
+    const crown = nonIndexed(createConiferCrownGeometry(seed, { height: v.h, maxRadius: v.r, snow: v.snow }));
     crown.setAttribute('uv', new THREE.BufferAttribute(new Float32Array(crown.getAttribute('position').count * 2), 2));
     const merged = mergeGeometries([t, crown], true)!;
     t.dispose();
     crown.dispose();
     trunk.dispose();
     merged.computeBoundingSphere();
-    return [merged];
-  });
+    return merged;
+  }
 }
